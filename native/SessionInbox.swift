@@ -94,8 +94,12 @@ extension Notification.Name {
     }
     var unreadCount: Int { rows.filter(\.unread).count }
     var filtered: [InboxRow] {
-        rows.filter { (showAll || $0.unread) && (query.isEmpty ||
-            ($0.title + " " + $0.project + " " + $0.provider).localizedCaseInsensitiveContains(query)) }.sorted {
+        rows.filter { row in
+            // 已退出且原会话入口不可用的行没有可执行的后续，直接不展示。
+            guard !(row.state == "closed" && !row.openAvailable) else { return false }
+            return (showAll || row.unread) && (query.isEmpty ||
+                (row.title + " " + row.project + " " + row.provider).localizedCaseInsensitiveContains(query))
+        }.sorted {
             if !showAll {
                 let rank: (InboxRow) -> Int = { $0.state == "waiting" ? 0 : ($0.state == "failed" ? 1 : 2) }
                 if rank($0) != rank($1) { return rank($0) < rank($1) }
@@ -258,8 +262,8 @@ extension Notification.Name {
 
 func agentIcon(_ id: String) -> NSImage {
     let size = NSSize(width: 16, height: 16)
-    // 有桌面 App 的 CLI 用应用图标；Pi/Kimi/Codex 用包内官方图标；缺失时画品牌色字符兜底。
-    let bundleIds = ["claude": "com.anthropic.claudefordesktop"]
+    // 有桌面 App 的来源用应用图标；CLI 用官方图标；缺失时画品牌色字符兜底。
+    let bundleIds = ["claude": "com.anthropic.claudefordesktop", "zcode": "dev.zcode.app"]
     if let bundleId = bundleIds[id], let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         icon.size = size
@@ -287,7 +291,8 @@ func agentIcon(_ id: String) -> NSImage {
     }
     let glyphs = ["pi": ("π", NSColor(srgbRed: 0.42, green: 0.48, blue: 0.55, alpha: 1)),
                   "kimi": ("K", NSColor(srgbRed: 0.30, green: 0.43, blue: 0.96, alpha: 1)),
-                  "codex": (">_", NSColor(srgbRed: 0.35, green: 0.45, blue: 0.95, alpha: 1))]
+                  "codex": (">_", NSColor(srgbRed: 0.35, green: 0.45, blue: 0.95, alpha: 1)),
+                  "zcode": ("Z", NSColor(srgbRed: 0.22, green: 0.25, blue: 0.30, alpha: 1))]
     let (glyph, color) = glyphs[id] ?? ("?", NSColor.systemGray)
     let image = NSImage(size: size)
     image.lockFocus()
@@ -316,17 +321,6 @@ func stateColor(_ state: String) -> Color {
     case "failed": return .red
     case "running": return .blue
     case "idle": return .green
-    default: return .secondary
-    }
-}
-// 取各家官方图标的主色，用于列表里的 agent 名称。
-func providerColor(_ provider: String) -> Color {
-    switch provider {
-    case "claude": return Color(red: 0.85, green: 0.47, blue: 0.34)
-    case "codex": return Color(red: 0.31, green: 0.42, blue: 0.93)
-    case "kimi": return Color(red: 0.17, green: 0.32, blue: 0.82)
-    case "pi": return Color(red: 0.33, green: 0.42, blue: 0.47)
-    case "zcode": return Color(red: 0.22, green: 0.25, blue: 0.30)
     default: return .secondary
     }
 }
@@ -455,9 +449,10 @@ struct InboxRowView: View {
                 }
             }
             HStack(spacing: 6) {
-                Text(providerName(row.provider))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(providerColor(row.provider))
+                Image(nsImage: agentIcon(row.provider))
+                    .resizable()
+                    .frame(width: 13, height: 13)
+                    .help(providerName(row.provider))
                 Text(stateName(row.state)).font(.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
                 if max(row.activityAt ?? 0, row.eventAt) > 0 {
