@@ -127,17 +127,59 @@ def collect_zcode(store, home):
         return {'status': 'unavailable', 'reason': 'task index missing'}
     connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
     try:
-        rows = connection.execute('SELECT task_id,title,workspace_path,task_status,unread_at,updated_at,archived,deleted FROM tasks').fetchall()
+        rows = connection.execute('SELECT task_id,title,workspace_path,task_status,unread_at,updated_at,archived,deleted,last_unread_at FROM tasks').fetchall()
     finally:
         connection.close()
-    for sid, title, project, status, unread, updated, archived, deleted in rows:
+    latest_turns = {}
+    runtime = home / '.zcode/cli/db/db.sqlite'
+    turn_source_error = None
+    if runtime.exists():
+        connection = sqlite3.connect(runtime.as_uri() + '?mode=ro', uri=True)
+        try:
+            for turn in connection.execute('SELECT session_id,turn_id,status,started_at,completed_at FROM turn_usage ORDER BY started_at,turn_id'):
+                latest_turns[turn[0]] = turn
+        except sqlite3.Error:
+            turn_source_error = 'turn_usage schema unavailable'
+        finally:
+            connection.close()
+    else:
+        turn_source_error = 'turn_usage database missing'
+    baseline = store.meta('started_at')
+    matched = 0
+    for sid, title, project, status, unread, updated, archived, deleted, last_unread in rows:
         store.patch('zcode', sid, title=str(title or sid)[:300], project=project or '',
                     hidden=bool(archived or deleted), locator={'kind': 'zcode', 'task_id': sid})
-        signature = hashlib.sha256(json.dumps([sid, status, unread, updated]).encode()).hexdigest()
         state = {'completed': 'idle', 'error': 'failed', 'running': 'running', 'waiting': 'waiting'}.get(status, 'unknown')
-        store.event('zcode', sid, event_id='zcode:' + signature, timestamp=seconds(updated),
-                    state=state, attention=bool(unread), token=str(unread) if unread else None)
-    return {'status': 'ok', 'sessions': len(rows), 'note': 'Version-specific state snapshots'}
+        if sid in latest_turns:
+            matched += 1
+            # v1 used task updated_at as the event clock, which also advances on
+            # renames/views. Switch clocks once so real completion is not hidden.
+            with store.db() as db:
+                migrated = db.execute('INSERT OR IGNORE INTO metadata VALUES (?,?)', ('zcode-turn-clock:' + sid, 'true')).rowcount
+                if migrated:
+                    db.execute("UPDATE sessions SET event_at=0,revision=revision+1 WHERE provider='zcode' AND session_id=?", (sid,))
+            _, turn_id, turn_status, started, completed = latest_turns[sid]
+            start = seconds(started)
+            store.event('zcode', sid, event_id=f'zcode-turn-start:{sid}:{turn_id}', timestamp=start,
+                        state='running', attention=False if start >= baseline else None)
+            if completed is not None and turn_status in ('completed', 'error', 'cancelled'):
+                end = seconds(completed)
+                final_state = {'completed': 'idle', 'error': 'failed', 'cancelled': 'interrupted'}[turn_status]
+                attention = (turn_status != 'cancelled') if end >= baseline else None
+                store.event('zcode', sid, event_id=f'zcode-turn-end:{sid}:{turn_id}:{turn_status}:{completed}',
+                            timestamp=end, state=final_state, attention=attention, token=f'{turn_id}:{turn_status}')
+        else:
+            signature = hashlib.sha256(json.dumps([sid, status, updated]).encode()).hexdigest()
+            store.event('zcode', sid, event_id='zcode-snapshot-v2:' + signature, timestamp=seconds(updated),
+                        state=state, attention=None)
+        # Native unread markers supplement real turn events; clearing a blue dot
+        # must not clear this inbox's independently acknowledged attention state.
+        marker = max(seconds(unread), seconds(last_unread))
+        if marker and (unread or marker >= baseline):
+            store.event('zcode', sid, event_id=f'zcode-unread:{sid}:{marker}', timestamp=marker,
+                        state=state, attention=True, token=f'native-unread:{marker}')
+    return {'status': 'degraded' if turn_source_error else 'ok', 'sessions': len(rows),
+            'turn_sessions': matched, 'note': turn_source_error or 'Real turn lifecycle with independent inbox acknowledgement'}
 
 
 def refresh(store, home=None):
