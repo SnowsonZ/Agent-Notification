@@ -29,13 +29,23 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-           let id = response.notification.request.content.userInfo["item_id"] as? String,
-           let revision = response.notification.request.content.userInfo["revision"] as? Int {
-            UserDefaults.standard.set(["id": id, "revision": revision], forKey: "pendingNotificationOpen")
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            Task { @MainActor in
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
+                    window.makeKeyAndOrderFront(nil)
+                }
+                // Window 已被关闭时 SwiftUI 已释放它，只能经 openWindow 重建；
+                // 常驻的菜单栏图标视图监听该事件并调用 openWindow(id: "inbox")。
+                NotificationCenter.default.post(name: .reopenInbox, object: nil)
+            }
         }
         completionHandler()
     }
+}
+
+extension Notification.Name {
+    static let reopenInbox = Notification.Name("SessionInboxReopenInbox")
 }
 
 @MainActor final class InboxModel: ObservableObject {
@@ -176,11 +186,6 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
                     if let count = info.errors, count > 0 { return "\(providerName(name))：\(count) 个历史记录暂未接入" }
                     return "\(providerName(name))：来源暂不可用"
                 }.sorted()
-                if let pending = UserDefaults.standard.dictionary(forKey: "pendingNotificationOpen"),
-                   let id = pending["id"] as? String, let revision = pending["revision"] as? Int, !opening {
-                    UserDefaults.standard.removeObject(forKey: "pendingNotificationOpen")
-                    action(["open", id, "--revision", String(revision)], isOpen: true)
-                }
             } catch { self.error = "列表读取失败：" + error.localizedDescription }
         }
     }
@@ -325,6 +330,18 @@ struct TrayMenu: View {
     }
 }
 
+struct TrayIcon: View {
+    @ObservedObject var model: InboxModel
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Label(model.unreadCount > 0 ? String(model.unreadCount) : "", systemImage: "tray.full")
+            .onReceive(NotificationCenter.default.publisher(for: .reopenInbox)) { _ in
+                openWindow(id: "inbox")
+                NSApplication.shared.activate()
+            }
+    }
+}
+
 @main struct SessionInboxApp: App {
     @NSApplicationDelegateAdaptor(InboxAppDelegate.self) var appDelegate
     @StateObject private var model = InboxModel()
@@ -334,7 +351,7 @@ struct TrayMenu: View {
         MenuBarExtra {
             TrayMenu(model: model)
         } label: {
-            Label(model.unreadCount > 0 ? String(model.unreadCount) : "", systemImage: "tray.full")
+            TrayIcon(model: model)
         }
     }
 }

@@ -20,8 +20,8 @@ subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-
 (contents / 'Info.plist').write_bytes(plistlib.dumps({
     'CFBundleExecutable': 'SessionInbox', 'CFBundleIdentifier': 'local.snowson.session-manager',
     'CFBundleName': 'Agent 会话', 'CFBundleDisplayName': 'Agent 会话',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.2.0',
-    'CFBundleVersion': '2', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.2.1',
+    'CFBundleVersion': '3', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
     'NSHighResolutionCapable': True, 'SessionManagerRoot': str(root),
     'NSAppleEventsUsageDescription': '用于定位 iTerm2 中已有的 agent 会话，不向终端输入命令。',
 }))
