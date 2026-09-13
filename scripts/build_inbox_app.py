@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import plistlib
+import shutil
 import subprocess
 
 root = Path(__file__).resolve().parents[1]
@@ -10,6 +11,8 @@ if str(contents / 'MacOS/SessionInbox') in [line.strip() for line in running]:
     raise SystemExit('Quit Agent 会话 before rebuilding its executable.')
 (contents / 'MacOS').mkdir(parents=True, exist_ok=True)
 (contents / 'Resources').mkdir(parents=True, exist_ok=True)
+for icon in sorted((root / 'native/agent-icons').iterdir()):
+    shutil.copy2(icon, contents / 'Resources' / icon.name)
 generator = root / 'build/generate-app-icon'
 subprocess.run(['xcrun', 'swiftc', str(root / 'native/GenerateAppIcon.swift'), '-o', str(generator)], check=True)
 iconset = root / 'build/AppIcon.iconset'
@@ -20,8 +23,8 @@ subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-
 (contents / 'Info.plist').write_bytes(plistlib.dumps({
     'CFBundleExecutable': 'SessionInbox', 'CFBundleIdentifier': 'local.snowson.session-manager',
     'CFBundleName': 'Agent 会话', 'CFBundleDisplayName': 'Agent 会话',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.3.0',
-    'CFBundleVersion': '5', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.3.1',
+    'CFBundleVersion': '6', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
     'NSHighResolutionCapable': True, 'SessionManagerRoot': str(root),
     'NSAppleEventsUsageDescription': '用于定位 iTerm2 中已有的 agent 会话，不向终端输入命令。',
 }))

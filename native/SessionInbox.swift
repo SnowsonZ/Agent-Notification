@@ -250,8 +250,55 @@ extension Notification.Name {
     }
 }
 
-func stateName(_ state: String) -> String {
-    ["running": "运行中", "waiting": "等待输入", "idle": "本轮已结束", "failed": "发生错误",
+func agentIcon(_ id: String) -> NSImage {
+    let size = NSSize(width: 16, height: 16)
+    // 有桌面 App 的 CLI 用应用图标；Pi/Kimi/Codex 用包内官方图标；缺失时画品牌色字符兜底。
+    let bundleIds = ["claude": "com.anthropic.claudefordesktop"]
+    if let bundleId = bundleIds[id], let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        icon.size = size
+        return icon
+    }
+    // Codex 桌面内嵌在 ChatGPT.app 的 Framework 里，icon 资源随包路径带版本号，
+    // 因此把官方 logo 收进 agent-icons 随本 App 打包。
+    let official: [String: (ext: String, fallbackPath: String)] = [
+        "pi": ("svg", "native/agent-icons/pi.svg"),
+        "kimi": ("ico", "/opt/homebrew/lib/node_modules/@moonshot-ai/kimi-code/dist-web/favicon.ico"),
+        "codex": ("png", "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/Current/Resources/product_logo_32.png"),
+    ]
+    if let entry = official[id] {
+        var urls = [Bundle.main.url(forResource: id, withExtension: entry.ext)].compactMap { $0 }
+        if let root = Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String {
+            urls.append(URL(fileURLWithPath: root + "/" + entry.fallbackPath))
+        }
+        urls.append(URL(fileURLWithPath: entry.fallbackPath))
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            if let icon = NSImage(contentsOf: url) {
+                icon.size = size
+                return icon
+            }
+        }
+    }
+    let glyphs = ["pi": ("π", NSColor(srgbRed: 0.42, green: 0.48, blue: 0.55, alpha: 1)),
+                  "kimi": ("K", NSColor(srgbRed: 0.30, green: 0.43, blue: 0.96, alpha: 1)),
+                  "codex": (">_", NSColor(srgbRed: 0.35, green: 0.45, blue: 0.95, alpha: 1))]
+    let (glyph, color) = glyphs[id] ?? ("?", NSColor.systemGray)
+    let image = NSImage(size: size)
+    image.lockFocus()
+    let rect = NSRect(origin: .zero, size: size)
+    color.setFill()
+    NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+    let text = NSAttributedString(string: glyph, attributes: [
+        .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+        .foregroundColor: NSColor.white,
+    ])
+    let bounds = text.boundingRect(with: size, options: [.usesLineFragmentOrigin])
+    text.draw(at: NSPoint(x: (size.width - bounds.width) / 2, y: (size.height - bounds.height) / 2))
+    image.unlockFocus()
+    return image
+}
+
+func stateName(_ state: String) -> String {    ["running": "运行中", "waiting": "等待输入", "idle": "本轮已结束", "failed": "发生错误",
      "interrupted": "已中断", "closed": "已退出", "unknown": "状态待确认"][state] ?? state
 }
 func providerName(_ provider: String) -> String {
@@ -284,15 +331,19 @@ struct InboxView: View {
                     .help("刷新").disabled(model.loading)
             }
             if !model.agents.isEmpty {
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     Text("新建会话").font(.caption).foregroundStyle(.secondary)
                     ForEach(model.agents) { agent in
                         Button {
                             model.launch(agent)
                         } label: {
-                            Label(agent.name, systemImage: "terminal")
-                        }.disabled(!agent.iterm)
-                            .help(agent.iterm ? "选择目录并在 iTerm2 新标签中启动 \(agent.name)" : "未检测到 iTerm2，无法在此启动")
+                            Image(nsImage: agentIcon(agent.id))
+                                .resizable()
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!agent.iterm)
+                        .help(agent.iterm ? "选择目录并在 iTerm2 新标签中启动 \(agent.name)" : "未检测到 iTerm2，无法在此启动")
                     }
                     Spacer()
                 }
