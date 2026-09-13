@@ -73,6 +73,7 @@ extension Notification.Name {
     @Published var agents: [AgentEntry] = []
     private var notificationSeen = UserDefaults.standard.dictionary(forKey: "notificationSeen") as? [String: String] ?? [:]
     private var lastLaunchDirectory = UserDefaults.standard.string(forKey: "lastLaunchDirectory")
+    private var loadingAgents = false
     private var initialNotificationSnapshot = true
     private var notificationInFlight = Set<String>()
     private var notificationRetry: [String: Date] = [:]
@@ -113,9 +114,12 @@ extension Notification.Name {
         if notificationsEnabled { checkNotificationPermission() }
     }
     func loadAgents() {
+        guard !loadingAgents else { return }
+        loadingAgents = true
         let directory = root
         Task {
             let result = await Task.detached { Self.call(root: directory, arguments: ["agents"]) }.value
+            loadingAgents = false
             guard result.0 == 0 else { return }
             let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
             if let list = try? decoder.decode(AgentList.self, from: result.1) {
@@ -217,6 +221,7 @@ extension Notification.Name {
                 let payload = try decoder.decode(Envelope.self, from: result.1)
                 rows = payload.sessions
                 page = max(0, min(page, totalPages - 1))
+                if agents.isEmpty { loadAgents() } // 启动时检测偶发失败会在后续刷新里自动补试。
                 notifyNewItems(rows)
                 degraded = (payload.health?.sources ?? [:]).filter { $0.value.status != "ok" }.map { name, info in
                     if let count = info.errors, count > 0 { return "\(providerName(name))：\(count) 个历史记录暂未接入" }
