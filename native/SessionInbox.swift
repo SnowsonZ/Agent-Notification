@@ -331,7 +331,7 @@ struct InboxView: View {
                     .help("刷新").disabled(model.loading)
             }
             if !model.agents.isEmpty {
-                HStack(spacing: 12) {
+                HStack(spacing: 16) {
                     Text("新建会话").font(.caption).foregroundStyle(.secondary)
                     ForEach(model.agents) { agent in
                         Button {
@@ -339,7 +339,7 @@ struct InboxView: View {
                         } label: {
                             Image(nsImage: agentIcon(agent.id))
                                 .resizable()
-                                .frame(width: 20, height: 20)
+                                .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
                         .disabled(!agent.iterm)
