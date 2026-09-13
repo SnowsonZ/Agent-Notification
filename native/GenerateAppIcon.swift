@@ -40,26 +40,29 @@ func render(_ pixels: Int) -> Data {
     let bodyBottom = dark ? NSColor(srgbRed: 0.69, green: 0.70, blue: 0.75, alpha: 1)
                           : NSColor(srgbRed: 0.22, green: 0.25, blue: 0.31, alpha: 1)
 
-    // Antenna ball and stem above the head.
+    // A broad, friendly agent silhouette remains legible at Dock and Finder sizes.
     bodyBottom.setFill()
-    NSBezierPath(ovalIn: NSRect(x: 460, y: 804, width: 72, height: 72)).fill()
-    squircle(NSRect(x: 480, y: 676, width: 32, height: 150), 16).fill()
-
-    // Head.
-    let head = squircle(NSRect(x: 272, y: 296, width: 440, height: 400), 120)
+    squircle(NSRect(x: 470, y: 690, width: 44, height: 94), 22).fill()
+    NSBezierPath(ovalIn: NSRect(x: 454, y: 762, width: 76, height: 76)).fill()
+    squircle(NSRect(x: 190, y: 408, width: 72, height: 152), 36).fill()
+    squircle(NSRect(x: 734, y: 408, width: 72, height: 152), 36).fill()
+    let head = squircle(NSRect(x: 236, y: 250, width: 524, height: 460), 144)
     NSGradient(starting: bodyTop, ending: bodyBottom)!.draw(in: head, angle: 270)
+    let face = squircle(NSRect(x: 294, y: 340, width: 408, height: 272), 90)
+    (dark ? NSColor(srgbRed: 0.17, green: 0.19, blue: 0.23, alpha: 1)
+          : NSColor(srgbRed: 0.94, green: 0.97, blue: 1, alpha: 1)).setFill()
+    face.fill()
+    (dark ? NSColor.white : bodyBottom).setFill()
+    squircle(NSRect(x: 372, y: 432, width: 48, height: 100), 24).fill()
+    squircle(NSRect(x: 576, y: 432, width: 48, height: 100), 24).fill()
 
-    // Eyes.
-    (dark ? NSColor(srgbRed: 0.16, green: 0.16, blue: 0.18, alpha: 1) : NSColor.white).setFill()
-    squircle(NSRect(x: 342, y: 430, width: 56, height: 150), 28).fill()
-    squircle(NSRect(x: 586, y: 430, width: 56, height: 150), 28).fill()
-
-    // Orange notification dot pinned to the agent's top-right, white ring for separation.
-    NSColor.white.setFill()
-    NSBezierPath(ovalIn: NSRect(x: 712 - 132, y: 696 - 132, width: 264, height: 264)).fill()
-    NSGradient(starting: NSColor(srgbRed: 1.00, green: 0.66, blue: 0.33, alpha: 1),
-               ending: NSColor(srgbRed: 0.96, green: 0.45, blue: 0.05, alpha: 1))!
-        .draw(in: NSBezierPath(ovalIn: NSRect(x: 712 - 104, y: 696 - 104, width: 208, height: 208)), angle: 270)
+    // Notification badge overlaps the upper-right corner of the agent, not the tile.
+    (dark ? NSColor(srgbRed: 0.20, green: 0.20, blue: 0.23, alpha: 1)
+          : NSColor(srgbRed: 0.96, green: 0.96, blue: 0.98, alpha: 1)).setFill()
+    NSBezierPath(ovalIn: NSRect(x: 641, y: 601, width: 218, height: 218)).fill()
+    NSGradient(starting: NSColor(srgbRed: 1, green: 0.66, blue: 0.20, alpha: 1),
+               ending: NSColor(srgbRed: 1, green: 0.43, blue: 0.06, alpha: 1))!
+        .draw(in: NSBezierPath(ovalIn: NSRect(x: 660, y: 620, width: 180, height: 180)), angle: 270)
 
     NSGraphicsContext.restoreGraphicsState()
     return bitmap.representation(using: .png, properties: [:])!

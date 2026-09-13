@@ -8,7 +8,7 @@ root = Path(__file__).resolve().parents[1]
 contents = root / 'build/SessionInbox.app/Contents'
 running = subprocess.run(['/bin/ps', '-axo', 'comm='], capture_output=True, text=True, check=True).stdout.splitlines()
 if str(contents / 'MacOS/SessionInbox') in [line.strip() for line in running]:
-    raise SystemExit('Quit Agent 会话 before rebuilding its executable.')
+    raise SystemExit('Quit 会话通知 before rebuilding its executable.')
 (contents / 'MacOS').mkdir(parents=True, exist_ok=True)
 (contents / 'Resources').mkdir(parents=True, exist_ok=True)
 for icon in sorted((root / 'native/agent-icons').iterdir()):
@@ -25,12 +25,16 @@ subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-
                 str(root / 'native/InboxPolicy.swift'), str(root / 'native/SessionInbox.swift'), '-o', str(contents / 'MacOS/SessionInbox')], check=True)
 (contents / 'Info.plist').write_bytes(plistlib.dumps({
     'CFBundleExecutable': 'SessionInbox', 'CFBundleIdentifier': 'local.snowson.session-manager',
-    'CFBundleName': 'Agent 会话', 'CFBundleDisplayName': 'Agent 会话',
+    'CFBundleName': '会话通知', 'CFBundleDisplayName': '会话通知',
     'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.5.0',
-    'CFBundleVersion': '10', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
+    'CFBundleVersion': '11', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
     'NSHighResolutionCapable': True, 'SessionManagerRoot': str(root),
     'NSAppleEventsUsageDescription': '用于定位 iTerm2 中已有的 agent 会话，不向终端输入命令。',
 }))
 subprocess.run(['codesign', '--force', '--sign', '-', str(contents.parent)], check=True)
 subprocess.run(['codesign', '--verify', '--deep', '--strict', str(contents.parent)], check=True)
+# Refresh this bundle's metadata after in-place builds (name and icon changes).
+contents.parent.touch()
+subprocess.run(['/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+                '-f', str(contents.parent)], check=True)
 print(contents.parent)

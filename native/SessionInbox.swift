@@ -31,6 +31,13 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
         applyAppearanceIcon()
+        // Apply the compact default once; later user resizing remains persistent.
+        if !UserDefaults.standard.bool(forKey: "compactWindowV1") {
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "inbox" }) {
+                window.setContentSize(NSSize(width: 400, height: 620))
+                UserDefaults.standard.set(true, forKey: "compactWindowV1")
+            }
+        }
         DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
                                                             object: nil, queue: .main) { [weak self] _ in
             self?.applyAppearanceIcon()
@@ -170,7 +177,7 @@ extension Notification.Name {
                 do {
                     let granted = try await center.requestAuthorization(options: [.alert, .sound])
                     notificationsAllowed = granted
-                    notificationStatus = granted ? "通知已开启" : "请在系统设置 → 通知中允许 Agent 会话"
+                    notificationStatus = granted ? "通知已开启" : "请在系统设置 → 通知中允许 会话通知"
                 } catch {
                     let detail = error as NSError
                     notificationStatus = "通知授权请求失败（\(detail.domain) \(detail.code)）"
@@ -328,11 +335,13 @@ func providerName(_ provider: String) -> String {
 struct InboxView: View {
     @ObservedObject var model: InboxModel
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Agent 会话").font(.title3.weight(.semibold))
-                Text(model.unreadCount == 0 ? "暂无待处理" : "\(model.unreadCount) 条待处理")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("会话通知").font(.system(size: 24, weight: .bold))
+                    Text(model.unreadCount == 0 ? "暂无新通知" : "\(model.unreadCount) 条会话有新动态")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button { model.toggleNotifications() } label: {
                     Image(systemName: model.notificationsEnabled && model.notificationsAllowed ? "bell.badge.fill" : "bell.slash")
@@ -347,7 +356,7 @@ struct InboxView: View {
                 .help("刷新").disabled(model.loading)
             }
             if !model.agents.isEmpty {
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     Text("新建会话").font(.caption).foregroundStyle(.secondary)
                     ForEach(model.agents) { agent in
                         Button {
@@ -356,44 +365,48 @@ struct InboxView: View {
                             Image(nsImage: agentIcon(agent.id))
                                 .resizable()
                                 .frame(width: 24, height: 24)
+                                .frame(width: 36, height: 36)
+                                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
                         }
                         .buttonStyle(.plain)
                         .disabled(!agent.iterm)
+                        .accessibilityLabel("新建 \(agent.name) 会话")
                         .help(agent.iterm ? "选择目录并在 iTerm2 新标签中启动 \(agent.name)" : "未检测到 iTerm2，无法在此启动")
                     }
                     Spacer()
                 }
             }
-            HStack(spacing: 8) {
+            VStack(spacing: 10) {
                 Picker("显示范围", selection: $model.showAll) {
-                    Text("待处理").tag(false)
-                    Text("全部（\(model.rows.count)）").tag(true)
+                    Text("待查看（\(model.unreadCount)）").tag(false)
+                    Text("全部会话（\(model.rows.count)）").tag(true)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 180)
+                .labelsHidden()
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                    TextField("搜索", text: $model.query)
+                    TextField("搜索会话或项目", text: $model.query)
                         .textFieldStyle(.plain)
                 }
-                .padding(.horizontal, 8).padding(.vertical, 5)
+                .padding(.horizontal, 10).padding(.vertical, 8)
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.black.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.primary.opacity(0.06)))
             }
             if model.visible.isEmpty {
                 Spacer()
                 VStack(spacing: 10) {
                     Image(systemName: model.query.isEmpty ? "tray" : "magnifyingglass")
                         .font(.system(size: 30)).foregroundStyle(.tertiary)
-                    Text(model.query.isEmpty ? "暂无待处理会话" : "没有匹配的会话")
+                    Text(model.loading ? "正在加载会话…" : (!model.query.isEmpty ? "没有匹配的会话" : (model.showAll ? "还没有会话" : "暂无新通知")))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity)
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 2) {
+                    LazyVStack(spacing: 0) {
                         ForEach(model.visible) { row in
                             InboxRowView(model: model, row: row)
+                            Divider().padding(.leading, 54)
                         }
                         if model.showAll && model.page + 1 < model.totalPages {
                             HStack(spacing: 8) {
@@ -423,13 +436,29 @@ struct InboxView: View {
             if model.notificationsEnabled && !model.notificationsAllowed {
                 Text(model.notificationStatus).font(.caption).foregroundStyle(.secondary)
             }
-            Text("打开成功后自动标记已处理 · 期间的新回复会保留")
+            Text("打开会话后自动标记已读")
                 .font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(14)
-        .frame(minWidth: 430, idealWidth: 460, minHeight: 500, idealHeight: 640)
+        .padding(16)
+        .frame(minWidth: 360, idealWidth: 400, minHeight: 480, idealHeight: 620)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { model.refresh() }
+    }
+}
+
+struct InboxActionButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isEnabled ? Color.primary.opacity(0.75) : Color.secondary.opacity(0.4))
+            .background {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color.primary.opacity(isEnabled && configuration.isPressed ? 0.18 : 0.035))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .scaleEffect(isEnabled && configuration.isPressed ? 0.90 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -442,52 +471,59 @@ struct InboxRowView: View {
             // 亮色/暗色模式自动适配。
             Image(nsImage: agentIcon(row.provider))
                 .resizable()
-                .frame(width: 22, height: 22)
+                .frame(width: 30, height: 30)
                 .opacity(row.state == "closed" ? 0.45 : 1)
                 .overlay(alignment: .topTrailing) {
                     if row.unread {
                         Circle()
                             .fill(Color.orange)
-                            .frame(width: 8, height: 8)
+                            .frame(width: 9, height: 9)
                             .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
                             .offset(x: 3, y: -3)
                     }
                 }
                 .help(providerName(row.provider))
                 .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(row.title)
-                    .font(.system(size: 13, weight: row.unread ? .semibold : .regular))
-                    .lineLimit(1)
+                    .font(.system(size: 13, weight: row.unread ? .semibold : .medium))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(row.title)
                 HStack(spacing: 5) {
                     Text(stateName(row.state))
-                        .font(.caption)
                         .foregroundStyle(row.unread ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        .fixedSize()
                     if !row.project.isEmpty {
+                        Text("·").foregroundStyle(.tertiary)
                         Text((row.project as NSString).lastPathComponent)
-                            .font(.caption).foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                             .lineLimit(1).help(row.project)
                     }
-                }
-            }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 5) {
+                }.font(.system(size: 11))
                 if max(row.activityAt ?? 0, row.eventAt) > 0 {
                     Text(Date(timeIntervalSince1970: max(row.activityAt ?? 0, row.eventAt)), style: .relative)
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-                HStack(spacing: 6) {
-                    if row.unread {
-                        Button("已处理") { model.acknowledge(row) }.controlSize(.small)
-                    }
-                    Button("打开会话") { model.open(row) }
-                        .controlSize(.small)
-                        .disabled(!row.openAvailable || model.opening)
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
+            HStack(spacing: 4) {
+                if row.unread {
+                    Button { model.acknowledge(row) } label: {
+                        Image(systemName: "checkmark.circle").frame(width: 28, height: 30)
+                    }
+                    .help("标记已读").accessibilityLabel("标记已读")
+                }
+                Button { model.open(row) } label: {
+                    Image(systemName: "arrow.up.forward.app").frame(width: 28, height: 30)
+                }
+                .help("前往会话").accessibilityLabel("前往会话")
+                .disabled(!row.openAvailable || model.opening)
+            }
+            .font(.system(size: 15)).foregroundStyle(.secondary)
+            .buttonStyle(InboxActionButtonStyle())
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(Color.primary.opacity(0.001), in: RoundedRectangle(cornerRadius: 7))
+        .padding(.horizontal, 4).padding(.vertical, 12)
+        .background(row.unread ? Color.orange.opacity(0.045) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         .onAppear { model.loadMoreIfNeeded(for: row) }
     }
 }
@@ -496,7 +532,7 @@ struct TrayMenu: View {
     @ObservedObject var model: InboxModel
     @Environment(\.openWindow) var openWindow
     var body: some View {
-        Button("打开会话列表（\(model.unreadCount) 条待处理）") {
+        Button("查看会话通知（\(model.unreadCount) 条待查看）") {
             openWindow(id: "inbox")
             NSApplication.shared.activate()
         }
@@ -524,8 +560,9 @@ struct TrayIcon: View {
     var body: some Scene {
         // Window（而非 WindowGroup）：收件箱只允许一个实例，openWindow 聚焦已有窗口；
         // WindowGroup 的 openWindow 每次调用都会新建窗口。
-        Window("Agent 会话", id: "inbox") { InboxView(model: model) }
-            .defaultSize(width: 540, height: 680)
+        Window("会话通知", id: "inbox") { InboxView(model: model) }
+            .defaultSize(width: 400, height: 620)
+            .windowResizability(.contentMinSize)
         MenuBarExtra {
             TrayMenu(model: model)
         } label: {
