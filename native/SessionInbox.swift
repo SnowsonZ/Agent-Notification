@@ -106,7 +106,13 @@ extension Notification.Name {
     var totalPages: Int { inboxPageCount(total: filtered.count, size: pageSize) }
     var visible: [InboxRow] {
         let values = filtered
-        return showAll ? Array(values[inboxPageRange(total: values.count, page: page, size: pageSize)]) : values
+        guard showAll else { return values }
+        // 懒加载：随滚动逐步放开已加载的行，到底自动追加下一页。
+        return Array(values.prefix(min((page + 1) * pageSize, values.count)))
+    }
+    func loadMoreIfNeeded(for row: InboxRow) {
+        guard showAll, page + 1 < totalPages, row.id == visible.last?.id else { return }
+        page += 1
     }
     func toggleNotifications() {
         notificationsEnabled.toggle()
@@ -313,22 +319,38 @@ func stateColor(_ state: String) -> Color {
     default: return .secondary
     }
 }
+// 取各家官方图标的主色，用于列表里的 agent 名称。
+func providerColor(_ provider: String) -> Color {
+    switch provider {
+    case "claude": return Color(red: 0.85, green: 0.47, blue: 0.34)
+    case "codex": return Color(red: 0.31, green: 0.42, blue: 0.93)
+    case "kimi": return Color(red: 0.17, green: 0.32, blue: 0.82)
+    case "pi": return Color(red: 0.33, green: 0.42, blue: 0.47)
+    case "zcode": return Color(red: 0.22, green: 0.25, blue: 0.30)
+    default: return .secondary
+    }
+}
 
 struct InboxView: View {
     @ObservedObject var model: InboxModel
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Agent 会话").font(.title2.bold())
-                    Text(model.unreadCount == 0 ? "暂时没有待处理事项" : "\(model.unreadCount) 条待处理事项").foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Agent 会话").font(.title3.weight(.semibold))
+                Text(model.unreadCount == 0 ? "暂无待处理" : "\(model.unreadCount) 条待处理")
+                    .font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
                 Button { model.toggleNotifications() } label: {
                     Image(systemName: model.notificationsEnabled && model.notificationsAllowed ? "bell.badge.fill" : "bell.slash")
-                }.help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
-                Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                    .help("刷新").disabled(model.loading)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
+                Button { model.refresh() } label: {
+                    Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("刷新").disabled(model.loading)
             }
             if !model.agents.isEmpty {
                 HStack(spacing: 16) {
@@ -348,65 +370,58 @@ struct InboxView: View {
                     Spacer()
                 }
             }
-            Picker("显示范围", selection: $model.showAll) {
-                Text("待处理").tag(false)
-                Text("全部会话（\(model.rows.count)）").tag(true)
-            }.pickerStyle(.segmented)
-            TextField("搜索任务、项目或 agent", text: $model.query).textFieldStyle(.roundedBorder)
+            HStack(spacing: 8) {
+                Picker("显示范围", selection: $model.showAll) {
+                    Text("待处理").tag(false)
+                    Text("全部（\(model.rows.count)）").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
+                    TextField("搜索任务、项目或 agent", text: $model.query)
+                        .textFieldStyle(.plain)
+                }
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.black.opacity(0.08)))
+            }
             if model.visible.isEmpty {
                 Spacer()
                 VStack(spacing: 10) {
-                    Image(systemName: "tray").font(.system(size: 32)).foregroundStyle(.secondary)
-                    Text(model.query.isEmpty ? "新回复和需要输入的会话会出现在这里" : "没有匹配的会话").foregroundStyle(.secondary)
+                    Image(systemName: model.query.isEmpty ? "tray" : "magnifyingglass")
+                        .font(.system(size: 30)).foregroundStyle(.tertiary)
+                    Text(model.query.isEmpty ? "新回复和需要输入的会话会出现在这里" : "没有匹配的会话")
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity)
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 8) {
                         ForEach(model.visible) { row in
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(alignment: .top) {
-                                    Circle().fill(stateColor(row.state)).frame(width: 8, height: 8).padding(.top, 5)
-                                    Text(row.title).font(.headline).lineLimit(2)
-                                    Spacer(minLength: 0)
-                                    if row.unread { Text("待处理").font(.caption).foregroundStyle(.orange) }
-                                }
-                                HStack(spacing: 8) {
-                                    Text(providerName(row.provider)).fontWeight(.medium)
-                                    Text(stateName(row.state))
-                                    Spacer()
-                                    if max(row.activityAt ?? 0, row.eventAt) > 0 { Text(Date(timeIntervalSince1970: max(row.activityAt ?? 0, row.eventAt)), style: .relative) }
-                                }.font(.caption).foregroundStyle(.secondary)
-                                if !row.project.isEmpty {
-                                    Text((row.project as NSString).lastPathComponent).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(row.project)
-                                }
-                                HStack {
-                                    if !row.openAvailable { Text("原会话入口暂不可用").font(.caption).foregroundStyle(.secondary) }
-                                    Spacer()
-                                    if row.unread { Button("已处理") { model.acknowledge(row) } }
-                                    Button("打开会话") { model.open(row) }.disabled(!row.openAvailable || model.opening)
-                                }
-                            }.padding(12).background(.background, in: RoundedRectangle(cornerRadius: 10))
+                            InboxRowView(model: model, row: row)
+                        }
+                        if model.showAll && model.page + 1 < model.totalPages {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("继续加载").font(.caption2).foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 6)
+                            .onAppear { model.page += 1 }
                         }
                     }.padding(1)
                 }
             }
-            if model.showAll {
-                HStack {
-                    Button("上一页") { model.page = max(0, model.page - 1) }.disabled(model.page == 0)
-                    Spacer()
-                    Text("第 \(model.page + 1) / \(model.totalPages) 页 · 共 \(model.filtered.count) 个")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("下一页") { model.page = min(model.totalPages - 1, model.page + 1) }.disabled(model.page + 1 >= model.totalPages)
-                }
-            }
             if let error = model.error {
-                HStack(alignment: .top) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
                     Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
                     Spacer()
-                    Button { model.error = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
+                    Button { model.error = nil } label: { Image(systemName: "xmark").font(.caption2) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
                 }
+                .padding(10)
+                .background(Color.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
             }
             if !model.degraded.isEmpty {
                 Text(model.degraded.joined(separator: " · ")).font(.caption).foregroundStyle(.orange)
@@ -415,10 +430,66 @@ struct InboxView: View {
                 Text(model.notificationStatus).font(.caption).foregroundStyle(.secondary)
             }
             Text("打开成功后自动标记已处理 · 期间到达的新消息会保留")
-                .font(.caption2).foregroundStyle(.secondary)
-        }.padding(18).frame(minWidth: 480, idealWidth: 540, minHeight: 500, idealHeight: 680)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .onAppear { model.refresh() }
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .frame(minWidth: 480, idealWidth: 540, minHeight: 500, idealHeight: 680)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear { model.refresh() }
+    }
+}
+
+struct InboxRowView: View {
+    @ObservedObject var model: InboxModel
+    let row: InboxRow
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Circle().fill(stateColor(row.state)).frame(width: 7, height: 7)
+                Text(row.title).font(.body.weight(.medium)).lineLimit(1)
+                Spacer(minLength: 0)
+                if row.unread {
+                    Text("待处理").font(.caption2.weight(.medium)).foregroundStyle(.orange)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.14), in: Capsule())
+                }
+            }
+            HStack(spacing: 6) {
+                Text(providerName(row.provider))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(providerColor(row.provider))
+                Text(stateName(row.state)).font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if max(row.activityAt ?? 0, row.eventAt) > 0 {
+                    Text(Date(timeIntervalSince1970: max(row.activityAt ?? 0, row.eventAt)), style: .relative)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            if !row.project.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder").font(.caption2)
+                    Text((row.project as NSString).lastPathComponent).font(.caption2).lineLimit(1)
+                }
+                .foregroundStyle(.tertiary)
+                .help(row.project)
+            }
+            HStack(spacing: 10) {
+                if !row.openAvailable {
+                    Text("原会话入口暂不可用").font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                if row.unread {
+                    Button("已处理") { model.acknowledge(row) }.controlSize(.small)
+                }
+                Button("打开会话") { model.open(row) }
+                    .controlSize(.small)
+                    .disabled(!row.openAvailable || model.opening)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.black.opacity(0.05)))
+        .onAppear { model.loadMoreIfNeeded(for: row) }
     }
 }
 
