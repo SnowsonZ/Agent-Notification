@@ -19,6 +19,15 @@ AGENTS = [
     {'id': 'kimi', 'name': 'Kimi', 'managed': True},
 ]
 
+# GUI App 的 PATH 不含用户 shell 的安装目录（/opt/homebrew/bin 等），
+# which 找不到不等于没安装；已知安装位置作为第二通道。
+WELL_KNOWN = {
+    'claude': ('~/.local/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude'),
+    'codex': ('/opt/homebrew/bin/codex', '/usr/local/bin/codex', '~/.local/bin/codex'),
+    'pi': ('/opt/homebrew/bin/pi', '/usr/local/bin/pi'),
+    'kimi': ('~/.kimi-code/bin/kimi', '/opt/homebrew/bin/kimi', '/usr/local/bin/kimi'),
+}
+
 
 def iterm_available():
     for parent in (Path('/Applications'), Path.home() / 'Applications'):
@@ -35,12 +44,24 @@ def command_for(agent_id, repo=REPO):
     return agent_id
 
 
+def cli_installed(agent_id, which=None, exists=None):
+    which = which or shutil.which
+
+    def default_exists(path):
+        return Path(path).expanduser().is_file()
+
+    exists = exists or default_exists
+    if which(agent_id):
+        return True
+    return any(exists(path) for path in WELL_KNOWN.get(agent_id, ()))
+
+
 def installed_agents(repo=REPO):
     iterm = iterm_available()
     result = []
     for spec in AGENTS:
         result.append({'id': spec['id'], 'name': spec['name'], 'managed': spec['managed'],
-                       'installed': shutil.which(spec['id']) is not None, 'iterm': iterm})
+                       'installed': cli_installed(spec['id']), 'iterm': iterm})
     return result
 
 
@@ -66,7 +87,7 @@ def iterm_applescript(directory, command):
 def launch(agent_id, directory, repo=REPO):
     if not any(spec['id'] == agent_id for spec in AGENTS):
         raise ValueError('unknown agent: ' + str(agent_id))
-    if shutil.which(agent_id) is None:
+    if not cli_installed(agent_id):
         raise ValueError(agent_id + ' is not installed')
     if not iterm_available():
         raise ValueError('iTerm2 is not installed')

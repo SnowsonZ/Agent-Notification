@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from agent_launch import AGENTS, command_for, installed_agents, iterm_applescript, launch
+from agent_launch import AGENTS, cli_installed, command_for, installed_agents, iterm_applescript, launch
 
 
 def which_only(*names):
@@ -32,14 +32,21 @@ class AgentLaunchTests(unittest.TestCase):
             command_for('zcode')
 
     def test_installed_agents_reports_detection(self):
-        with patch('agent_launch.shutil.which', which_only('claude', 'pi')), \
-             patch('agent_launch.iterm_available', return_value=True):
+        with patch('agent_launch.iterm_available', return_value=True), \
+             patch('agent_launch.cli_installed', side_effect=lambda aid: aid in ('claude', 'pi')):
             rows = {row['id']: row for row in installed_agents()}
         self.assertTrue(rows['claude']['installed'])
         self.assertFalse(rows['codex']['installed'])
         self.assertTrue(rows['pi']['installed'])
         self.assertFalse(rows['kimi']['installed'])
         self.assertTrue(rows['claude']['iterm'])
+
+    def test_cli_installed_checks_path_then_well_known_locations(self):
+        with patch('agent_launch.shutil.which', return_value=None):
+            self.assertTrue(cli_installed('kimi', exists=lambda p: p.endswith('.kimi-code/bin/kimi')))
+            self.assertFalse(cli_installed('kimi', exists=lambda p: False))
+        with patch('agent_launch.shutil.which', return_value='/usr/local/bin/claude'):
+            self.assertTrue(cli_installed('claude', exists=lambda p: False))
 
     def test_applescript_changes_into_directory_and_runs_command(self):
         script = iterm_applescript('/Users/x/My Project', 'claude')
@@ -57,11 +64,13 @@ class AgentLaunchTests(unittest.TestCase):
     def test_launch_rejects_unknown_or_missing_inputs(self):
         with self.assertRaises(ValueError):
             launch('zcode', '/tmp')
-        with patch('agent_launch.shutil.which', return_value=None):
+        with patch('agent_launch.shutil.which', return_value=None), \
+             patch('agent_launch.iterm_available', return_value=False):
             with self.assertRaises(ValueError):
                 launch('claude', '/tmp')
-        with patch('agent_launch.shutil.which', which_only('claude')), \
-             patch('agent_launch.iterm_available', return_value=True):
+        with patch('agent_launch.shutil.which', return_value=None), \
+             patch('agent_launch.iterm_available', return_value=True), \
+             patch('agent_launch.cli_installed', return_value=True):
             with self.assertRaises(ValueError):
                 launch('claude', '/nonexistent-directory-xyz')
 
