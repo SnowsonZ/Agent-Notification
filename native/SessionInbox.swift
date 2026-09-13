@@ -30,6 +30,19 @@ struct AgentList: Decodable { let agents: [AgentEntry] }
 final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
+        applyAppearanceIcon()
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+                                                            object: nil, queue: .main) { [weak self] _ in
+            self?.applyAppearanceIcon()
+        }
+    }
+    // macOS 不为 icns 做外观切换：随系统明暗手动换 Dock 图标。
+    func applyAppearanceIcon() {
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if let url = Bundle.main.url(forResource: dark ? "AppIconDark" : "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            NSApplication.shared.applicationIconImage = image
+        }
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -88,9 +101,6 @@ extension Notification.Name {
         timer = tick
         checkNotificationPermission()
         loadAgents()
-        if let icon = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") {
-            NSApplication.shared.applicationIconImage = NSImage(contentsOf: icon)
-        }
     }
     var unreadCount: Int { rows.filter(\.unread).count }
     var filtered: [InboxRow] {
@@ -315,16 +325,6 @@ func stateName(_ state: String) -> String {    ["running": "运行中", "waiting
 func providerName(_ provider: String) -> String {
     ["claude": "Claude", "codex": "Codex", "zcode": "Zcode", "pi": "Pi", "kimi": "Kimi"][provider] ?? provider
 }
-func stateColor(_ state: String) -> Color {
-    switch state {
-    case "waiting": return .orange
-    case "failed": return .red
-    case "running": return .blue
-    case "idle": return .green
-    default: return .secondary
-    }
-}
-
 struct InboxView: View {
     @ObservedObject var model: InboxModel
     var body: some View {
@@ -373,7 +373,7 @@ struct InboxView: View {
                 .frame(width: 180)
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                    TextField("搜索任务、项目或 agent", text: $model.query)
+                    TextField("搜索", text: $model.query)
                         .textFieldStyle(.plain)
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
@@ -385,13 +385,13 @@ struct InboxView: View {
                 VStack(spacing: 10) {
                     Image(systemName: model.query.isEmpty ? "tray" : "magnifyingglass")
                         .font(.system(size: 30)).foregroundStyle(.tertiary)
-                    Text(model.query.isEmpty ? "新回复和需要输入的会话会出现在这里" : "没有匹配的会话")
+                    Text(model.query.isEmpty ? "暂无待处理会话" : "没有匹配的会话")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity)
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 8) {
+                    LazyVStack(spacing: 2) {
                         ForEach(model.visible) { row in
                             InboxRowView(model: model, row: row)
                         }
@@ -403,7 +403,7 @@ struct InboxView: View {
                             .frame(maxWidth: .infinity).padding(.vertical, 6)
                             .onAppear { model.page += 1 }
                         }
-                    }.padding(1)
+                    }.padding(.vertical, 2)
                 }
             }
             if let error = model.error {
@@ -423,11 +423,11 @@ struct InboxView: View {
             if model.notificationsEnabled && !model.notificationsAllowed {
                 Text(model.notificationStatus).font(.caption).foregroundStyle(.secondary)
             }
-            Text("打开成功后自动标记已处理 · 期间到达的新消息会保留")
+            Text("打开成功后自动标记已处理 · 期间的新回复会保留")
                 .font(.caption2).foregroundStyle(.tertiary)
         }
-        .padding(16)
-        .frame(minWidth: 480, idealWidth: 540, minHeight: 500, idealHeight: 680)
+        .padding(14)
+        .frame(minWidth: 430, idealWidth: 460, minHeight: 500, idealHeight: 640)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { model.refresh() }
     }
@@ -437,53 +437,57 @@ struct InboxRowView: View {
     @ObservedObject var model: InboxModel
     let row: InboxRow
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Circle().fill(stateColor(row.state)).frame(width: 7, height: 7)
-                Text(row.title).font(.body.weight(.medium)).lineLimit(1)
-                Spacer(minLength: 0)
-                if row.unread {
-                    Text("待处理").font(.caption2.weight(.medium)).foregroundStyle(.orange)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.orange.opacity(0.14), in: Capsule())
+        HStack(alignment: .top, spacing: 10) {
+            // 主内容为 agent 图标；待处理时右上角橙色圆点，描边取窗口背景色，
+            // 亮色/暗色模式自动适配。
+            Image(nsImage: agentIcon(row.provider))
+                .resizable()
+                .frame(width: 22, height: 22)
+                .opacity(row.state == "closed" ? 0.45 : 1)
+                .overlay(alignment: .topTrailing) {
+                    if row.unread {
+                        Circle()
+                            .fill(Color.orange)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                            .offset(x: 3, y: -3)
+                    }
+                }
+                .help(providerName(row.provider))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.title)
+                    .font(.system(size: 13, weight: row.unread ? .semibold : .regular))
+                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(stateName(row.state))
+                        .font(.caption)
+                        .foregroundStyle(row.unread ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    if !row.project.isEmpty {
+                        Text((row.project as NSString).lastPathComponent)
+                            .font(.caption).foregroundStyle(.tertiary)
+                            .lineLimit(1).help(row.project)
+                    }
                 }
             }
-            HStack(spacing: 6) {
-                Image(nsImage: agentIcon(row.provider))
-                    .resizable()
-                    .frame(width: 13, height: 13)
-                    .help(providerName(row.provider))
-                Text(stateName(row.state)).font(.caption).foregroundStyle(.secondary)
-                Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 5) {
                 if max(row.activityAt ?? 0, row.eventAt) > 0 {
                     Text(Date(timeIntervalSince1970: max(row.activityAt ?? 0, row.eventAt)), style: .relative)
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
-            }
-            if !row.project.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder").font(.caption2)
-                    Text((row.project as NSString).lastPathComponent).font(.caption2).lineLimit(1)
+                HStack(spacing: 6) {
+                    if row.unread {
+                        Button("已处理") { model.acknowledge(row) }.controlSize(.small)
+                    }
+                    Button("打开会话") { model.open(row) }
+                        .controlSize(.small)
+                        .disabled(!row.openAvailable || model.opening)
                 }
-                .foregroundStyle(.tertiary)
-                .help(row.project)
-            }
-            HStack(spacing: 10) {
-                if !row.openAvailable {
-                    Text("原会话入口暂不可用").font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                if row.unread {
-                    Button("已处理") { model.acknowledge(row) }.controlSize(.small)
-                }
-                Button("打开会话") { model.open(row) }
-                    .controlSize(.small)
-                    .disabled(!row.openAvailable || model.opening)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.black.opacity(0.05)))
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(Color.primary.opacity(0.001), in: RoundedRectangle(cornerRadius: 7))
         .onAppear { model.loadMoreIfNeeded(for: row) }
     }
 }
