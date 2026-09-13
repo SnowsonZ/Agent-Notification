@@ -2,7 +2,7 @@
 
 管理本机 Codex、Claude Code、Zcode 桌面会话，以及 iTerm2 中的 Pi、Kimi CLI 会话：汇总需要介入的状态，并定位到原会话。用户已恢复优先接入 iTerm2，并反馈 API 枚举成功。
 
-已有可运行的原生会话收件箱 v0.2：待处理列表、按最新时间排序的分页列表、Pi 会话名、独立图标、成功打开自动处理、系统通知及菜单栏计数。用 `bin/session-manager app` 打开。完整使用与验收边界见 [统一收件箱](docs/specs/unified-inbox.md)。
+已有可运行的原生会话收件箱 v0.3：待处理列表、按最新时间排序的分页列表、Pi 会话名、独立图标、成功打开自动处理、系统通知及菜单栏计数；启动时检测本机 CLI，在「新建会话」行提供 Claude/Codex/Pi/Kimi 的一键目录启动（iTerm2 新标签）。用 `bin/session-manager app` 打开。完整使用与验收边界见 [统一收件箱](docs/specs/unified-inbox.md)。
 
 ## 新环境准备
 

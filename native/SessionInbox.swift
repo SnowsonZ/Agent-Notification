@@ -19,6 +19,14 @@ struct SourceHealth: Decodable { let status: String; let errors: Int? }
 struct Health: Decodable { let sources: [String: SourceHealth]? }
 struct Envelope: Decodable { let sessions: [InboxRow]; let health: Health? }
 
+struct AgentEntry: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let installed: Bool
+    let iterm: Bool
+}
+struct AgentList: Decodable { let agents: [AgentEntry] }
+
 final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
@@ -62,7 +70,9 @@ extension Notification.Name {
     @Published var notificationsEnabled = UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true
     @Published var notificationsAllowed = false
     @Published var notificationStatus = "正在检查通知权限"
+    @Published var agents: [AgentEntry] = []
     private var notificationSeen = UserDefaults.standard.dictionary(forKey: "notificationSeen") as? [String: String] ?? [:]
+    private var lastLaunchDirectory = UserDefaults.standard.string(forKey: "lastLaunchDirectory")
     private var initialNotificationSnapshot = true
     private var notificationInFlight = Set<String>()
     private var notificationRetry: [String: Date] = [:]
@@ -76,6 +86,7 @@ extension Notification.Name {
         RunLoop.main.add(tick, forMode: .common)
         timer = tick
         checkNotificationPermission()
+        loadAgents()
         if let icon = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") {
             NSApplication.shared.applicationIconImage = NSImage(contentsOf: icon)
         }
@@ -100,6 +111,30 @@ extension Notification.Name {
         notificationsEnabled.toggle()
         UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
         if notificationsEnabled { checkNotificationPermission() }
+    }
+    func loadAgents() {
+        let directory = root
+        Task {
+            let result = await Task.detached { Self.call(root: directory, arguments: ["agents"]) }.value
+            guard result.0 == 0 else { return }
+            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+            if let list = try? decoder.decode(AgentList.self, from: result.1) {
+                agents = list.agents.filter(\.installed)
+            }
+        }
+    }
+    func launch(_ agent: AgentEntry) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: lastLaunchDirectory ?? NSHomeDirectory())
+        panel.message = "选择启动 \(agent.name) 的工作目录"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        lastLaunchDirectory = url.path
+        UserDefaults.standard.set(url.path, forKey: "lastLaunchDirectory")
+        action(["launch", "--agent", agent.id, "--dir", url.path], isOpen: false)
     }
     func checkNotificationPermission() {
         Task {
@@ -242,6 +277,20 @@ struct InboxView: View {
                 }.help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
                 Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                     .help("刷新").disabled(model.loading)
+            }
+            if !model.agents.isEmpty {
+                HStack(spacing: 8) {
+                    Text("新建会话").font(.caption).foregroundStyle(.secondary)
+                    ForEach(model.agents) { agent in
+                        Button {
+                            model.launch(agent)
+                        } label: {
+                            Label(agent.name, systemImage: "terminal")
+                        }.disabled(!agent.iterm)
+                            .help(agent.iterm ? "选择目录并在 iTerm2 新标签中启动 \(agent.name)" : "未检测到 iTerm2，无法在此启动")
+                    }
+                    Spacer()
+                }
             }
             Picker("显示范围", selection: $model.showAll) {
                 Text("待处理").tag(false)
