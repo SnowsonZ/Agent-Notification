@@ -34,10 +34,11 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
                     window.makeKeyAndOrderFront(nil)
+                } else {
+                    // Window 已被关闭时 SwiftUI 已释放它，只能经 openWindow 重建；
+                    // 常驻的菜单栏图标视图监听该事件并调用 openWindow(id: "inbox")。
+                    NotificationCenter.default.post(name: .reopenInbox, object: nil)
                 }
-                // Window 已被关闭时 SwiftUI 已释放它，只能经 openWindow 重建；
-                // 常驻的菜单栏图标视图监听该事件并调用 openWindow(id: "inbox")。
-                NotificationCenter.default.post(name: .reopenInbox, object: nil)
             }
         }
         completionHandler()
@@ -346,7 +347,9 @@ struct TrayIcon: View {
     @NSApplicationDelegateAdaptor(InboxAppDelegate.self) var appDelegate
     @StateObject private var model = InboxModel()
     var body: some Scene {
-        WindowGroup("Agent 会话", id: "inbox") { InboxView(model: model) }
+        // Window（而非 WindowGroup）：收件箱只允许一个实例，openWindow 聚焦已有窗口；
+        // WindowGroup 的 openWindow 每次调用都会新建窗口。
+        Window("Agent 会话", id: "inbox") { InboxView(model: model) }
             .defaultSize(width: 540, height: 680)
         MenuBarExtra {
             TrayMenu(model: model)
