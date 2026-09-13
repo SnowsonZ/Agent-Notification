@@ -105,7 +105,8 @@ func bounds(_ node: AXUIElement) -> CGRect? {
     return CGRect(origin: point, size: size)
 }
 func poll<T>(_ description: String, _ action: () throws -> T?) throws -> T {
-    let deadline = Date().addingTimeInterval(4)
+    // Electron 的 AX 树在任务列表流式刷新时更新慢，短轮询会把偶发抖动放大成失败。
+    let deadline = Date().addingTimeInterval(8)
     while Date() < deadline {
         if let result = try action() { return result }
         // AppKit caches changing app properties until the main run loop runs.
@@ -137,6 +138,16 @@ final class Navigator {
     }
     func checkFront() throws {
         RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+            // 真实点击启动方窗口后前台可能被短暂回收：先重拉一次 Zcode，
+            // 等不回来才拒绝；输入只发给确认在前台的 Zcode。
+            app.activate(options: [])
+            let deadline = Date().addingTimeInterval(1.5)
+            while Date() < deadline,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+        }
         let front = NSWorkspace.shared.frontmostApplication
         guard front?.processIdentifier == app.processIdentifier
         else {
