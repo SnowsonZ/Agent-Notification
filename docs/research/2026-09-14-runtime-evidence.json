@@ -1,0 +1,105 @@
+{
+  "date": "2026-09-14",
+  "codex": {
+    "originator": "Codex Desktop",
+    "cli_version": "0.154.0-alpha.6.2",
+    "event_counts": {
+      "task_started": 10,
+      "task_complete": 9
+    },
+    "external_navigation_verified": false
+  },
+  "pi": [
+    {
+      "provider": "pi",
+      "event": "session_start",
+      "session_id": "01a09b81-d4c6-7508-ae87-1801aaedbcb4",
+      "received_at": "2026-09-13T16:02:52.326Z"
+    },
+    {
+      "provider": "pi",
+      "event": "agent_start",
+      "session_id": "01a09b81-d4c6-7508-ae87-1801aaedbcb4",
+      "received_at": "2026-09-13T16:02:52.327Z"
+    },
+    {
+      "provider": "pi",
+      "event": "agent_end",
+      "session_id": "01a09b81-d4c6-7508-ae87-1801aaedbcb4",
+      "received_at": "2026-09-13T16:03:10.714Z"
+    },
+    {
+      "provider": "pi",
+      "event": "agent_settled",
+      "session_id": "01a09b81-d4c6-7508-ae87-1801aaedbcb4",
+      "received_at": "2026-09-13T16:03:10.715Z",
+      "idle": true
+    },
+    {
+      "provider": "pi",
+      "event": "session_shutdown",
+      "session_id": "01a09b81-d4c6-7508-ae87-1801aaedbcb4",
+      "received_at": "2026-09-13T16:03:10.715Z"
+    }
+  ],
+  "kimi_fixture_runs": [
+    {
+      "fixture_mode": "success",
+      "status": "completed",
+      "exit_code": 0,
+      "requests": [
+        "/v1/chat/completions"
+      ],
+      "events": [
+        {
+          "provider": "kimi",
+          "session_id": "session_4ed9cac8-a3b3-41a4-826b-772b2f50b51d",
+          "event": "SessionStart",
+          "received_at": "2026-09-13T16:05:14.046938+00:00"
+        },
+        {
+          "provider": "kimi",
+          "session_id": "session_4ed9cac8-a3b3-41a4-826b-772b2f50b51d",
+          "event": "UserPromptSubmit",
+          "received_at": "2026-09-13T16:05:14.079393+00:00"
+        },
+        {
+          "provider": "kimi",
+          "session_id": "session_4ed9cac8-a3b3-41a4-826b-772b2f50b51d",
+          "event": "Stop",
+          "received_at": "2026-09-13T16:05:14.179808+00:00"
+        }
+      ]
+    },
+    {
+      "fixture_mode": "failure",
+      "status": "completed",
+      "exit_code": 1,
+      "requests": [
+        "/v1/chat/completions"
+      ],
+      "events": [
+        {
+          "provider": "kimi",
+          "session_id": "session_765e3482-d6b5-4d2a-9a1f-84084ce82ed2",
+          "event": "SessionStart",
+          "received_at": "2026-09-13T16:05:36.168318+00:00"
+        },
+        {
+          "provider": "kimi",
+          "session_id": "session_765e3482-d6b5-4d2a-9a1f-84084ce82ed2",
+          "event": "UserPromptSubmit",
+          "received_at": "2026-09-13T16:05:36.200455+00:00"
+        },
+        {
+          "provider": "kimi",
+          "session_id": "session_765e3482-d6b5-4d2a-9a1f-84084ce82ed2",
+          "event": "StopFailure",
+          "received_at": "2026-09-13T16:05:36.288548+00:00"
+        }
+      ]
+    }
+  ],
+  "iterm_live_api_verified": false,
+  "zcode_exact_navigation_verified": false
+}

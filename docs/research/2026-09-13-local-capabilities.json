@@ -1,0 +1,97 @@
+{
+  "evidence_level": "static-local-inspection",
+  "runtime_delivery_verified": false,
+  "runtime_focus_verified": false,
+  "Claude": {
+    "installed_at_expected_path": true,
+    "version": "1.52386.3",
+    "bundle_id": "com.anthropic.claudefordesktop",
+    "schemes": [
+      "claude",
+      "msauth.com.anthropic.claudefordesktop"
+    ],
+    "findings": [
+      {
+        "file": ".vite/build/index.chunk-BLfVpHdT.js",
+        "continue_route_present": true,
+        "session_query_present": true,
+        "existing_session_lookup_present": true,
+        "epitaxy_route_present": true
+      }
+    ]
+  },
+  "ZCode": {
+    "installed_at_expected_path": true,
+    "version": "3.11.2",
+    "bundle_id": "dev.zcode.app",
+    "schemes": [
+      "zcode"
+    ],
+    "findings": [
+      {
+        "file": "out/main/index.js",
+        "workspace_link_present": true,
+        "exact_session_link_verified": false
+      }
+    ]
+  },
+  "iTerm": {
+    "installed_at_expected_path": true,
+    "version": "3.7.0",
+    "bundle_id": "com.googlecode.iterm2",
+    "schemes": [
+      "http",
+      "https",
+      "ftp",
+      "gopher",
+      "mailto",
+      "news",
+      "nntp",
+      "ssh",
+      "telnet",
+      "wais",
+      "gemini",
+      "titan",
+      "whois",
+      "x-man-page",
+      "iterm2"
+    ],
+    "api_preference": "not-explicitly-set"
+  },
+  "Codex": {
+    "installed_at_expected_path": false
+  },
+  "ChatGPT": {
+    "installed_at_expected_path": true,
+    "version": "26.908.40834",
+    "bundle_id": "com.openai.codex",
+    "schemes": [
+      "codex",
+      "http",
+      "https"
+    ]
+  },
+  "Pi": {
+    "on_path": true,
+    "version": "0.85.1",
+    "evidence_path": "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md",
+    "documented_events": {
+      "session_start": true,
+      "session_info_changed": true,
+      "agent_settled": true,
+      "ui_prompt_start": true,
+      "ui_prompt_end": true
+    }
+  },
+  "Kimi": {
+    "on_path": true,
+    "version": "0.42.0",
+    "binary_strings_only": {
+      "SessionHeartbeat": true,
+      "TurnStarted": true,
+      "PermissionRequest": true,
+      "StopFailure": true
+    },
+    "hook_payload_runtime_verified": false
+  }
+}

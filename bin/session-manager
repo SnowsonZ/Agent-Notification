@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+task_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+runtime="$task_root/scratch/iterm-probe-venv/bin/python"
+if [ ! -x "$runtime" ]; then
+    echo "Missing runtime: $runtime" >&2
+    exit 1
+fi
+action=${1:-help}
+if [ "$#" -gt 0 ]; then shift; fi
+case "$action" in
+    pi|kimi)
+        exec "$runtime" "$task_root/scripts/session_binding.py" run "$action" "$@"
+        ;;
+    list)
+        exec "$runtime" "$task_root/scripts/session_binding.py" list "$@"
+        ;;
+    focus)
+        if [ "$#" -ne 2 ]; then
+            echo "Usage: session-manager focus RUN_ID AGENT_SESSION_ID" >&2
+            exit 2
+        fi
+        exec "$runtime" "$task_root/scripts/iterm_probe.py" --run-id "$1" --agent-session-id "$2" --activate
+        ;;
+    setup-kimi)
+        exec "$runtime" "$task_root/scripts/session_binding.py" install-kimi-hooks
+        ;;
+    zcode-focus)
+        exec "$runtime" "$task_root/scripts/zcode_focus.py" "$@"
+        ;;
+    inbox)
+        exec "$runtime" "$task_root/scripts/inbox.py" "$@"
+        ;;
+    app)
+        exec /usr/bin/open "$task_root/build/SessionInbox.app"
+        ;;
+    help|--help|-h)
+        echo "Usage: session-manager pi|kimi [agent options]"
+        echo "       session-manager list"
+        echo "       session-manager focus RUN_ID AGENT_SESSION_ID"
+        echo "       session-manager setup-kimi"
+        echo "       session-manager zcode-focus TASK_ID [--describe]"
+        echo "       session-manager inbox rows --all --refresh | sync | setup | open ID | ack ID --revision N"
+        echo "       session-manager app"
+        ;;
+    *) echo "Unknown action: $action" >&2; exit 2 ;;
+esac
