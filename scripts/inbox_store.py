@@ -29,6 +29,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT);
             ''')
             db.execute('INSERT OR IGNORE INTO metadata VALUES (?,?)', ('started_at', json.dumps(time.time())))
+            if 'activity_at' not in {row['name'] for row in db.execute('PRAGMA table_info(sessions)')}:
+                db.execute('ALTER TABLE sessions ADD COLUMN activity_at REAL DEFAULT 0')
 
     @contextmanager
     def db(self):
@@ -56,7 +58,7 @@ class Store:
                        (key, provider, sid, provider + ' · ' + sid[:12]))
         return key
 
-    def patch(self, provider, sid, *, title=None, project=None, locator=None, hidden=None):
+    def patch(self, provider, sid, *, title=None, project=None, locator=None, hidden=None, activity_at=None):
         key = self.ensure(provider, sid)
         fields = {k: v for k, v in [('title', title), ('project', project),
                   ('locator', json.dumps(locator) if locator is not None else None),
@@ -65,6 +67,9 @@ class Store:
             with self.db() as db:
                 db.execute('UPDATE sessions SET ' + ','.join(k + '=?' for k in fields) + ' WHERE id=?',
                            [*fields.values(), key])
+        if isinstance(activity_at, (int, float)):
+            with self.db() as db:
+                db.execute('UPDATE sessions SET activity_at=MAX(activity_at,?) WHERE id=?', (activity_at, key))
         return key
 
     def event(self, provider, sid, *, event_id, timestamp, state, attention=None, token=None):
@@ -82,8 +87,8 @@ class Store:
             elif attention is True and (token or event_id) != attention_token:
                 unread = 1
                 attention_token = token or event_id
-            db.execute('UPDATE sessions SET state=?,unread=?,event_at=?,revision=revision+1,attention_token=? WHERE id=?',
-                       (state, unread, timestamp, attention_token, key))
+            db.execute('UPDATE sessions SET state=?,unread=?,event_at=?,activity_at=MAX(activity_at,?),revision=revision+1,attention_token=? WHERE id=?',
+                       (state, unread, timestamp, timestamp, attention_token, key))
         return True
 
     def acknowledge(self, key, revision):
@@ -92,9 +97,11 @@ class Store:
                                    (key, revision)).rowcount)
 
     def rows(self, unread_only=False):
+        order = ("CASE state WHEN 'waiting' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, " if unread_only else '')
+        order += 'MAX(activity_at,event_at) DESC, id'
         with self.db() as db:
             rows = db.execute('SELECT * FROM sessions WHERE hidden=0 ' + ('AND unread=1 ' if unread_only else '') +
-                              "ORDER BY unread DESC, CASE WHEN unread=1 THEN CASE state WHEN 'waiting' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END ELSE 2 END, event_at DESC").fetchall()
+                              'ORDER BY ' + order).fetchall()
         return [{**dict(row), 'locator': json.loads(row['locator']), 'unread': bool(row['unread'])} for row in rows]
 
     def get(self, key):
@@ -125,7 +132,8 @@ def receive(root, provider, sid, event, *, run_id=None, title=None, project=None
         with store.db() as db:
             db.execute("UPDATE sessions SET hidden=1 WHERE id=? AND locator='{}'", (key,))
     locator = {'kind': 'managed', 'run_id': run_id, 'session_id': sid} if run_id else None
-    store.patch(provider, sid, title=title, project=project, locator=locator)
+    store.patch(provider, sid, title=title, project=project, locator=locator,
+                activity_at=time.time() if event == 'session_info_changed' else None)
     if event not in EVENTS or (event == 'agent_settled' and not idle):
         return
     state, attention = EVENTS[event]

@@ -28,12 +28,14 @@ def collect_codex(store, home):
     if not root.exists():
         return {'status': 'unavailable', 'reason': 'session directory missing'}
     titles = {}
+    activity = {}
     index = home / '.codex/session_index.jsonl'
     if index.exists():
         for line in index.open():
             try:
                 record = json.loads(line)
                 titles[record['id']] = str(record['thread_name'])[:300]
+                activity[record['id']] = seconds(record.get('updated_at'))
             except (ValueError, KeyError, TypeError):
                 continue
     errors, changed = 0, 0
@@ -50,7 +52,7 @@ def collect_codex(store, home):
                     errors += 1
                     continue
                 if prior['sid'] in titles:
-                    store.patch('codex', prior['sid'], title=titles[prior['sid']])
+                    store.patch('codex', prior['sid'], title=titles[prior['sid']], activity_at=activity.get(prior['sid']))
                 continue
             with path.open() as file:
                 first = json.loads(file.readline())
@@ -67,7 +69,7 @@ def collect_codex(store, home):
                 reader.offset, reader.identity, reader.session = prior['offset'], tuple(prior['identity']), prior.get('validated_session', sid)
             batch = reader.poll()
             project = reader.metadata.get('cwd', '') if reader.metadata else None
-            store.patch('codex', sid, title=titles.get(sid), project=project,
+            store.patch('codex', sid, title=titles.get(sid), project=project, activity_at=activity.get(sid),
                         locator={'kind': 'url', 'url': 'codex://threads/' + quote(sid, safe='')})
             for event in batch:
                 stamp = seconds(event['timestamp'])
@@ -111,7 +113,7 @@ def collect_claude(store, home):
         if not desktop.startswith('local_'):
             continue
         store.patch('claude', sid, title=str(data.get('title') or 'Claude · ' + sid[:12])[:300],
-                    project=data.get('cwd', ''), hidden=bool(data.get('isArchived')),
+                    project=data.get('cwd', ''), hidden=bool(data.get('isArchived')), activity_at=seconds(data.get('lastActivityAt')),
                     locator={'kind': 'url', 'url': 'claude://code/continue?session=' + quote(desktop, safe='')})
         if data.get('error'):
             stamp = seconds(data.get('errorAt') or data.get('lastActivityAt'))
@@ -148,7 +150,7 @@ def collect_zcode(store, home):
     matched = 0
     for sid, title, project, status, unread, updated, archived, deleted, last_unread in rows:
         store.patch('zcode', sid, title=str(title or sid)[:300], project=project or '',
-                    hidden=bool(archived or deleted), locator={'kind': 'zcode', 'task_id': sid})
+                    hidden=bool(archived or deleted), activity_at=seconds(updated), locator={'kind': 'zcode', 'task_id': sid})
         state = {'completed': 'idle', 'error': 'failed', 'running': 'running', 'waiting': 'waiting'}.get(status, 'unknown')
         if sid in latest_turns:
             matched += 1
@@ -185,7 +187,8 @@ def collect_zcode(store, home):
 def refresh(store, home=None):
     home = Path.home() if home is None else home
     health = {}
-    for name, collector in [('codex', collect_codex), ('claude', collect_claude), ('zcode', collect_zcode)]:
+    from pi_titles import collect_pi_titles
+    for name, collector in [('codex', collect_codex), ('claude', collect_claude), ('zcode', collect_zcode), ('pi', collect_pi_titles)]:
         try:
             health[name] = collector(store, home)
         except (OSError, ValueError, KeyError, sqlite3.Error) as error:

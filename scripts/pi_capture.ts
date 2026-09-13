@@ -12,10 +12,14 @@ export default function (pi: any) {
                       "ui_prompt_start", "ui_prompt_end", "session_shutdown"]) {
     pi.on(name, (_event: unknown, ctx: any) => {
       try {
+        const firstUser = ctx.sessionManager.getBranch().find((entry: any) => entry.type === "message" && entry.message?.role === "user");
+        const content = firstUser?.message?.content;
+        const firstText = typeof content === "string" ? content : (Array.isArray(content) ? content.filter((part: any) => part.type === "text").map((part: any) => part.text).join(" ") : "");
+        const title = pi.getSessionName?.() || Array.from(firstText.replace(/\s+/g, " ").trim()).slice(0, 80).join("") || `Pi · ${ctx.cwd.split("/").pop()}`;
         const record: Record<string, unknown> = {
           provider: "pi", event: name, session_id: ctx.sessionManager.getSessionId(),
           received_at: new Date().toISOString(),
-          title: pi.getSessionName?.() || undefined, cwd: ctx.cwd,
+          title, cwd: ctx.cwd, session_file: ctx.sessionManager.getSessionFile(),
         };
         // An observed terminal ID is a candidate, not verified pane ownership.
         if (process.env.ITERM_SESSION_ID) record.terminal_session_id = process.env.ITERM_SESSION_ID;

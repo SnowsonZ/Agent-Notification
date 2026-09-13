@@ -61,23 +61,32 @@ def display_rows(store, all_rows):
     return result
 
 
-def open_session(store, key):
+def open_session(store, key, revision=None):
     row = store.get(key)
     locator = row['locator']
     scripts = Path(__file__).resolve().parent
     if locator.get('kind') == 'managed':
-        return subprocess.run([sys.executable, str(scripts / 'iterm_probe.py'),
+        command = [sys.executable, str(scripts / 'iterm_probe.py'),
             '--state-dir', str(store.root), '--run-id', locator['run_id'],
-            '--agent-session-id', row['session_id'], '--activate']).returncode
-    if locator.get('kind') == 'zcode':
-        return subprocess.run([sys.executable, str(scripts / 'zcode_focus.py'), row['session_id']]).returncode
-    if locator.get('kind') == 'url':
+            '--agent-session-id', row['session_id'], '--activate']
+    elif locator.get('kind') == 'zcode':
+        command = [sys.executable, str(scripts / 'zcode_focus.py'), row['session_id']]
+    elif locator.get('kind') == 'url':
         url = locator.get('url', '')
         if not url.startswith(('codex://threads/', 'claude://code/continue?session=')):
             raise ValueError('unsupported session URL')
-        # OS dispatch is not treated as read acknowledgement or verified navigation.
-        return subprocess.run(['/usr/bin/open', url]).returncode
-    raise ValueError('no verified opener for this session')
+        command = ['/usr/bin/open', url]
+    else:
+        raise ValueError('no verified opener for this session')
+    result = subprocess.run(command, capture_output=True, text=True, timeout=100)
+    if result.returncode != 0:
+        print(result.stderr or result.stdout or 'Open failed', file=sys.stderr, end='\n')
+        return result.returncode
+    # Use the UI/notification's revision, not a fresh revision after navigating.
+    acknowledged = store.acknowledge(key, row['revision'] if revision is None else revision)
+    print(json.dumps({'opened': True, 'acknowledged': acknowledged, 'new_activity_preserved': not acknowledged,
+                      'navigation': 'os_dispatch' if locator['kind'] == 'url' else 'verified_adapter'}))
+    return 0
 
 
 def main():
@@ -95,6 +104,7 @@ def main():
     ack.add_argument('--revision', type=int, required=True)
     op = sub.add_parser('open')
     op.add_argument('id')
+    op.add_argument('--revision', type=int)
     sub.add_parser('setup')
     hook = sub.add_parser('hook')
     hook.add_argument('--provider', choices=['claude'], required=True)
@@ -141,10 +151,10 @@ def main():
                 raise ValueError('new activity arrived; refresh before acknowledging')
             print('{"acknowledged":true}')
             return 0
-        return open_session(store, args.id)
+        return open_session(store, args.id, args.revision)
     except KeyboardInterrupt:
         return 0
-    except (ValueError, OSError, KeyError, TypeError, sqlite3.Error) as error:
+    except (ValueError, OSError, KeyError, TypeError, sqlite3.Error, subprocess.TimeoutExpired) as error:
         if args.action == 'hook':
             print('inbox hook unavailable: ' + type(error).__name__, file=sys.stderr)
             return 0

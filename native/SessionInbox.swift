@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
-struct InboxRow: Decodable, Identifiable {
+struct InboxRow: Decodable, Identifiable, Sendable {
     let id: String
     let provider: String
     let title: String
@@ -10,20 +11,50 @@ struct InboxRow: Decodable, Identifiable {
     let unread: Bool
     let revision: Int
     let eventAt: Double
+    let activityAt: Double?
+    let attentionToken: String?
     let openAvailable: Bool
 }
 struct SourceHealth: Decodable { let status: String; let errors: Int? }
 struct Health: Decodable { let sources: [String: SourceHealth]? }
 struct Envelope: Decodable { let sessions: [InboxRow]; let health: Health? }
 
+final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+    }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+           let id = response.notification.request.content.userInfo["item_id"] as? String,
+           let revision = response.notification.request.content.userInfo["revision"] as? Int {
+            UserDefaults.standard.set(["id": id, "revision": revision], forKey: "pendingNotificationOpen")
+        }
+        completionHandler()
+    }
+}
+
 @MainActor final class InboxModel: ObservableObject {
     @Published var rows: [InboxRow] = []
-    @Published var showAll = false
-    @Published var query = ""
+    @Published var showAll = false { didSet { page = 0 } }
+    @Published var query = "" { didSet { page = 0 } }
+    @Published var page = 0
+    let pageSize = 20
     @Published var loading = false
     @Published var opening = false
     @Published var error: String?
     @Published var degraded: [String] = []
+    @Published var notificationsEnabled = UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true
+    @Published var notificationsAllowed = false
+    @Published var notificationStatus = "正在检查通知权限"
+    private var notificationSeen = UserDefaults.standard.dictionary(forKey: "notificationSeen") as? [String: String] ?? [:]
+    private var initialNotificationSnapshot = true
+    private var notificationInFlight = Set<String>()
+    private var notificationRetry: [String: Date] = [:]
     let root: String
     private var timer: Timer?
     init() {
@@ -33,11 +64,85 @@ struct Envelope: Decodable { let sessions: [InboxRow]; let health: Health? }
         }
         RunLoop.main.add(tick, forMode: .common)
         timer = tick
+        checkNotificationPermission()
+        if let icon = Bundle.main.url(forResource: "AppIcon", withExtension: "icns") {
+            NSApplication.shared.applicationIconImage = NSImage(contentsOf: icon)
+        }
     }
     var unreadCount: Int { rows.filter(\.unread).count }
-    var visible: [InboxRow] {
+    var filtered: [InboxRow] {
         rows.filter { (showAll || $0.unread) && (query.isEmpty ||
-            ($0.title + " " + $0.project + " " + $0.provider).localizedCaseInsensitiveContains(query)) }
+            ($0.title + " " + $0.project + " " + $0.provider).localizedCaseInsensitiveContains(query)) }.sorted {
+            if !showAll {
+                let rank: (InboxRow) -> Int = { $0.state == "waiting" ? 0 : ($0.state == "failed" ? 1 : 2) }
+                if rank($0) != rank($1) { return rank($0) < rank($1) }
+            }
+            return max($0.activityAt ?? 0, $0.eventAt) > max($1.activityAt ?? 0, $1.eventAt)
+        }
+    }
+    var totalPages: Int { inboxPageCount(total: filtered.count, size: pageSize) }
+    var visible: [InboxRow] {
+        let values = filtered
+        return showAll ? Array(values[inboxPageRange(total: values.count, page: page, size: pageSize)]) : values
+    }
+    func toggleNotifications() {
+        notificationsEnabled.toggle()
+        UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
+        if notificationsEnabled { checkNotificationPermission() }
+    }
+    func checkNotificationPermission() {
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            notificationsAllowed = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+            notificationStatus = notificationsAllowed ? "通知已开启" : "系统尚未允许通知"
+            if settings.authorizationStatus == .notDetermined && notificationsEnabled {
+                do {
+                    let granted = try await center.requestAuthorization(options: [.alert, .sound])
+                    notificationsAllowed = granted
+                    notificationStatus = granted ? "通知已开启" : "请在系统设置 → 通知中允许 Agent 会话"
+                } catch {
+                    let detail = error as NSError
+                    notificationStatus = "通知授权请求失败（\(detail.domain) \(detail.code)）"
+                }
+            }
+        }
+    }
+    private func notifyNewItems(_ values: [InboxRow]) {
+        let center = UNUserNotificationCenter.current()
+        let previousSeen = notificationSeen
+        let readIDs = values.filter { !$0.unread && notificationSeen[$0.id] != nil }.map(\.id)
+        if !readIDs.isEmpty { center.removeDeliveredNotifications(withIdentifiers: readIDs) }
+        for row in values {
+            let token = row.attentionToken ?? ""
+            let enabled = notificationsEnabled && notificationsAllowed
+            if initialNotificationSnapshot || !enabled || !row.unread {
+                notificationSeen[row.id] = token
+                continue
+            }
+            guard needsNotification(unread: row.unread, token: token, seen: notificationSeen[row.id],
+                                    initialSnapshot: false, enabled: enabled), !notificationInFlight.contains(row.id),
+                  (notificationRetry[row.id] ?? .distantPast) <= Date() else { continue }
+            notificationInFlight.insert(row.id)
+            let content = UNMutableNotificationContent()
+            content.title = "\(providerName(row.provider)) · \(stateName(row.state))"
+            content.body = row.title
+            content.sound = .default
+            content.threadIdentifier = row.id
+            content.userInfo = ["item_id": row.id, "revision": row.revision]
+            center.add(UNNotificationRequest(identifier: row.id, content: content, trigger: nil)) { [weak self] failure in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.notificationInFlight.remove(row.id)
+                    if failure == nil {
+                        self.notificationSeen[row.id] = token
+                        UserDefaults.standard.set(self.notificationSeen, forKey: "notificationSeen")
+                    } else { self.notificationRetry[row.id] = Date().addingTimeInterval(60) }
+                }
+            }
+        }
+        initialNotificationSnapshot = false
+        if previousSeen != notificationSeen { UserDefaults.standard.set(notificationSeen, forKey: "notificationSeen") }
     }
     nonisolated static func call(root: String, arguments: [String]) -> (Int32, Data, String) {
         let process = Process()
@@ -65,15 +170,22 @@ struct Envelope: Decodable { let sessions: [InboxRow]; let health: Health? }
                 let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
                 let payload = try decoder.decode(Envelope.self, from: result.1)
                 rows = payload.sessions
+                page = max(0, min(page, totalPages - 1))
+                notifyNewItems(rows)
                 degraded = (payload.health?.sources ?? [:]).filter { $0.value.status != "ok" }.map { name, info in
                     if let count = info.errors, count > 0 { return "\(providerName(name))：\(count) 个历史记录暂未接入" }
                     return "\(providerName(name))：来源暂不可用"
                 }.sorted()
+                if let pending = UserDefaults.standard.dictionary(forKey: "pendingNotificationOpen"),
+                   let id = pending["id"] as? String, let revision = pending["revision"] as? Int, !opening {
+                    UserDefaults.standard.removeObject(forKey: "pendingNotificationOpen")
+                    action(["open", id, "--revision", String(revision)], isOpen: true)
+                }
             } catch { self.error = "列表读取失败：" + error.localizedDescription }
         }
     }
     func acknowledge(_ row: InboxRow) { action(["ack", row.id, "--revision", String(row.revision)], isOpen: false) }
-    func open(_ row: InboxRow) { action(["open", row.id], isOpen: true) }
+    func open(_ row: InboxRow) { action(["open", row.id, "--revision", String(row.revision)], isOpen: true) }
     private func action(_ arguments: [String], isOpen: Bool) {
         if isOpen { opening = true }
         error = nil
@@ -119,12 +231,15 @@ struct InboxView: View {
                     Text(model.unreadCount == 0 ? "暂时没有待处理事项" : "\(model.unreadCount) 条待处理事项").foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button { model.toggleNotifications() } label: {
+                    Image(systemName: model.notificationsEnabled && model.notificationsAllowed ? "bell.badge.fill" : "bell.slash")
+                }.help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
                 Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                     .help("刷新").disabled(model.loading)
             }
             Picker("显示范围", selection: $model.showAll) {
                 Text("待处理").tag(false)
-                Text("全部会话").tag(true)
+                Text("全部会话（\(model.rows.count)）").tag(true)
             }.pickerStyle(.segmented)
             TextField("搜索任务、项目或 agent", text: $model.query).textFieldStyle(.roundedBorder)
             if model.visible.isEmpty {
@@ -149,7 +264,7 @@ struct InboxView: View {
                                     Text(providerName(row.provider)).fontWeight(.medium)
                                     Text(stateName(row.state))
                                     Spacer()
-                                    if row.eventAt > 0 { Text(Date(timeIntervalSince1970: row.eventAt), style: .relative) }
+                                    if max(row.activityAt ?? 0, row.eventAt) > 0 { Text(Date(timeIntervalSince1970: max(row.activityAt ?? 0, row.eventAt)), style: .relative) }
                                 }.font(.caption).foregroundStyle(.secondary)
                                 if !row.project.isEmpty {
                                     Text((row.project as NSString).lastPathComponent).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(row.project)
@@ -165,6 +280,16 @@ struct InboxView: View {
                     }.padding(1)
                 }
             }
+            if model.showAll {
+                HStack {
+                    Button("上一页") { model.page = max(0, model.page - 1) }.disabled(model.page == 0)
+                    Spacer()
+                    Text("第 \(model.page + 1) / \(model.totalPages) 页 · 共 \(model.filtered.count) 个")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("下一页") { model.page = min(model.totalPages - 1, model.page + 1) }.disabled(model.page + 1 >= model.totalPages)
+                }
+            }
             if let error = model.error {
                 HStack(alignment: .top) {
                     Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
@@ -175,7 +300,10 @@ struct InboxView: View {
             if !model.degraded.isEmpty {
                 Text(model.degraded.joined(separator: " · ")).font(.caption).foregroundStyle(.orange)
             }
-            Text("打开不会自动标为已处理 · Pi/Kimi 从受管理入口启动后显示")
+            if model.notificationsEnabled && !model.notificationsAllowed {
+                Text(model.notificationStatus).font(.caption).foregroundStyle(.secondary)
+            }
+            Text("打开成功后自动标记已处理 · 期间到达的新消息会保留")
                 .font(.caption2).foregroundStyle(.secondary)
         }.padding(18).frame(minWidth: 480, idealWidth: 540, minHeight: 500, idealHeight: 680)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -198,6 +326,7 @@ struct TrayMenu: View {
 }
 
 @main struct SessionInboxApp: App {
+    @NSApplicationDelegateAdaptor(InboxAppDelegate.self) var appDelegate
     @StateObject private var model = InboxModel()
     var body: some Scene {
         WindowGroup("Agent 会话", id: "inbox") { InboxView(model: model) }

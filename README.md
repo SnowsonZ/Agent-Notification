@@ -2,7 +2,7 @@
 
 管理本机 Codex、Claude Code、Zcode 桌面会话，以及 iTerm2 中的 Pi、Kimi CLI 会话：汇总需要介入的状态，并定位到原会话。用户已恢复优先接入 iTerm2，并反馈 API 枚举成功。
 
-已有可运行的原生会话收件箱 v0.1：待处理列表、全部会话、搜索、标记已处理、菜单栏计数和现有会话跳转。用 `bin/session-manager app` 打开。完整使用与验收边界见 [统一收件箱](docs/specs/unified-inbox.md)。
+已有可运行的原生会话收件箱 v0.2：待处理列表、按最新时间排序的分页列表、Pi 会话名、独立图标、成功打开自动处理、系统通知及菜单栏计数。用 `bin/session-manager app` 打开。完整使用与验收边界见 [统一收件箱](docs/specs/unified-inbox.md)。
 
 ## 新环境准备
 
@@ -22,7 +22,7 @@ python3 scripts/build_inbox_app.py
 
 | 文档 | 用途 | 状态 |
 |---|---|---|
-| [统一收件箱 v0.1](docs/specs/unified-inbox.md) | 当前使用入口、数据来源、配置和已知边界 | App 已编译；真实导入、列表与已处理 UI 验证通过 |
+| [统一收件箱 v0.2](docs/specs/unified-inbox.md) | 当前使用入口、数据来源、配置和已知边界 | App 已编译；真实导入、列表与已处理 UI 验证通过 |
 | [Zcode 待处理遗漏修复](docs/research/2026-09-14-zcode-inbox-fix.md) | 原生蓝点与独立待处理状态的区别、轮次数据接入 | 已回补真实遗漏任务；50 项检查通过 |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 现成工具比较与选型依据 | 前期调研，早于宿主范围最终确认 |
 | [会话收件箱方案](docs/plans/session-inbox.md) | 五路接入、通知抓取评估、实现建议和验收 | 当前方案，待接入验证；不是已验证规格 |

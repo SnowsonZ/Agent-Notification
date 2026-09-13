@@ -139,6 +139,9 @@ def record_event(provider, payload, env=None):
         elif prior['session_id'] != sid:
             return
     from inbox_store import receive
+    if provider == 'pi' and isinstance(payload.get('session_file'), str):
+        from inbox_store import Store
+        Store(root).set_meta('pi-file:' + sid, payload['session_file'])
     if event in starts.get(provider, set()) and prior['session_id'] and prior['session_id'] != sid:
         receive(root, provider, prior['session_id'], 'SessionEnd', run_id=run_id)
     receive(root, provider, sid, event, run_id=run_id,
