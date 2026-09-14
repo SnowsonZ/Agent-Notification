@@ -1,9 +1,15 @@
 // Code-native vector artwork rendered into a standard macOS iconset.
+// Usage: generate-app-icon <iconset-dir> [light|dark]
 import AppKit
 import Foundation
 
 let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+let dark = CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "dark"
 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+
+func squircle(_ rect: NSRect, _ radius: CGFloat) -> NSBezierPath {
+    NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+}
 
 func render(_ pixels: Int) -> Data {
     let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
@@ -13,24 +19,51 @@ func render(_ pixels: Int) -> Data {
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
     let transform = AffineTransform(scale: CGFloat(pixels) / 1024)
     (transform as NSAffineTransform).concat()
-    let tile = NSBezierPath(roundedRect: NSRect(x: 64, y: 64, width: 896, height: 896), xRadius: 194, yRadius: 194)
-    let gradient = NSGradient(starting: NSColor(srgbRed: 0.07, green: 0.18, blue: 0.34, alpha: 1),
-                              ending: NSColor(srgbRed: 0.08, green: 0.54, blue: 0.52, alpha: 1))!
-    gradient.draw(in: tile, angle: 55)
-    NSColor.white.withAlphaComponent(0.36).setFill()
-    NSBezierPath(roundedRect: NSRect(x: 298, y: 610, width: 428, height: 108), xRadius: 28, yRadius: 28).fill()
-    NSColor.white.withAlphaComponent(0.7).setFill()
-    NSBezierPath(roundedRect: NSRect(x: 260, y: 474, width: 504, height: 108), xRadius: 28, yRadius: 28).fill()
-    NSColor.white.setFill()
-    NSBezierPath(roundedRect: NSRect(x: 222, y: 274, width: 580, height: 174), xRadius: 42, yRadius: 42).fill()
-    NSColor(srgbRed: 0.10, green: 0.40, blue: 0.46, alpha: 1).setFill()
-    NSBezierPath(roundedRect: NSRect(x: 382, y: 378, width: 260, height: 110), xRadius: 34, yRadius: 34).fill()
-    NSColor(srgbRed: 1.0, green: 0.76, blue: 0.28, alpha: 1).setFill()
-    NSBezierPath(ovalIn: NSRect(x: 698, y: 656, width: 156, height: 156)).fill()
-    NSColor.white.setStroke()
-    let check = NSBezierPath()
-    check.move(to: NSPoint(x: 737, y: 735)); check.line(to: NSPoint(x: 765, y: 707)); check.line(to: NSPoint(x: 813, y: 766))
-    check.lineWidth = 15; check.lineCapStyle = .round; check.lineJoinStyle = .round; check.stroke()
+
+    // Tile: light and dark keep the same geometry, only the palette switches.
+    let tile = squircle(NSRect(x: 64, y: 64, width: 896, height: 896), 194)
+    if dark {
+        NSGradient(starting: NSColor(srgbRed: 0.25, green: 0.25, blue: 0.28, alpha: 1),
+                   ending: NSColor(srgbRed: 0.11, green: 0.11, blue: 0.13, alpha: 1))!.draw(in: tile, angle: 270)
+        NSColor.white.withAlphaComponent(0.10).setStroke()
+    } else {
+        NSGradient(starting: NSColor(srgbRed: 0.99, green: 0.99, blue: 1.00, alpha: 1),
+                   ending: NSColor(srgbRed: 0.88, green: 0.89, blue: 0.92, alpha: 1))!.draw(in: tile, angle: 270)
+        NSColor.black.withAlphaComponent(0.10).setStroke()
+    }
+    tile.lineWidth = 6
+    tile.stroke()
+
+    // Agent body: graphite on light, silver on dark.
+    let bodyTop = dark ? NSColor(srgbRed: 0.91, green: 0.91, blue: 0.94, alpha: 1)
+                       : NSColor(srgbRed: 0.39, green: 0.43, blue: 0.50, alpha: 1)
+    let bodyBottom = dark ? NSColor(srgbRed: 0.69, green: 0.70, blue: 0.75, alpha: 1)
+                          : NSColor(srgbRed: 0.22, green: 0.25, blue: 0.31, alpha: 1)
+
+    // A broad, friendly agent silhouette remains legible at Dock and Finder sizes.
+    bodyBottom.setFill()
+    squircle(NSRect(x: 470, y: 690, width: 44, height: 94), 22).fill()
+    NSBezierPath(ovalIn: NSRect(x: 454, y: 762, width: 76, height: 76)).fill()
+    squircle(NSRect(x: 190, y: 408, width: 72, height: 152), 36).fill()
+    squircle(NSRect(x: 734, y: 408, width: 72, height: 152), 36).fill()
+    let head = squircle(NSRect(x: 236, y: 250, width: 524, height: 460), 144)
+    NSGradient(starting: bodyTop, ending: bodyBottom)!.draw(in: head, angle: 270)
+    let face = squircle(NSRect(x: 294, y: 340, width: 408, height: 272), 90)
+    (dark ? NSColor(srgbRed: 0.17, green: 0.19, blue: 0.23, alpha: 1)
+          : NSColor(srgbRed: 0.94, green: 0.97, blue: 1, alpha: 1)).setFill()
+    face.fill()
+    (dark ? NSColor.white : bodyBottom).setFill()
+    squircle(NSRect(x: 372, y: 432, width: 48, height: 100), 24).fill()
+    squircle(NSRect(x: 576, y: 432, width: 48, height: 100), 24).fill()
+
+    // Notification badge overlaps the upper-right corner of the agent, not the tile.
+    (dark ? NSColor(srgbRed: 0.20, green: 0.20, blue: 0.23, alpha: 1)
+          : NSColor(srgbRed: 0.96, green: 0.96, blue: 0.98, alpha: 1)).setFill()
+    NSBezierPath(ovalIn: NSRect(x: 641, y: 601, width: 218, height: 218)).fill()
+    NSGradient(starting: NSColor(srgbRed: 1, green: 0.66, blue: 0.20, alpha: 1),
+               ending: NSColor(srgbRed: 1, green: 0.43, blue: 0.06, alpha: 1))!
+        .draw(in: NSBezierPath(ovalIn: NSRect(x: 660, y: 620, width: 180, height: 180)), angle: 270)
+
     NSGraphicsContext.restoreGraphicsState()
     return bitmap.representation(using: .png, properties: [:])!
 }

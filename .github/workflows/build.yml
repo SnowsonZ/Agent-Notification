@@ -1,0 +1,54 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python3 -m venv scratch/iterm-probe-venv
+          scratch/iterm-probe-venv/bin/python -m pip install --upgrade pip
+          scratch/iterm-probe-venv/bin/python -m pip install -r requirements.txt
+
+      - name: Build zcode-focus
+        run: |
+          mkdir -p build
+          xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus
+
+      - name: Build SessionInbox.app
+        run: python3 scripts/build_inbox_app.py
+
+      - name: Run tests
+        run: scratch/iterm-probe-venv/bin/python -m unittest discover -s tests
+
+      - name: Package
+        run: |
+          mkdir -p build/pkg
+          cp -R build/SessionInbox.app build/pkg/
+          ln -s /Applications build/pkg/Applications
+          hdiutil create -volname SessionManager -srcfolder build/pkg -ov -format UDZO build/SessionInbox.dmg
+          cd build
+          zip -qry SessionInbox.app.zip SessionInbox.app
+          zip -q zcode-focus.zip zcode-focus
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SessionInbox-macos
+          path: |
+            build/SessionInbox.dmg
+            build/SessionInbox.app.zip
+            build/zcode-focus.zip
+          if-no-files-found: error

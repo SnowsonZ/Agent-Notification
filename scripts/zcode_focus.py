@@ -13,17 +13,25 @@ from datetime import datetime, timezone
 from zcode_task_state import lookup
 
 
+TRANSIENT_MARKS = ('timeout', 'focus_changed', 'lost focus')
+
+
 def run_helper(helper, data, diagnose, log_path):
     command = [str(helper)] + (['--diagnose-search'] if diagnose else [])
     report = {'started_at': datetime.now(timezone.utc).isoformat(), 'task_id': data['task_id'],
               'helper_sha256': hashlib.sha256(helper.read_bytes()).hexdigest()}
-    try:
-        result = subprocess.run(command, input=json.dumps(data), text=True, timeout=90, capture_output=True)
-        report.update(exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
-    except subprocess.TimeoutExpired as error:
-        def decoded(value):
-            return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
-        report.update(exit_code=1, stdout=decoded(error.stdout), stderr=decoded(error.stderr), timed_out=True)
+    for attempt in (1, 2):
+        try:
+            result = subprocess.run(command, input=json.dumps(data), text=True, timeout=90, capture_output=True)
+            report.update(exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        except subprocess.TimeoutExpired as error:
+            def decoded(value):
+                return value.decode(errors='replace') if isinstance(value, bytes) else (value or '')
+            report.update(exit_code=1, stdout=decoded(error.stdout), stderr=decoded(error.stderr), timed_out=True)
+        report['attempts'] = attempt
+        # 焦点漂移与 Electron 渲染慢是瞬时竞态：搜索流程幂等，重跑一次即可。
+        if report.get('exit_code') == 0 or not any(mark in report.get('stderr', '') for mark in TRANSIENT_MARKS):
+            break
     log_path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix='.zcode-focus-', dir=log_path.parent)
     try:

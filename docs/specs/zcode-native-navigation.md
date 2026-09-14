@@ -1,10 +1,10 @@
 # Zcode 原生自动导航适配器
 
-状态：首次真实 AX 自动导航及任务 ID 后置核验通过，用户确认成功，本地日志 exit_code=0。该结论针对已测任务；不代表同名多候选、冷启动、多显示器和长期稳定性已完成验收。
+状态：首次真实 AX 自动导航及任务 ID 后置核验已在真实会话中通过（本地日志 exit_code=0）。该结论针对已测任务；同名多候选、冷启动、多显示器和长期稳定性尚未完成验收。
 
 ## 成功验收
 
-2026-09-14 01:57:49（Asia/Shanghai）开始的运行完整经过激活、搜索、输入、结果确认、打开任务菜单、复制任务路径和 ID 比对。用户返回并确认 status=focused、selection_identity_matches=true，task_id 为 sess_afcd78bb-1b3e-48f7-898a-d701a4d3f331，method 为 accessibility-copy-task-path。本地 `scratch/zcode-focus-latest.json` 同时记录 exit_code=0 和完整阶段轨迹。
+2026-09-14 01:57:49（Asia/Shanghai）开始的运行完整经过激活、搜索、输入、结果确认、打开任务菜单、复制任务路径和 ID 比对。运行结果为 status=focused、selection_identity_matches=true，目标 task_id（sess_afcd78bb…）与索引一致，method 为 accessibility-copy-task-path。本地 `scratch/zcode-focus-latest.json` 同时记录 exit_code=0 和完整阶段轨迹。
 
 当前 Zcode 路径已有真实成功证据，不再列为“只有工作区级打开”。后文保留实现与排错过程，历史“待重试”状态以本节为准。
 
@@ -53,15 +53,15 @@
 先在 Zcode 切到另一个任务，再在终端执行：
 
 ```sh
-/Users/snowson/workspace/agent/tools/session-manager/bin/session-manager zcode-focus sess_afcd78bb-1b3e-48f7-898a-d701a4d3f331
+bin/session-manager zcode-focus TASK_ID
 ```
 
-该样例对应已查证的“AI时代的terminal，是否有可以替代iTerm2”。应打开该任务并返回 status=focused、selection_identity_matches=true。如果报告 accessibility_permission_required，需要用户在系统设置的隐私与安全性/辅助功能中检查本程序或启动它的终端权限，然后重新运行。[Apple 的权限检查说明](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions)说明权限提示是异步的，当次返回并不自动变成已授权。
+TASK_ID 为本地任务索引中的真实任务 ID。已验证的运行打开了目标任务并返回 status=focused、selection_identity_matches=true。如果报告 accessibility_permission_required，运行 `bin/session-manager permissions`（或在 App 内点击 Zcode 事项的「前往会话」会自动触发同一流程），在打开的「隐私与安全性 → 辅助功能」面板中把可拖拽悬浮窗里的 SessionInbox.app（Agent Notification）拖入列表（从终端直接运行时则检查启动它的终端 App），授权后悬浮窗自动收起，再重新运行。[Apple 的权限检查说明](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions)说明权限提示是异步的，当次返回并不自动变成已授权。
 
 仅解析目标而不操作界面：
 
 ```sh
-bin/session-manager zcode-focus sess_afcd78bb-1b3e-48f7-898a-d701a4d3f331 --describe
+bin/session-manager zcode-focus TASK_ID --describe
 ```
 
 编译及不访问 UI 的自检：
@@ -79,7 +79,7 @@ python3 -m unittest discover -s tests -v
 - [Swift 实现](../../native/ZcodeFocus.swift)、[Python 入口](../../scripts/zcode_focus.py)、[目标数据测试](../../tests/test_zcode_focus.py)。
 - 已核实本地真实 task ID 可解析成正确标题/工作区；归档、缺失、歧义及含控制字符的标题在界面操作之前拒绝。
 - Swift 自检只验证身份比对，未执行 Navigator，也不申请权限。
-- 本轮通过 CUA 再次打开搜索，输入仍未稳定生效；没有把 CUA 的失败当作原生 AX 程序成功的证据。原生程序编译通过但尚待用户运行。
+- 本轮通过 CUA 再次打开搜索，输入仍未稳定生效；没有把 CUA 的失败当作原生 AX 程序成功的证据。（历史节点，当时原生程序尚未实际运行；最终验收以顶部状态为准。）
 - 依赖 Zcode 3.11.2 的搜索和菜单结构；中文/英文标签有兼容分支，但英文 UI 未测试。应用更新或控件变化可能需要改适配器。
 - 同名候选遍历、多显示器、冷启动没有完成 UI 验收。当前要求 Zcode 已运行。
 - 这条路线替代了“只能打开工作区”的实现方案；只有实际返回 focused 并经页面核验，才可更新全链路验收状态。

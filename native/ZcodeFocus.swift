@@ -13,20 +13,12 @@ func stage(_ name: String) {
     FileHandle.standardError.write(data + Data([10]))
 }
 
-func matchesTaskPath(_ target: Target, _ actual: String) -> Bool {
-    actual == (target.workspace_path as NSString).appendingPathComponent(target.task_id + ".zcode-session")
-}
-
 func uniqueSearchInputIndex(_ controls: [(role: String, enabled: Bool)], hasSuggestions: Bool) -> Int? {
     guard hasSuggestions else { return nil }
     let candidates = controls.indices.filter {
         controls[$0].enabled && [kAXComboBoxRole, kAXTextFieldRole].contains(controls[$0].role)
     }
     return candidates.count == 1 ? candidates[0] : nil
-}
-
-func isResultRow(role: String, hasSelectedAttribute: Bool) -> Bool {
-    role != kAXStaticTextRole && hasSelectedAttribute
 }
 
 func openWithVerification<T>(_ name: String = "search input", existing: () -> T?, primary: () throws -> Void,
@@ -40,18 +32,11 @@ func openWithVerification<T>(_ name: String = "search input", existing: () -> T?
 }
 
 if CommandLine.arguments.contains("--self-test") {
-    let sample = Target(task_id: "sess_one", title: "same title", workspace_path: "/fixture")
-    precondition(matchesTaskPath(sample, "/fixture/sess_one.zcode-session"))
-    precondition(!matchesTaskPath(sample, "/fixture/sess_other.zcode-session"))
-    precondition(!matchesTaskPath(sample, "/other/sess_one.zcode-session"))
     // Captured Zcode shape: unnamed AXComboBox alongside Suggestions.
     precondition(uniqueSearchInputIndex([(kAXComboBoxRole, true)], hasSuggestions: true) == 0)
     precondition(uniqueSearchInputIndex([(kAXComboBoxRole, true)], hasSuggestions: false) == nil)
     precondition(uniqueSearchInputIndex([(kAXTextAreaRole, true)], hasSuggestions: true) == nil)
     precondition(uniqueSearchInputIndex([(kAXComboBoxRole, true), (kAXTextFieldRole, true)], hasSuggestions: true) == nil)
-    precondition(isResultRow(role: "AXUnknown", hasSelectedAttribute: true))
-    precondition(!isResultRow(role: kAXStaticTextRole, hasSelectedAttribute: true))
-    precondition(!isResultRow(role: kAXGroupRole, hasSelectedAttribute: false))
     do {
         var visible = false
         var fallbackUsed = false
@@ -105,7 +90,8 @@ func bounds(_ node: AXUIElement) -> CGRect? {
     return CGRect(origin: point, size: size)
 }
 func poll<T>(_ description: String, _ action: () throws -> T?) throws -> T {
-    let deadline = Date().addingTimeInterval(4)
+    // Electron 的 AX 树在任务列表流式刷新时更新慢，短轮询会把偶发抖动放大成失败。
+    let deadline = Date().addingTimeInterval(8)
     while Date() < deadline {
         if let result = try action() { return result }
         // AppKit caches changing app properties until the main run loop runs.
@@ -137,6 +123,16 @@ final class Navigator {
     }
     func checkFront() throws {
         RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+            // 真实点击启动方窗口后前台可能被短暂回收：先重拉一次 Zcode，
+            // 等不回来才拒绝；输入只发给确认在前台的 Zcode。
+            app.activate(options: [])
+            let deadline = Date().addingTimeInterval(1.5)
+            while Date() < deadline,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+        }
         let front = NSWorkspace.shared.frontmostApplication
         guard front?.processIdentifier == app.processIdentifier
         else {
@@ -190,13 +186,6 @@ final class Navigator {
             return string(node, kAXRoleAttribute) == kAXButtonRole &&
                 (name == "搜索" || name.hasPrefix("搜索 ⌘") || name == "Search")
         }
-    }
-    func resultRows(_ title: String) -> [AXUIElement] {
-        guard let list = nodes(root).first(where: { string($0, kAXRoleAttribute) == kAXListRole && label($0) == "Suggestions" }) else { return [] }
-        return nodes(list).filter { node in
-            label(node).hasPrefix(title) && bounds(node) != nil &&
-                isResultRow(role: string(node, kAXRoleAttribute), hasSelectedAttribute: attribute(node, kAXSelectedAttribute) != nil)
-        }.sorted { (bounds($0)?.minY ?? .infinity) < (bounds($1)?.minY ?? .infinity) }
     }
     func searchDiagnostics(_ stage: String) -> [String: Any] {
         let all = nodes(root)
@@ -253,8 +242,12 @@ final class Navigator {
             event?.flags = flags; event?.post(tap: .cghidEventTap)
         }
     }
-    func search(_ title: String) throws -> [AXUIElement] {
+    func search(_ title: String) throws {
         stage("search_prepare")
+        if searchInput() != nil {
+            try key(53) // Close the search overlay a previous failed attempt left open.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
         if searchInput() == nil && nodes(root).contains(where: {
             string($0, kAXRoleAttribute) == kAXMenuRole && ["更多", "More"].contains(label($0))
         }) {
@@ -268,7 +261,7 @@ final class Navigator {
             }
         } }
         stage("search_open")
-        let input: AXUIElement = try openWithVerification(existing: { searchInput() }, primary: {
+        var input: AXUIElement = try openWithVerification(existing: { searchInput() }, primary: {
             try click(searchButton())
         }, fallback: {
             try coordinateClick(searchButton())
@@ -281,48 +274,47 @@ final class Navigator {
             }
             return nil
         })
-        if let rect = bounds(input) {
-            try checkFront()
-            let point = CGPoint(x: rect.midX, y: rect.midY)
-            for type in [CGEventType.leftMouseDown, .leftMouseUp] {
-                CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-            }
-        }
         stage("search_focus")
-        let _: Bool = try poll("search input focus") {
-            guard let focused = attribute(root, kAXFocusedUIElementAttribute) else { return nil }
-            return CFEqual(focused, input) ? true : nil
+        func windowFrame() -> CGRect? {
+            let window = attribute(root, kAXFocusedWindowAttribute) ?? attribute(root, kAXMainWindowAttribute)
+            guard let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+            return bounds(window as! AXUIElement)
+        }
+        let focusDeadline = Date().addingTimeInterval(8)
+        while true {
+            if let focused = attribute(root, kAXFocusedUIElementAttribute), CFEqual(focused, input) { break }
+            guard Date() < focusDeadline else { throw Failure.refused("timeout: search input focus") }
+            // Electron 有时不把键盘焦点交给搜索框：AX 设置与窗口内的真实点击都试。
+            AXUIElementSetAttributeValue(input, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            if let focused = attribute(root, kAXFocusedUIElementAttribute), CFEqual(focused, input) { break }
+            if let rect = bounds(input), let frame = windowFrame(), frame.contains(CGPoint(x: rect.midX, y: rect.midY)) {
+                try checkFront()
+                let point = CGPoint(x: rect.midX, y: rect.midY)
+                for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+                    CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        stage("search_scope")
+        // 全部范围下消息命中会排在前面，其行标题以别的任务名开头；切到任务范围，
+        // 结果行标题才会以目标任务名开头，hasPrefix 匹配才成立。
+        if let scope = nodes(root).first(where: {
+            string($0, kAXRoleAttribute) == kAXRadioButtonRole && ["任务", "Tasks"].contains(label($0))
+        }) {
+            AXUIElementPerformAction(scope, kAXPressAction as CFString)
+            // 范围切换会重建浮层，旧输入框节点随时失效：重新定位并恢复焦点后再粘贴。
+            input = try poll("search input after scope switch") {
+                guard let fresh = searchInput() else { return nil }
+                AXUIElementSetAttributeValue(fresh, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+                if let focused = attribute(root, kAXFocusedUIElementAttribute), CFEqual(focused, fresh) { return fresh }
+                return nil
+            }
         }
         stage("search_paste")
         try pasteSearchQuery(title)
-        stage("search_results")
-        return try poll("matching task result") {
-            let candidates = resultRows(title)
-            return candidates.isEmpty ? nil : candidates
-        }
-    }
-    func openResult(_ candidate: AXUIElement, title: String, ordinal: Int) throws {
-        stage("candidate_click_\(ordinal)")
-        try click(candidate)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        guard let input = searchInput() else { return } // Click already opened it.
-        let _: Bool = try poll("target result highlighted") {
-            let rows = resultRows(title)
-            guard ordinal < rows.count else { return nil }
-            return (attribute(rows[ordinal], kAXSelectedAttribute) as? Bool) == true ? true : nil
-        }
-        // AXPress may highlight an option without confirming it. Put keyboard
-        // focus back in the identified search box before Enter, never a chat box.
-        try coordinateClick(input)
-        let _: Bool = try poll("search focus before result confirmation") {
-            guard let fresh = searchInput(), let focused = attribute(root, kAXFocusedUIElementAttribute) else { return nil }
-            return CFEqual(fresh, focused) ? true : nil
-        }
-        let rows = resultRows(title)
-        guard ordinal < rows.count, (attribute(rows[ordinal], kAXSelectedAttribute) as? Bool) == true
-        else { throw Failure.refused("selected search result changed before confirmation") }
-        stage("candidate_confirm_\(ordinal)")
-        try key(36) // Return only while the verified search input has focus.
     }
     func pasteSearchQuery(_ title: String) throws {
         // Use the app's normal paste handling instead of synthesized Unicode
@@ -370,87 +362,11 @@ final class Navigator {
             throw Failure.refused("timeout: query text applied; method=paste; input_present=\(fresh != nil); actual_length=\(value.utf16.count); reported_characters=\(characters); value_type=\(valueType); expected_length=\(title.utf16.count); post_event_access=\(CGPreflightPostEventAccess())")
         }
     }
-    func copiedTaskPath() throws -> String {
-        stage("task_menu_prepare")
-        let board = NSPasteboard.general
-        let originalCount = board.changeCount
-        let saved = (board.pasteboardItems ?? []).map { item -> NSPasteboardItem in
-            let copy = NSPasteboardItem()
-            for type in item.types { if let data = item.data(forType: type) { copy.setData(data, forType: type) } }
-            return copy
-        }
-        var ownedCount: Int?
-        defer {
-            if let count = ownedCount, board.changeCount == count {
-                board.clearContents(); board.writeObjects(saved)
-            }
-        }
-        func taskMenu() throws -> AXUIElement { try poll("task menu") {
-            nodes(root).filter { node in
-                let role = string(node, kAXRoleAttribute)
-                return [kAXPopUpButtonRole, kAXMenuButtonRole, kAXButtonRole].contains(role) && ["更多", "More"].contains(label(node))
-            }.sorted {
-                let a = bounds($0) ?? .infinite; let b = bounds($1) ?? .infinite
-                return a.minY == b.minY ? a.minX < b.minX : a.minY < b.minY
-            }.first
-        } }
-        func copyItem() -> AXUIElement? {
-            nodes(root).first { ["复制任务路径", "Copy task path"].contains(label($0)) && string($0, kAXRoleAttribute) == kAXMenuItemRole && (attribute($0, kAXEnabledAttribute) as? Bool != false) }
-        }
-        stage("task_menu_open")
-        let copy: AXUIElement = try openWithVerification("Copy task path", existing: { copyItem() }, primary: {
-            try click(taskMenu())
-        }, fallback: {
-            try coordinateClick(taskMenu())
-        }, afterAction: {
-            let deadline = Date().addingTimeInterval(2)
-            while Date() < deadline {
-                if let item = copyItem() { return item }
-                try checkFront()
-                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-            }
-            return nil
-        })
-        guard board.changeCount == originalCount else { throw Failure.refused("clipboard changed by user") }
-        stage("task_path_copy")
-        let value: String = try openWithVerification("fresh copied task path", existing: { nil }, primary: {
-            try click(copy)
-        }, fallback: {
-            guard let item = copyItem() else { throw Failure.refused("copy menu closed without a fresh task path") }
-            try coordinateClick(item)
-        }, afterAction: {
-            let deadline = Date().addingTimeInterval(2)
-            while Date() < deadline {
-                if board.changeCount != originalCount {
-                    guard let value = board.string(forType: .string), value.hasPrefix("/"), value.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(".zcode-session")
-                    else { throw Failure.refused("clipboard changed without a task path; clipboard left untouched") }
-                    ownedCount = board.changeCount
-                    return value
-                }
-                try checkFront()
-                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-            }
-            return nil
-        })
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
     func focus(_ target: Target) throws -> [String: Any] {
-        // Rebuild the search UI after each candidate: old AX nodes are not reused.
-        for ordinal in 0..<20 {
-            let candidates = try search(target.title)
-            guard ordinal < candidates.count else { break }
-            try openResult(candidates[ordinal], title: target.title, ordinal: ordinal)
-            stage("candidate_opened_\(ordinal)")
-            let _: Bool = try poll("search result selected") {
-                searchInput() == nil ? true : nil
-            }
-            let actual = try copiedTaskPath()
-            stage("task_identity_check_\(ordinal)")
-            if matchesTaskPath(target, actual) {
-                return ["status": "focused", "task_id": target.task_id, "selection_identity_matches": true, "method": "accessibility-copy-task-path"]
-            }
-        }
-        throw Failure.refused("no candidate matched task ID; a candidate may remain visible")
+        // 用户决定：搜索可能命中多个同名/相似任务，助手停在任务搜索结果页，
+        // 由用户自行选择目标；不执行点击行或回车打开的精确跳转。
+        try search(target.title)
+        return ["status": "search_opened", "task_id": target.task_id, "title": target.title]
     }
 }
 

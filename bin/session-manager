@@ -34,6 +34,15 @@ case "$action" in
     app)
         exec /usr/bin/open "$task_root/build/SessionInbox.app"
         ;;
+    permissions)
+        if [ ! -d "$task_root/build/SessionInbox.app" ]; then
+            echo "Missing app: $task_root/build/SessionInbox.app (run scripts/build_inbox_app.py first)" >&2
+            exit 1
+        fi
+        /usr/bin/open -R "$task_root/build/SessionInbox.app"
+        /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        echo "在系统设置「隐私与安全性 → 辅助功能」中，把 Finder 里的 SessionInbox.app（Agent Notification）拖进右侧列表。"
+        ;;
     help|--help|-h)
         echo "Usage: session-manager pi|kimi [agent options]"
         echo "       session-manager list"
@@ -41,7 +50,9 @@ case "$action" in
         echo "       session-manager setup-kimi"
         echo "       session-manager zcode-focus TASK_ID [--describe]"
         echo "       session-manager inbox rows --all --refresh | sync | setup | open ID | ack ID --revision N"
+    echo "       session-manager inbox daily-report [--date YYYY-MM-DD] | --overview [--days N] [--top N]"
         echo "       session-manager app"
+        echo "       session-manager permissions"
         ;;
     *) echo "Unknown action: $action" >&2; exit 2 ;;
 esac

@@ -14,9 +14,9 @@ API 连接与枚举已通过；activation_requested=false，agent_ownership_veri
 
 ## 后续进展：Zcode 身份核验与 iTerm 环境
 
-Zcode 的任务 ID 搜索本次已成功显示实际结果：完整 `sess_afcd78bb-1b3e-48f7-898a-d701a4d3f331` 返回“暂无相关结果”。因此该样例不能直接用 ID 搜索定位。
+Zcode 的任务 ID 搜索本次已成功显示实际结果：完整 task ID（sess_afcd78bb…）返回“暂无相关结果”。因此该样例不能直接用 ID 搜索定位。
 
-在已选择的目标任务菜单中，“复制会话 ID”禁用，“复制任务路径”可用。将 UI 复制的值粘贴到临时 TextEdit 文稿，读到路径末段 `sess_afcd78bb-1b3e-48f7-898a-d701a4d3f331.zcode-session`，与索引中的目标 task_id、workspace_path 完全一致。该步骤验证了所选任务身份，但尚未形成稳定的跨任务自动导航器，也没有完成同名候选遍历测试。
+在已选择的目标任务菜单中，“复制会话 ID”禁用，“复制任务路径”可用。将 UI 复制的值粘贴到临时 TextEdit 文稿，读到路径末段为 `<task_id>.zcode-session`，与索引中的目标 task_id、workspace_path 完全一致。该步骤验证了所选任务身份，但尚未形成稳定的跨任务自动导航器，也没有完成同名候选遍历测试。
 
 临时证据存于 `scratch/zcode-task-path-verification.rtf`，没有保存到 iCloud。特别注意：这个 UI 复制路径实际不存在于磁盘，它是可用于比对身份的逻辑路径，不能用于直接打开文件，也不能将文件不存在误判为当前任务不存在。
 
@@ -25,7 +25,7 @@ Zcode 的任务 ID 搜索本次已成功显示实际结果：完整 `sess_afcd78
 iTerm2 专用环境已准备并验证 import/API 签名：`scratch/iterm-probe-venv/`，iterm2 2.23、protobuf 7.36.1、websockets 17.1。未连接 iTerm API。已请求用户在 iTerm2 执行下列只读命令并返回输出，等待结果：
 
 ```sh
-/Users/snowson/workspace/agent/tools/session-manager/scratch/iterm-probe-venv/bin/python /Users/snowson/workspace/agent/tools/session-manager/scripts/iterm_probe.py
+scratch/iterm-probe-venv/bin/python scripts/iterm_probe.py
 ```
 
 该步骤仍需用户或允许的环境执行，因为现有 Computer Use 明确拒绝 iTerm 访问。无需用户自行找 Python 依赖，不关闭 iTerm API 认证，不以另一技术绕过工具拒绝。后续取得真实 pane ID 后才能继续核验 Pi/Kimi 的绑定和聚焦。
@@ -103,7 +103,7 @@ python3 scripts/iterm_probe.py
 python3 scripts/iterm_probe.py --session-id '<observed-id>' --activate
 ```
 
-需要含官方 iterm2 包的 Python 和已授权的 iTerm API。依赖环境现已准备，使用本文顶部的绝对路径命令。当前 Computer Use 曾明确拒绝 iTerm App 访问，因此 agent 没有执行这个 API 脚本来替代被拒绝的操作；留给用户或允许访问的测试环境执行。不要关闭 API 认证或设置允许任意应用访问以图方便。
+需要含官方 iterm2 包的 Python 和已授权的 iTerm API。依赖环境现已准备，使用本文顶部的命令（项目根目录相对路径）。当前 Computer Use 曾明确拒绝 iTerm App 访问，因此 agent 没有执行这个 API 脚本来替代被拒绝的操作；留给用户或允许访问的测试环境执行。不要关闭 API 认证或设置允许任意应用访问以图方便。
 
 live ID 精确匹配只解决 pane 身份，不能证明原 agent 仍占用该 pane。正式实现还需绑定 agent session、进程启动标识及终止事件；同 pane 启动第二个 agent 后必须使旧绑定失效。
 

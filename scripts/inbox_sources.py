@@ -164,12 +164,24 @@ def collect_zcode(store, home):
             start = seconds(started)
             store.event('zcode', sid, event_id=f'zcode-turn-start:{sid}:{turn_id}', timestamp=start,
                         state='running', attention=False if start >= baseline else None)
+            end_applied = False
             if completed is not None and turn_status in ('completed', 'error', 'cancelled'):
                 end = seconds(completed)
                 final_state = {'completed': 'idle', 'error': 'failed', 'cancelled': 'interrupted'}[turn_status]
                 attention = (turn_status != 'cancelled') if end >= baseline else None
-                store.event('zcode', sid, event_id=f'zcode-turn-end:{sid}:{turn_id}:{turn_status}:{completed}',
-                            timestamp=end, state=final_state, attention=attention, token=f'{turn_id}:{turn_status}')
+                end_applied = store.event('zcode', sid, event_id=f'zcode-turn-end:{sid}:{turn_id}:{turn_status}:{completed}',
+                                          timestamp=end, state=final_state, attention=attention, token=f'{turn_id}:{turn_status}')
+            # Runtime rows land only when a turn ends, so while a turn is live
+            # (including permission waits) the latest row is still the previous
+            # turn and its terminal state would stick. The index does carry
+            # liveness; trust it only when it advanced past the recorded end,
+            # and not in the same refresh where that end first landed — a
+            # lagging index must not flip a just-recorded completion back to
+            # running. The stamp never exceeds that end, so the real next end
+            # event can always override.
+            if status == 'running' and not end_applied and completed is not None and seconds(updated) > seconds(completed):
+                store.event('zcode', sid, event_id=f'zcode-live-running:{sid}:{turn_id}:{completed}',
+                            timestamp=seconds(completed), state='running', attention=None)
         else:
             signature = hashlib.sha256(json.dumps([sid, status, updated]).encode()).hexdigest()
             store.event('zcode', sid, event_id='zcode-snapshot-v2:' + signature, timestamp=seconds(updated),

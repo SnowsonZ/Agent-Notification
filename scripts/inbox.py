@@ -108,6 +108,16 @@ def main():
     sub.add_parser('setup')
     hook = sub.add_parser('hook')
     hook.add_argument('--provider', choices=['claude'], required=True)
+    sub.add_parser('agents')
+    launcher = sub.add_parser('launch')
+    launcher.add_argument('--agent', required=True)
+    launcher.add_argument('--dir', required=True)
+    daily = sub.add_parser('daily-report')
+    daily.add_argument('--date', help='YYYY-MM-DD, defaults to today')
+    daily.add_argument('--overview', action='store_true',
+                       help='heatmap totals + top projects instead of one day')
+    daily.add_argument('--days', type=int, default=182)
+    daily.add_argument('--top', type=int, default=5)
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     try:
@@ -133,6 +143,24 @@ def main():
             count = setup_claude(root)
             kimi = install_kimi_hooks(Path(os.environ.get('KIMI_CODE_HOME', str(Path.home() / '.kimi-code'))))
             print(json.dumps({'claude_hooks_added': count, 'kimi_hooks_added': kimi}))
+            return 0
+        if args.action == 'agents':
+            from agent_launch import installed_agents
+            print(json.dumps({'agents': installed_agents()}, ensure_ascii=False))
+            return 0
+        if args.action == 'launch':
+            from agent_launch import launch
+            launch(args.agent, args.dir)
+            print(json.dumps({'launched': True, 'agent': args.agent}))
+            return 0
+        if args.action == 'daily-report':
+            from daily_report import generate_day, generate_overview
+            if args.overview:
+                payload = generate_overview(store, Path.home(),
+                                            days=max(7, args.days), top=max(1, min(args.top, 10)))
+            else:
+                payload = generate_day(store, Path.home(), args.date)
+            print(json.dumps(payload, ensure_ascii=False))
             return 0
         if args.action in ('sync', 'watch'):
             while True:
