@@ -19,7 +19,7 @@ Computer Use 对 `com.apple.Terminal` 也返回安全拒绝。更换宿主并没
 在 Terminal 中执行：
 
 ```sh
-osascript /Users/snowson/workspace/agent/tools/session-manager/scripts/terminal_probe.applescript
+osascript scripts/terminal_probe.applescript
 ```
 
 系统可能询问是否允许 Terminal 的自动化控制；由用户处理该提示。若报错，保留错误文本，不关闭系统保护。无需先安装 Python 或 iTerm2 API 包。
@@ -27,7 +27,7 @@ osascript /Users/snowson/workspace/agent/tools/session-manager/scripts/terminal_
 取得真实 TTY 后，显式传入它可以测试从另一标签页切回目标：
 
 ```sh
-osascript /Users/snowson/workspace/agent/tools/session-manager/scripts/terminal_probe.applescript /dev/ttysXXX
+osascript scripts/terminal_probe.applescript /dev/ttysXXX
 ```
 
 将占位设备替换为探针返回的值。只接受一个精确匹配；不存在或多个匹配则报错。不使用 `do script`，不会重启或恢复任何 agent。即使命令返回 selected，也应实际检查原 Pi/Kimi 会话是否在该页，才能完成运行时验收。
