@@ -41,6 +41,7 @@ case "$action" in
         echo "       session-manager setup-kimi"
         echo "       session-manager zcode-focus TASK_ID [--describe]"
         echo "       session-manager inbox rows --all --refresh | sync | setup | open ID | ack ID --revision N"
+    echo "       session-manager inbox daily-report [--date YYYY-MM-DD] | --overview [--days N] [--top N]"
         echo "       session-manager app"
         ;;
     *) echo "Unknown action: $action" >&2; exit 2 ;;

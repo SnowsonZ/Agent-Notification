@@ -112,6 +112,12 @@ def main():
     launcher = sub.add_parser('launch')
     launcher.add_argument('--agent', required=True)
     launcher.add_argument('--dir', required=True)
+    daily = sub.add_parser('daily-report')
+    daily.add_argument('--date', help='YYYY-MM-DD, defaults to today')
+    daily.add_argument('--overview', action='store_true',
+                       help='heatmap totals + top projects instead of one day')
+    daily.add_argument('--days', type=int, default=182)
+    daily.add_argument('--top', type=int, default=5)
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     try:
@@ -146,6 +152,15 @@ def main():
             from agent_launch import launch
             launch(args.agent, args.dir)
             print(json.dumps({'launched': True, 'agent': args.agent}))
+            return 0
+        if args.action == 'daily-report':
+            from daily_report import generate_day, generate_overview
+            if args.overview:
+                payload = generate_overview(store, Path.home(),
+                                            days=max(7, args.days), top=max(1, min(args.top, 10)))
+            else:
+                payload = generate_day(store, Path.home(), args.date)
+            print(json.dumps(payload, ensure_ascii=False))
             return 0
         if args.action in ('sync', 'watch'):
             while True:
