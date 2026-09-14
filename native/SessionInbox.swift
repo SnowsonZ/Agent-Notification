@@ -15,7 +15,6 @@ struct InboxRow: Decodable, Identifiable, Sendable {
     let attentionToken: String?
     // 可选：App 新于脚本时旧 JSON 缺这两键，非可选会让整行解码失败。
     let attentionAt: Double?
-    let acknowledgedAt: Double?
     let openAvailable: Bool
 }
 struct SourceHealth: Decodable { let status: String; let errors: Int? }
@@ -504,19 +503,12 @@ struct InboxRowView: View {
                             .lineLimit(1).help(row.project)
                     }
                 }.font(.system(size: 11))
-                // 会话时长：从最近一次通知到已处理。未处理实时累计（随刷新周期），
-                // 处理后冻结；来源侧清未读（如 Interrupt）不算已处理，缺字段的旧行回退相对时间。
+                // 会话时长只在未处理期间展示：从最近一次通知起实时累计（随刷新周期）；
+                // 已处理即不再展示，来源侧清未读（如 Interrupt）同样不展示。
                 if row.unread, let start = row.attentionAt, start > 0 {
                     Text(inboxDurationText(from: start, to: Date().timeIntervalSince1970))
                         .font(.system(size: 10)).foregroundStyle(.secondary)
-                        .help("会话时长：从最近一次通知起累计，标记已处理后冻结")
-                } else if let start = row.attentionAt, let end = row.acknowledgedAt, start > 0, end >= start {
-                    Text(inboxDurationText(from: start, to: end))
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                        .help("会话时长：从最近一次通知到标记已处理")
-                } else if max(row.activityAt ?? 0, row.eventAt) > 0 {
-                    Text(Date(timeIntervalSince1970: max(row.activityAt ?? 0, row.eventAt)), style: .relative)
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .help("会话时长：从最近一次通知起累计")
                 }
             }
             HStack(spacing: 4) {
