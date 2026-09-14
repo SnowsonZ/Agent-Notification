@@ -11,6 +11,11 @@ import Foundation
         precondition(!needsNotification(unread: false, token: "b", seen: "a", initialSnapshot: false, enabled: true))
         precondition(!needsNotification(unread: true, token: "b", seen: "a", initialSnapshot: false, enabled: false))
         precondition(needsNotification(unread: true, token: "b", seen: "a", initialSnapshot: false, enabled: true))
+        precondition(inboxDurationText(from: 0, to: 59) == "59秒")
+        precondition(inboxDurationText(from: 100, to: 200) == "1分40秒")
+        precondition(inboxDurationText(from: 0, to: 3700) == "1小时1分")
+        precondition(inboxDurationText(from: 0, to: 90000) == "1天1小时")
+        precondition(inboxDurationText(from: 200, to: 100) == "0秒")
         print("Pagination and notification policy checks passed")
     }
 }

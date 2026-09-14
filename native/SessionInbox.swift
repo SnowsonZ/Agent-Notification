@@ -13,6 +13,9 @@ struct InboxRow: Decodable, Identifiable, Sendable {
     let eventAt: Double
     let activityAt: Double?
     let attentionToken: String?
+    // 可选：App 新于脚本时旧 JSON 缺这两键，非可选会让整行解码失败。
+    let attentionAt: Double?
+    let acknowledgedAt: Double?
     let openAvailable: Bool
 }
 struct SourceHealth: Decodable { let status: String; let errors: Int? }
@@ -469,10 +472,10 @@ struct InboxRowView: View {
         HStack(alignment: .top, spacing: 10) {
             // 主内容为 agent 图标；待处理时右上角橙色圆点，描边取窗口背景色，
             // 亮色/暗色模式自动适配。
+            // 已退出与已结束对用户含义一致（都可重开查看），外观保持一致，不做置灰。
             Image(nsImage: agentIcon(row.provider))
                 .resizable()
                 .frame(width: 30, height: 30)
-                .opacity(row.state == "closed" ? 0.45 : 1)
                 .overlay(alignment: .topTrailing) {
                     if row.unread {
                         Circle()
@@ -501,7 +504,17 @@ struct InboxRowView: View {
                             .lineLimit(1).help(row.project)
                     }
                 }.font(.system(size: 11))
-                if max(row.activityAt ?? 0, row.eventAt) > 0 {
+                // 会话时长：从最近一次通知到已处理。未处理实时累计（随刷新周期），
+                // 处理后冻结；来源侧清未读（如 Interrupt）不算已处理，缺字段的旧行回退相对时间。
+                if row.unread, let start = row.attentionAt, start > 0 {
+                    Text(inboxDurationText(from: start, to: Date().timeIntervalSince1970))
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .help("会话时长：从最近一次通知起累计，标记已处理后冻结")
+                } else if let start = row.attentionAt, let end = row.acknowledgedAt, start > 0, end >= start {
+                    Text(inboxDurationText(from: start, to: end))
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .help("会话时长：从最近一次通知到标记已处理")
+                } else if max(row.activityAt ?? 0, row.eventAt) > 0 {
                     Text(Date(timeIntervalSince1970: max(row.activityAt ?? 0, row.eventAt)), style: .relative)
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                 }

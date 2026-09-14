@@ -29,8 +29,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT);
             ''')
             db.execute('INSERT OR IGNORE INTO metadata VALUES (?,?)', ('started_at', json.dumps(time.time())))
-            if 'activity_at' not in {row['name'] for row in db.execute('PRAGMA table_info(sessions)')}:
+            existing = {row['name'] for row in db.execute('PRAGMA table_info(sessions)')}
+            if 'activity_at' not in existing:
                 db.execute('ALTER TABLE sessions ADD COLUMN activity_at REAL DEFAULT 0')
+            # 会话时长口径：attention_at=最近一次通知抬升，acknowledged_at=已处理时刻。
+            for column in ('attention_at', 'acknowledged_at'):
+                if column not in existing:
+                    db.execute(f'ALTER TABLE sessions ADD COLUMN {column} REAL DEFAULT 0')
 
     @contextmanager
     def db(self):
@@ -82,19 +87,25 @@ class Store:
                 return False
             unread = row['unread']
             attention_token = row['attention_token']
+            attention_at = None
             if attention is False:
                 unread = 0
             elif attention is True and (token or event_id) != attention_token:
                 unread = 1
                 attention_token = token or event_id
-            db.execute('UPDATE sessions SET state=?,unread=?,event_at=?,activity_at=MAX(activity_at,?),revision=revision+1,attention_token=? WHERE id=?',
-                       (state, unread, timestamp, timestamp, attention_token, key))
+                attention_at = timestamp
+            columns = 'state=?,unread=?,event_at=?,activity_at=MAX(activity_at,?),revision=revision+1,attention_token=?'
+            values = [state, unread, timestamp, timestamp, attention_token]
+            if attention_at is not None:
+                columns += ',attention_at=?'
+                values.append(attention_at)
+            db.execute(f'UPDATE sessions SET {columns} WHERE id=?', [*values, key])
         return True
 
     def acknowledge(self, key, revision):
         with self.db() as db:
-            return bool(db.execute('UPDATE sessions SET unread=0,revision=revision+1 WHERE id=? AND revision=?',
-                                   (key, revision)).rowcount)
+            return bool(db.execute('UPDATE sessions SET unread=0,acknowledged_at=?,revision=revision+1 WHERE id=? AND revision=?',
+                                   (time.time(), key, revision)).rowcount)
 
     def rows(self, unread_only=False):
         order = ("CASE state WHEN 'waiting' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, " if unread_only else '')
