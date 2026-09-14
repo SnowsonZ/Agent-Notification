@@ -550,8 +550,25 @@ struct TrayMenu: View {
 struct TrayIcon: View {
     @ObservedObject var model: InboxModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
-        Label(model.unreadCount > 0 ? String(model.unreadCount) : "", systemImage: "tray.full")
+        // 徽标必须显式配色：模板渲染会把橙底白字拍平成单色，数字不可读；
+        // 图标本体跟随菜单栏明暗手动着色。padding 与 offset 配合保证徽标在状态项边界内。
+        Image(systemName: model.unreadCount > 0 ? "tray.fill" : "tray")
+            .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+            .overlay(alignment: .topTrailing) {
+                if model.unreadCount > 0 {
+                    Text(model.unreadCount > 99 ? "99+" : String(model.unreadCount))
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .frame(minWidth: 12, minHeight: 12)
+                        .background(Circle().fill(.orange))
+                        .offset(x: 5, y: -2)
+                }
+            }
+            .padding(.top, 2)
+            .padding(.trailing, 5)
             .onReceive(NotificationCenter.default.publisher(for: .reopenInbox)) { _ in
                 openWindow(id: "inbox")
                 NSApplication.shared.activate()
