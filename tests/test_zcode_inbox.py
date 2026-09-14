@@ -84,3 +84,38 @@ class ZcodeInboxTests(unittest.TestCase):
         collect_zcode(self.store, self.home)
         self.assertFalse(self.store.rows()[0]['unread'])
         self.assertEqual(self.store.rows()[0]['state'], 'interrupted')
+
+    def test_live_turn_shows_running_until_runtime_row_lands(self):
+        self.turn()
+        collect_zcode(self.store, self.home)
+        row = self.store.rows()[0]
+        self.assertTrue(row['unread'])
+        self.store.acknowledge(row['id'], row['revision'])
+        # New turn is live but turn_usage only records it once it ends; the
+        # index carries the liveness instead.
+        with sqlite3.connect(self.index) as db:
+            db.execute("UPDATE tasks SET task_status='running',updated_at=200")
+        collect_zcode(self.store, self.home)
+        row = self.store.rows()[0]
+        self.assertEqual(row['state'], 'running')
+        self.assertFalse(row['unread'])
+        before = row['revision']
+        collect_zcode(self.store, self.home)
+        self.assertEqual(self.store.rows()[0]['revision'], before)
+        # The real end event must still override the inferred running.
+        self.turn('turn-next', start=210, end=220)
+        with sqlite3.connect(self.index) as db:
+            db.execute("UPDATE tasks SET task_status='completed',updated_at=230")
+        collect_zcode(self.store, self.home)
+        row = self.store.rows()[0]
+        self.assertEqual(row['state'], 'idle')
+        self.assertTrue(row['unread'])
+
+    def test_stale_running_index_cannot_override_recorded_completion(self):
+        self.turn()
+        collect_zcode(self.store, self.home)
+        with sqlite3.connect(self.index) as db:
+            db.execute("UPDATE tasks SET task_status='running',updated_at=120")
+        collect_zcode(self.store, self.home)
+        self.assertEqual(self.store.rows()[0]['state'], 'idle')
+        self.assertTrue(self.store.rows()[0]['unread'])
