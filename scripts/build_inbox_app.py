@@ -24,7 +24,7 @@ subprocess.run(['iconutil', '-c', 'icns', str(iconset_dark), '-o', str(contents 
 subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-macosx14.0',
                 str(root / 'native/InboxPolicy.swift'), str(root / 'native/SessionInbox.swift'), '-o', str(contents / 'MacOS/SessionInbox')], check=True)
 (contents / 'Info.plist').write_bytes(plistlib.dumps({
-    'CFBundleExecutable': 'SessionInbox', 'CFBundleIdentifier': 'local.snowson.session-manager',
+    'CFBundleExecutable': 'SessionInbox', 'CFBundleIdentifier': 'local.session-manager.inbox',
     'CFBundleName': '会话通知', 'CFBundleDisplayName': '会话通知',
     'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.5.0',
     'CFBundleVersion': '11', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
