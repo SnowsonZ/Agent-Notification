@@ -1,8 +1,8 @@
-# Session Manager
+# Agent Notification
 
 English | [简体中文](README.md)
 
-Session Manager is a local session inbox for macOS: it aggregates Codex, Claude Code, and Zcode desktop sessions together with managed Pi and Kimi CLI sessions running in iTerm2, surfaces the ones that need attention in a single list, and locates the original session when you act on it.
+Agent Notification is a local session inbox for macOS: it aggregates Codex, Claude Code, and Zcode desktop sessions together with managed Pi and Kimi CLI sessions running in iTerm2, surfaces the ones that need attention in a single list, and locates the original session when you act on it.
 
 > Note: the CLI, in-app UI, and all in-depth documentation are written in Chinese. This file covers the essentials in English.
 

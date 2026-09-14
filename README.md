@@ -1,8 +1,8 @@
-# Session Manager
+# Agent Notification
 
 [English](README.en.md) | 简体中文
 
-Session Manager 是运行于 macOS 的本地会话收件箱：汇总 Codex、Claude Code、Zcode 桌面会话与 iTerm2 中受管理的 Pi、Kimi CLI 会话，将需要人工介入的状态集中呈现，并提供定位回原会话的入口。
+Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、Claude Code、Zcode 桌面会话与 iTerm2 中受管理的 Pi、Kimi CLI 会话，将需要人工介入的状态集中呈现，并提供定位回原会话的入口。
 
 ## 界面预览
 
