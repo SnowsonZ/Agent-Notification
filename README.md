@@ -42,7 +42,7 @@ Session Manager 是运行于 macOS 的本地会话收件箱：汇总 Codex、Cla
 - Python 3.11 及以上（在 3.12 验证）。
 - Xcode Command Line Tools。
 - iTerm2：Pi/Kimi 受管理会话与聚焦跳转的宿主终端。
-- 系统权限：首次使用时授予 iTerm2 自动化授权与 Zcode 辅助功能授权。
+- 系统权限：iTerm2 自动化授权首次启动时弹出；Zcode 辅助功能授权用拖拽方式添加（见「快速上手」）。
 
 ## 快速上手
 
@@ -68,7 +68,10 @@ python3 scripts/build_inbox_app.py
 ```sh
 bin/session-manager inbox setup   # 安装 Claude/Kimi 观察 hooks，保留既有配置，可重复执行
 bin/session-manager app           # 打开「Agent Notification」
+bin/session-manager permissions   # 打开辅助功能授权面板，把应用拖进列表
 ```
+
+授权采用拖拽方式：点击 Zcode 事项的「前往会话」时若缺辅助功能权限，应用会自动打开「隐私与安全性 → 辅助功能」面板，并弹出一个可拖拽的应用悬浮窗，把它拖进列表即完成授权，授权后悬浮窗自动收起；`bin/session-manager permissions` 是等效的手动入口（Finder 显示应用 + 打开面板）。应用为 ad-hoc 签名，每次重建后需要重新拖入；列表里旧条目开关显示开启不代表新版已获授权。
 
 应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「SessionInbox 控制 iTerm2」授权。
 

@@ -43,7 +43,7 @@ Key capabilities:
 - Python 3.11+ (validated on 3.12).
 - Xcode Command Line Tools.
 - iTerm2: the host terminal for managed Pi/Kimi sessions and focus jumps.
-- System permissions: iTerm2 automation and Zcode accessibility, granted on first use.
+- System permissions: iTerm2 automation pops up on first launch; Zcode accessibility is added by dragging the app into the list (see Quick start).
 
 ## Quick start
 
@@ -62,14 +62,17 @@ Notes:
 - The virtualenv location `scratch/iterm-probe-venv` is fixed: `bin/session-manager` resolves its Python interpreter at that path, so do not relocate it.
 - `scratch/` and `build/` are not tracked by git; the steps above create them.
 - The build script refuses to overwrite a running app — quit "Agent Notification" before rebuilding.
-- The bundle is locally ad-hoc signed and verified; this is not notarized distribution. After a rebuild you may need to re-grant accessibility permission in System Settings.
+- The bundle is locally ad-hoc signed and verified; this is not notarized distribution. After a rebuild, re-drag the app into the Accessibility list (`bin/session-manager permissions`).
 
 Install the observer hooks and launch the app:
 
 ```sh
-bin/session-manager inbox setup   # installs Claude/Kimi observer hooks, preserves existing config, idempotent
+bin/session-manager inbox setup   # installs Claude/Kimi observer hooks (idempotent)
 bin/session-manager app           # opens "Agent Notification"
+bin/session-manager permissions   # opens the Accessibility pane; drag the app into the list
 ```
+
+Authorization is drag-based: clicking "Go to session" on a Zcode item without the accessibility permission opens System Settings → Privacy & Security → Accessibility and shows a floating, draggable badge of the app — drop it into the list to grant, and the badge dismisses itself once granted. `bin/session-manager permissions` is the manual equivalent (reveals the app in Finder and opens the pane). The bundle is ad-hoc signed, so re-drag after every rebuild — a stale entry switched on does not authorize the new build.
 
 The app detects locally installed CLIs (claude, codex, pi, kimi, agy, opencode) at startup and shows them as flat icon buttons in the "New Session" row for one-click directory launch in a new iTerm2 tab; when the row runs out of width, a "+N" button on the right collapses the remaining agents into a menu. agy (Antigravity CLI, the official successor to Gemini CLI) and opencode are launch-only for now — their sessions do not appear in the inbox yet.
 
