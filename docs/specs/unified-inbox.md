@@ -66,7 +66,7 @@ Zcode 会用最新轮次的真实时间作事件时钟，任务的改名或查�
 
 状态：running、waiting、idle、failed、interrupted、closed、unknown。“本轮已结束”不表示业务目标成功。Stop 后如果继续运行，后续运行事件会清除过期的待处理状态。来源没有事件时不能凭一段时间无输出判断完成。
 
-状态与展示文案对照：running→运行中、waiting→等待输入、idle→本轮已结束、failed→发生错误、interrupted→已中断、closed→已退出、unknown→状态待确认。未读视图 waiting 优先、failed 次之；closed 且无法打开的项直接过滤；closed 与 idle 对用户含义一致（都可经原入口重开查看），卡片外观不做区分。卡片时长是“会话时长”：从最近一次通知抬升（`attention_at`）到已处理（`acknowledged_at`，手动标记与成功打开自动确认同口径）；未处理时实时累计，处理后冻结，不再跟随事件走动。来源侧自行清除未读（如 Interrupt、新一轮 running 事件）不算已处理；缺这两个字段的历史行回退显示距最近事件的相对时间。时长以事件时钟为准，来源事件时间戳滞后（如 Zcode 补扫完成回合）会相应放大显示值。
+状态与展示文案对照：running→运行中、waiting→等待输入、idle→本轮已结束、failed→发生错误、interrupted→已中断、closed→已退出、unknown→状态待确认。未读视图 waiting 优先、failed 次之；closed 且无法打开的项直接过滤；closed 与 idle 对用户含义一致（都可经原入口重开查看），卡片外观不做区分。卡片只在未处理时显示“会话时长”：从最近一次通知抬升（`attention_at`）起实时累计；已处理（手动标记与成功打开自动确认，处理时刻记为 `acknowledged_at`）后不再展示时长。来源侧自行清除未读（如 Interrupt、新一轮 running 事件）同样不展示。时长以事件时钟为准，来源事件时间戳滞后（如 Zcode 补扫完成回合）会相应放大显示值。
 
 各状态的可达来源（2026-09-14 梳理）：`waiting` 只来自 hooks 与 Pi 扩展事件（Claude/Kimi PermissionRequest、Pi ui_prompt_start）；`closed` 只来自 Claude/Kimi SessionEnd 与 Pi session_shutdown；`failed` 来自各来源 error/StopFailure；`interrupted` 来自 Codex turn_aborted、Zcode 回合取消和 hook Interrupt；`unknown` 是库默认值及未知 task_status 的兜底。
 
