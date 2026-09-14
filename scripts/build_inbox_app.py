@@ -8,7 +8,7 @@ root = Path(__file__).resolve().parents[1]
 contents = root / 'build/SessionInbox.app/Contents'
 running = subprocess.run(['/bin/ps', '-axo', 'comm='], capture_output=True, text=True, check=True).stdout.splitlines()
 if str(contents / 'MacOS/SessionInbox') in [line.strip() for line in running]:
-    raise SystemExit('Quit 会话通知 before rebuilding its executable.')
+    raise SystemExit('Quit Agent Notification before rebuilding its executable.')
 (contents / 'MacOS').mkdir(parents=True, exist_ok=True)
 (contents / 'Resources').mkdir(parents=True, exist_ok=True)
 for icon in sorted((root / 'native/agent-icons').iterdir()):
@@ -25,7 +25,7 @@ subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-
                 str(root / 'native/InboxPolicy.swift'), str(root / 'native/SessionInbox.swift'), '-o', str(contents / 'MacOS/SessionInbox')], check=True)
 (contents / 'Info.plist').write_bytes(plistlib.dumps({
     'CFBundleExecutable': 'SessionInbox', 'CFBundleIdentifier': 'local.session-manager.inbox',
-    'CFBundleName': '会话通知', 'CFBundleDisplayName': '会话通知',
+    'CFBundleName': 'Agent Notification', 'CFBundleDisplayName': 'Agent Notification',
     'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.5.0',
     'CFBundleVersion': '11', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
     'NSHighResolutionCapable': True, 'SessionManagerRoot': str(root),

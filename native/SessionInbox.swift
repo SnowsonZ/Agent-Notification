@@ -1247,7 +1247,7 @@ struct TaskListView: View {
                 do {
                     let granted = try await center.requestAuthorization(options: [.alert, .sound])
                     notificationsAllowed = granted
-                    notificationStatus = granted ? "通知已开启" : "请在系统设置 → 通知中允许 会话通知"
+                    notificationStatus = granted ? "通知已开启" : "请在系统设置 → 通知中允许 Agent Notification"
                 } catch {
                     let detail = error as NSError
                     notificationStatus = "通知授权请求失败（\(detail.domain) \(detail.code)）"
@@ -1494,7 +1494,7 @@ struct InboxView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("会话通知").font(.system(size: 24, weight: .bold))
+                    Text("Agent Notification").font(.system(size: 24, weight: .bold))
                     Text(model.unreadCount == 0 ? "暂无新通知" : "\(model.unreadCount) 条会话有新动态")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -1735,7 +1735,7 @@ struct TrayIcon: View {
     var body: some Scene {
         // Window（而非 WindowGroup）：收件箱只允许一个实例，openWindow 聚焦已有窗口；
         // WindowGroup 的 openWindow 每次调用都会新建窗口。
-        Window("会话通知", id: "inbox") { InboxView(model: model) }
+        Window("Agent Notification", id: "inbox") { InboxView(model: model) }
             .defaultSize(width: 400, height: 620)
             .windowResizability(.contentMinSize)
         Window("日报", id: "dailyReport") { DailyReportView(model: reportModel) }

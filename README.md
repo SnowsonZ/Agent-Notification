@@ -4,12 +4,18 @@
 
 Session Manager 是运行于 macOS 的本地会话收件箱：汇总 Codex、Claude Code、Zcode 桌面会话与 iTerm2 中受管理的 Pi、Kimi CLI 会话，将需要人工介入的状态集中呈现，并提供定位回原会话的入口。
 
+## 界面预览
+
+| 待查看 | 全部会话 | 工作日报 |
+|---|---|---|
+| ![待查看列表](docs/images/inbox-pending.png) | ![全部会话列表](docs/images/inbox-all.png) | ![工作日报](docs/images/daily-report.png) |
+
 ## 项目组成
 
 | 组件 | 说明 |
 |---|---|
 | `bin/session-manager` | 统一命令行入口：受管理启动、绑定查询、会话聚焦、收件箱维护 |
-| 会话通知（`build/SessionInbox.app`） | 原生 macOS 应用：待处理列表、系统通知、菜单栏计数、CLI 快捷启动 |
+| Agent Notification（`build/SessionInbox.app`） | 原生 macOS 应用：待处理列表、系统通知、菜单栏计数、CLI 快捷启动 |
 | `build/zcode-focus` | Zcode 原生导航辅助工具（由 `native/ZcodeFocus.swift` 编译） |
 
 核心能力：
@@ -54,14 +60,14 @@ python3 scripts/build_inbox_app.py
 
 - 虚拟环境固定位于 `scratch/iterm-probe-venv`：`bin/session-manager` 按该路径定位 Python 解释器，请勿更改位置。
 - `scratch/` 与 `build/` 不纳入版本控制，由上述步骤生成。
-- 构建脚本拒绝覆盖正在运行的应用，重建前请先退出「会话通知」。
+- 构建脚本拒绝覆盖正在运行的应用，重建前请先退出「Agent Notification」。
 - 构建产物使用本地 ad-hoc 签名并通过 bundle 校验，不是分发公证；重新构建后如遇权限失效，需在系统设置中重新授权。
 
 初始化观察 hooks 并启动应用：
 
 ```sh
 bin/session-manager inbox setup   # 安装 Claude/Kimi 观察 hooks，保留既有配置，可重复执行
-bin/session-manager app           # 打开「会话通知」
+bin/session-manager app           # 打开「Agent Notification」
 ```
 
 应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「SessionInbox 控制 iTerm2」授权。
@@ -77,7 +83,7 @@ bin/session-manager app           # 打开「会话通知」
 | `bin/session-manager inbox setup` | 安装或更新观察 hooks（幂等，不覆盖既有配置） |
 | `bin/session-manager inbox rows \| sync \| open \| ack` | 收件箱数据查询与维护 |
 | `bin/session-manager inbox daily-report [--date YYYY-MM-DD] \| --overview` | 生成单日报告或热力图总览（自动补录缺失日期） |
-| `bin/session-manager app` | 打开「会话通知」 |
+| `bin/session-manager app` | 打开「Agent Notification」 |
 
 诊断脚本：
 

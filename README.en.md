@@ -6,12 +6,18 @@ Session Manager is a local session inbox for macOS: it aggregates Codex, Claude 
 
 > Note: the CLI, in-app UI, and all in-depth documentation are written in Chinese. This file covers the essentials in English.
 
+## Interface preview
+
+| Pending | All sessions | Daily report |
+|---|---|---|
+| ![Pending list](docs/images/inbox-pending.png) | ![All sessions](docs/images/inbox-all.png) | ![Daily report](docs/images/daily-report.png) |
+
 ## Components
 
 | Component | Description |
 |---|---|
 | `bin/session-manager` | Unified CLI: managed launch, binding queries, session focus, inbox maintenance |
-| Session Notifications (`build/SessionInbox.app`) | Native macOS app: pending list, system notifications, menu-bar count, one-click CLI launch |
+| Agent Notification (`build/SessionInbox.app`) | Native macOS app: pending list, system notifications, menu-bar count, one-click CLI launch |
 | `build/zcode-focus` | Native helper for Zcode accessibility navigation (built from `native/ZcodeFocus.swift`) |
 
 Key capabilities:
@@ -55,14 +61,14 @@ Notes:
 
 - The virtualenv location `scratch/iterm-probe-venv` is fixed: `bin/session-manager` resolves its Python interpreter at that path, so do not relocate it.
 - `scratch/` and `build/` are not tracked by git; the steps above create them.
-- The build script refuses to overwrite a running app — quit "Session Notifications" before rebuilding.
+- The build script refuses to overwrite a running app — quit "Agent Notification" before rebuilding.
 - The bundle is locally ad-hoc signed and verified; this is not notarized distribution. After a rebuild you may need to re-grant accessibility permission in System Settings.
 
 Install the observer hooks and launch the app:
 
 ```sh
 bin/session-manager inbox setup   # installs Claude/Kimi observer hooks, preserves existing config, idempotent
-bin/session-manager app           # opens "Session Notifications"
+bin/session-manager app           # opens "Agent Notification"
 ```
 
 The app detects locally installed CLIs (claude, codex, pi, kimi, agy, opencode) at startup and shows them as flat icon buttons in the "New Session" row for one-click directory launch in a new iTerm2 tab; when the row runs out of width, a "+N" button on the right collapses the remaining agents into a menu. agy (Antigravity CLI, the official successor to Gemini CLI) and opencode are launch-only for now — their sessions do not appear in the inbox yet.
@@ -77,7 +83,7 @@ The app detects locally installed CLIs (claude, codex, pi, kimi, agy, opencode) 
 | `bin/session-manager zcode-focus TASK_ID` | Open a Zcode task; `--describe` only parses task metadata |
 | `bin/session-manager inbox setup` | Install or update observer hooks (idempotent) |
 | `bin/session-manager inbox rows \| sync \| open \| ack` | Inbox data queries and maintenance |
-| `bin/session-manager app` | Open the "Session Notifications" app |
+| `bin/session-manager app` | Open the "Agent Notification" app |
 
 Run the test suite:
 
