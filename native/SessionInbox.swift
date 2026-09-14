@@ -184,7 +184,8 @@ struct ReportOverview: Decodable {
         self.root = root ?? Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String ?? ""
         // 20:00 触发用 60 秒粒度判定即可；App 晚于 20:00 启动时首查即补跑。
         let scheduler = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+            guard let self else { return }
+            Task { @MainActor in self.tick() }
         }
         RunLoop.main.add(scheduler, forMode: .common)
         timer = scheduler
@@ -1173,7 +1174,8 @@ struct TaskListView: View {
     init() {
         root = Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String ?? ""
         let tick = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            guard let self else { return }
+            Task { @MainActor in self.refresh() }
         }
         RunLoop.main.add(tick, forMode: .common)
         timer = tick
@@ -1466,8 +1468,9 @@ final class AccessibilitySetupController {
     private func startWatchdog() {
         watchdog?.invalidate()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                if let self, self.isGranted { self.dismiss() }
+                if self.isGranted { self.dismiss() }
             }
         }
         RunLoop.main.add(timer, forMode: .common)
