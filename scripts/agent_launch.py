@@ -3,7 +3,8 @@
 Only CLI agents are covered; desktop apps (Zcode, Claude Desktop, Codex
 Desktop) are deliberately out of scope. Managed agents (pi/kimi) must run
 through bin/session-manager so their bindings register with the inbox, and
-that launcher only works inside an iTerm2 tab.
+that launcher only works inside an iTerm2 tab. Unmanaged additions (agy,
+opencode) launch-only: their sessions do not enter the inbox yet.
 """
 import shlex
 import shutil
@@ -17,6 +18,9 @@ AGENTS = [
     {'id': 'codex', 'name': 'Codex', 'managed': False},
     {'id': 'pi', 'name': 'Pi', 'managed': True},
     {'id': 'kimi', 'name': 'Kimi', 'managed': True},
+    # Gemini CLI 已于 2026-06-18 对消费级用户停服，Google 官方继任者是 Antigravity CLI（命令 agy）。
+    {'id': 'agy', 'name': 'Antigravity CLI', 'managed': False},
+    {'id': 'opencode', 'name': 'OpenCode', 'managed': False},
 ]
 
 # GUI App 的 PATH 不含用户 shell 的安装目录（/opt/homebrew/bin 等），
@@ -26,6 +30,9 @@ WELL_KNOWN = {
     'codex': ('/opt/homebrew/bin/codex', '/usr/local/bin/codex', '~/.local/bin/codex'),
     'pi': ('/opt/homebrew/bin/pi', '/usr/local/bin/pi'),
     'kimi': ('~/.kimi-code/bin/kimi', '/opt/homebrew/bin/kimi', '/usr/local/bin/kimi'),
+    'agy': ('~/.local/bin/agy', '/opt/homebrew/bin/agy', '/usr/local/bin/agy'),
+    'opencode': ('/opt/homebrew/bin/opencode', '/usr/local/bin/opencode',
+                 '~/.opencode/bin/opencode', '~/.local/bin/opencode'),
 }
 
 

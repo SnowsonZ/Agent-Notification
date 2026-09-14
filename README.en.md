@@ -65,7 +65,7 @@ bin/session-manager inbox setup   # installs Claude/Kimi observer hooks, preserv
 bin/session-manager app           # opens "Session Notifications"
 ```
 
-The app detects locally installed CLIs (claude, codex, pi, kimi) at startup and offers one-click directory launch in a new iTerm2 tab.
+The app detects locally installed CLIs (claude, codex, pi, kimi, agy, opencode) at startup and shows them as flat icon buttons in the "New Session" row for one-click directory launch in a new iTerm2 tab; when the row runs out of width, a "+N" button on the right collapses the remaining agents into a menu. agy (Antigravity CLI, the official successor to Gemini CLI) and opencode are launch-only for now — their sessions do not appear in the inbox yet.
 
 ## CLI reference
 

@@ -265,6 +265,8 @@ func providerReportColor(_ provider: String) -> Color {
     case "claude": return Color(red: 0.851, green: 0.467, blue: 0.341) // #D97757
     case "pi": return Color(red: 0.392, green: 0.824, blue: 1.0)       // #64D2FF
     case "kimi": return Color(red: 0.749, green: 0.353, blue: 0.949)   // #BF5AF2
+    case "agy": return Color(red: 0.259, green: 0.522, blue: 0.957)    // #4285F4 Google 蓝
+    case "opencode": return Color(red: 0.961, green: 0.620, blue: 0.043) // #F59E0B 暂定
     default: return Color.secondary
     }
 }
@@ -1377,7 +1379,9 @@ func agentIcon(_ id: String) -> NSImage {
     let glyphs = ["pi": ("π", NSColor(srgbRed: 0.42, green: 0.48, blue: 0.55, alpha: 1)),
                   "kimi": ("K", NSColor(srgbRed: 0.30, green: 0.43, blue: 0.96, alpha: 1)),
                   "codex": (">_", NSColor(srgbRed: 0.35, green: 0.45, blue: 0.95, alpha: 1)),
-                  "zcode": ("Z", NSColor(srgbRed: 0.22, green: 0.25, blue: 0.30, alpha: 1))]
+                  "zcode": ("Z", NSColor(srgbRed: 0.22, green: 0.25, blue: 0.30, alpha: 1)),
+                  "agy": ("A", NSColor(srgbRed: 0.259, green: 0.522, blue: 0.957, alpha: 1)),
+                  "opencode": ("OC", NSColor(srgbRed: 0.961, green: 0.620, blue: 0.043, alpha: 1))]
     let (glyph, color) = glyphs[id] ?? ("?", NSColor.systemGray)
     let image = NSImage(size: size)
     image.lockFocus()
@@ -1398,7 +1402,90 @@ func stateName(_ state: String) -> String {    ["running": "运行中", "waiting
      "interrupted": "已中断", "closed": "已退出", "unknown": "状态待确认"][state] ?? state
 }
 func providerName(_ provider: String) -> String {
-    ["claude": "Claude", "codex": "Codex", "zcode": "Zcode", "pi": "Pi", "kimi": "Kimi"][provider] ?? provider
+    ["claude": "Claude", "codex": "Codex", "zcode": "Zcode", "pi": "Pi", "kimi": "Kimi",
+     "agy": "Antigravity CLI", "opencode": "OpenCode"][provider] ?? provider
+}
+
+// 「新建会话」行：已安装 agent 图标按钮平铺；放不下时行尾收敛为「+N」菜单，点击列出剩余 agent。
+// GeometryReader 独占整行拿可用宽度，按预算常数折算容量——不做子视图测量，避免布局提案耦合
+// （裸 swiftc 构建没有 SwiftUIMacros，视图里用不了 @State）。
+struct NewSessionLauncherRow: View {
+    @ObservedObject var model: InboxModel
+    // 标签「新建会话」自然宽度 ≤ 48pt，加一处 12pt 间距与 8pt 保险；宁可提前出「+N」也不裁切按钮。
+    private let labelBudget: CGFloat = 68
+
+    var body: some View {
+        GeometryReader { proxy in
+            let total = model.agents.count
+            let visible = visibleCount(available: proxy.size.width, total: total)
+            HStack(spacing: 12) {
+                Text("新建会话").font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
+                ForEach(model.agents.prefix(visible)) { agent in
+                    launcherButton(agent)
+                }
+                if visible < total {
+                    overflowMenu(hidden: Array(model.agents.suffix(total - visible)))
+                }
+                Spacer()
+            }
+        }
+        .frame(height: 36)
+    }
+
+    // 每个按钮占 36pt 图标 + 12pt 间距；全部放得下就不显示「+N」。
+    private func visibleCount(available: CGFloat, total: Int) -> Int {
+        let usable = max(0, available - labelBudget)
+        if CGFloat(48 * total) - 12 <= usable + 0.5 { return total }
+        return max(1, Int((usable - 36) / 48))
+    }
+
+    @ViewBuilder
+    private func launcherButton(_ agent: AgentEntry) -> some View {
+        Button {
+            model.launch(agent)
+        } label: {
+            Image(nsImage: agentIcon(agent.id))
+                .resizable()
+                .frame(width: 24, height: 24)
+                .frame(width: 36, height: 36)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .disabled(!agent.iterm)
+        .accessibilityLabel("新建 \(agent.name) 会话")
+        .help(agent.iterm ? "选择目录并在 iTerm2 新标签中启动 \(agent.name)" : "未检测到 iTerm2，无法在此启动")
+    }
+
+    private func overflowMenu(hidden: [AgentEntry]) -> some View {
+        Menu {
+            ForEach(hidden) { agent in
+                Button {
+                    model.launch(agent)
+                } label: {
+                    Label {
+                        Text(agent.name)
+                    } icon: {
+                        Image(nsImage: agentIcon(agent.id))
+                            .resizable()
+                            .frame(width: 16, height: 16)
+                    }
+                }
+                .disabled(!agent.iterm)
+            }
+        } label: {
+            Text("+\(hidden.count)")
+                .font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 36, height: 36)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("其余 \(hidden.count) 个 agent")
+        .help("其余 \(hidden.count) 个 agent：" + hidden.map { $0.name }.joined(separator: "、"))
+    }
 }
 struct InboxView: View {
     @ObservedObject var model: InboxModel
@@ -1433,25 +1520,7 @@ struct InboxView: View {
                 .help("刷新").disabled(model.loading)
             }
             if !model.agents.isEmpty {
-                HStack(spacing: 12) {
-                    Text("新建会话").font(.caption).foregroundStyle(.secondary)
-                    ForEach(model.agents) { agent in
-                        Button {
-                            model.launch(agent)
-                        } label: {
-                            Image(nsImage: agentIcon(agent.id))
-                                .resizable()
-                                .frame(width: 24, height: 24)
-                                .frame(width: 36, height: 36)
-                                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!agent.iterm)
-                        .accessibilityLabel("新建 \(agent.name) 会话")
-                        .help(agent.iterm ? "选择目录并在 iTerm2 新标签中启动 \(agent.name)" : "未检测到 iTerm2，无法在此启动")
-                    }
-                    Spacer()
-                }
+                NewSessionLauncherRow(model: model)
             }
             VStack(spacing: 10) {
                 Picker("显示范围", selection: $model.showAll) {

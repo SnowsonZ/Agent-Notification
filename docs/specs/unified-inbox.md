@@ -16,7 +16,7 @@ App 图标由 `native/GenerateAppIcon.swift` 绘制：agent 头像为主体，�
 bin/session-manager app
 ```
 
-应用为 `build/SessionInbox.app`。窗口显示“待处理 / 全部会话”，菜单栏图标显示待处理数量，可重新打开列表。窗口关闭后，App 未退出时仍每 3 秒刷新。收件箱为单实例：重复点通知、托盘或 `open` 只聚焦已有窗口，不会新建。支持系统通知；没有配置登录自启动或全局热键。全部会话按最新活动时间倒序、懒加载：初始 20 条，滚动到底自动追加下一页，无手动翻页；搜索或切换列表重置已加载页。待处理列表保留等待/错误优先级。列表内 agent 名称使用各家品牌主色（Claude 橙红、Codex 蓝、Kimi 深蓝、Pi 灰蓝、Zcode 石墨）。
+应用为 `build/SessionInbox.app`。窗口显示“待处理 / 全部会话”，菜单栏图标显示待处理数量，可重新打开列表。窗口关闭后，App 未退出时仍每 3 秒刷新。收件箱为单实例：重复点通知、托盘或 `open` 只聚焦已有窗口，不会新建。支持系统通知；没有配置登录自启动或全局热键。全部会话按最新活动时间倒序、懒加载：初始 20 条，滚动到底自动追加下一页，无手动翻页；搜索或切换列表重置已加载页。待处理列表保留等待/错误优先级。列表内 agent 名称使用各家品牌主色（Claude 橙红、Codex 蓝、Kimi 深蓝、Pi 灰蓝、Zcode 石墨、Antigravity 谷歌蓝暂定、OpenCode 琥珀暂定）。
 
 Pi/Kimi 继续使用现有入口启动，之后的会话状态自动进入列表：
 
@@ -35,10 +35,11 @@ Pi 标题优先使用自定义会话名，否则截取首条用户消息最多 8
 
 ## CLI 启动入口
 
-窗口顶部「新建会话」行在启动时检测本机安装的 agent CLI，只显示已安装项；范围仅限四个 CLI（claude、codex、pi、kimi，经 `shutil.which` 检测），桌面 App 不在入口范围。点击按钮先选目录（记住上次位置），再在 iTerm2 新标签中 `cd <目录>` 并启动：
+窗口顶部「新建会话」行平铺已安装 agent 的图标按钮，启动时检测本机已安装的 agent CLI（经 `shutil.which` 与常见安装位置检测，只显示已安装项）；范围仅限六个 CLI（claude、codex、pi、kimi、agy、opencode），桌面 App 不在入口范围。窗口放不下全部按钮时，行尾收敛为一个「+N」按钮，点击菜单列出剩余 agent，窗口宽度变化时自动重排。点击按钮先选目录（记住上次位置），再在 iTerm2 新标签中 `cd <目录>` 并启动：
 
 - Claude/Codex 直接运行对应命令；会话事件经既有 hooks 与 rollout 采集管道进入收件箱。
-- Pi/Kimi 经 `bin/session-manager pi|kimi` 受管理启动，绑定自动注册。该机制要求 iTerm2 标签环境；未检测到 iTerm2 时按钮置灰并提示原因。
+- Pi/Kimi 经 `bin/session-manager pi|kimi` 受管理启动，绑定自动注册。该机制要求 iTerm2 标签环境；未检测到 iTerm2 时菜单项置灰并提示原因。
+- Antigravity CLI（agy）/OpenCode 目前仅启动：未过受管理启动器、无采集管道，其会话不进入收件箱列表（按 cli-session-binding.md，未通过启动器运行的会话不自动归属）；后续按各家 hook 能力逐家评估接入。Gemini CLI 已于 2026-06-18 对消费级用户停止服务，不再收录，Google 官方继任者为 Antigravity CLI。
 - 首次启动会请求「SessionInbox 控制 iTerm2」自动化授权；拒绝或 AppleScript 失败时启动失败并在窗口内显示原因，不换控制技术绕过。
 - 标签创建成功只代表会话已启动；"本轮完成"等状态仍以各来源真实事件为准，不由启动入口推断。
 

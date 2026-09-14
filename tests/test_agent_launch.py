@@ -16,7 +16,8 @@ def which_only(*names):
 
 class AgentLaunchTests(unittest.TestCase):
     def test_agents_catalog_lists_only_clis(self):
-        self.assertEqual({spec['id'] for spec in AGENTS}, {'claude', 'codex', 'pi', 'kimi'})
+        self.assertEqual({spec['id'] for spec in AGENTS},
+                         {'claude', 'codex', 'pi', 'kimi', 'agy', 'opencode'})
 
     def test_managed_agents_use_absolute_launcher(self):
         repo = Path('/repo')
@@ -26,6 +27,8 @@ class AgentLaunchTests(unittest.TestCase):
     def test_unmanaged_agents_run_bare_command(self):
         self.assertEqual(command_for('claude'), 'claude')
         self.assertEqual(command_for('codex'), 'codex')
+        self.assertEqual(command_for('agy'), 'agy')
+        self.assertEqual(command_for('opencode'), 'opencode')
 
     def test_unknown_agent_is_rejected(self):
         with self.assertRaises(ValueError):

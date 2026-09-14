@@ -64,7 +64,7 @@ bin/session-manager inbox setup   # 安装 Claude/Kimi 观察 hooks，保留既�
 bin/session-manager app           # 打开「会话通知」
 ```
 
-应用启动时检测本机安装的 CLI（claude、codex、pi、kimi），在「新建会话」行提供对应的一键目录启动（iTerm2 新标签）。首次从应用启动 CLI 会请求「SessionInbox 控制 iTerm2」授权。
+应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「SessionInbox 控制 iTerm2」授权。
 
 ## 命令行参考
 
