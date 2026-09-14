@@ -66,6 +66,12 @@ Zcode 会用最新轮次的真实时间作事件时钟，任务的改名或查�
 
 状态：running、waiting、idle、failed、interrupted、closed、unknown。“本轮已结束”不表示业务目标成功。Stop 后如果继续运行，后续运行事件会清除过期的待处理状态。来源没有事件时不能凭一段时间无输出判断完成。
 
+状态与展示文案对照：running→运行中、waiting→等待输入、idle→本轮已结束、failed→发生错误、interrupted→已中断、closed→已退出、unknown→状态待确认。未读视图 waiting 优先、failed 次之；closed 且无法打开的项直接过滤。卡片时间是距最近一次状态事件或活动的时间，不是回合耗时。
+
+各状态的可达来源（2026-09-14 梳理）：`waiting` 只来自 hooks 与 Pi 扩展事件（Claude/Kimi PermissionRequest、Pi ui_prompt_start）；`closed` 只来自 Claude/Kimi SessionEnd 与 Pi session_shutdown；`failed` 来自各来源 error/StopFailure；`interrupted` 来自 Codex turn_aborted、Zcode 回合取消和 hook Interrupt；`unknown` 是库默认值及未知 task_status 的兜底。
+
+Zcode 边界：任务索引的 task_status 只持久化 running/completed/error，`turn_usage` 只在回合结束后落行且无等待类状态；“等待权限批准”只存在于桌面应用内存，不持久化。采集器用索引弥补回合行滞后：task_status 为 running 且更新时间晚于最新已记录回合结束、且该回合结束事件不是本批刚落库时，推断为“运行中”；推断时间戳不超过该回合结束时刻，真实完成事件始终能覆盖推断（2026-09-14 实现）。残余盲区：索引自身停在 completed 的运行中会话仍显示上一回合终态；“等待权限”与“运行中”不可区分，统一显示“运行中”；Zcode 的 waiting 映射仍是死分支。这是数据源边界，不是采集器缺陷；证据与查询见 [Zcode 状态语义排查](../research/2026-09-14-zcode-state-semantics.md)，Zcode 未来持久化等待信号后应回补采集。
+
 事件有稳定 ID 时去重；旧时间戳事件不能覆盖较新的状态。CLI hooks 没有可靠 turn ID 的情况按接收顺序处理，尚未承诺异常重排情况下的精确顺序。快照元数据更新不单独构成新注意事项。activity_at 用于排序，与状态事件时钟分离，查看或改名不冒充任务完成。
 
 ## CLI 与维护
@@ -91,7 +97,7 @@ python3 scripts/build_inbox_app.py
 
 ## 验证证据
 
-- 当前 55 项 Python 检查通过，包括重复完成事件不恢复已处理项、旧 UI 不能清掉新回复、迟到事件不覆盖新运行、相同 unread marker 不重复提醒、源配置安装幂等，以及 Zcode 无蓝点完成、旧时钟迁移和独立已处理状态。
+- 当前 68 项 Python 检查通过，包括重复完成事件不恢复已处理项、旧 UI 不能清掉新回复、迟到事件不覆盖新运行、相同 unread marker 不重复提醒、源配置安装幂等，以及 Zcode 无蓝点完成、旧时钟迁移、独立已处理状态和运行中推断（活跃回合显示运行中、真实完成覆盖推断、滞后索引不能覆盖已记录完成）。
 - 原生 App 已实际打开，显示真实多来源会话，“全部 / 待处理”过滤工作正常。
 - 注入明确标注“模拟事件”的测试项后，UI 待处理计数变成 1；点击已处理后变成 0，数据库确认未读已清除。该模拟项随后隐藏，未操作任何真实待办。
 - 未通过本轮 UI 操作去绕过对 Codex/iTerm2 的 Computer Use 限制；对应导航沿用此前已验证的入口，最终从 App 点击的权限行为由用户使用时确认。

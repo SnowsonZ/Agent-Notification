@@ -24,6 +24,7 @@ python3 scripts/build_inbox_app.py
 |---|---|---|
 | [统一收件箱](docs/specs/unified-inbox.md) | 当前使用入口、数据来源、配置和已知边界 | App 已编译；真实导入、列表与已处理 UI 验证通过 |
 | [Zcode 待处理遗漏修复](docs/research/2026-09-14-zcode-inbox-fix.md) | 原生蓝点与独立待处理状态的区别、轮次数据接入 | 已回补真实遗漏任务；50 项检查通过 |
+| [Zcode 状态语义排查](docs/research/2026-09-14-zcode-state-semantics.md) | 等待权限与回复完毕均显示“本轮已结束”的原因；状态可达性边界 | 运行中推断已实现；等待权限仍不可区分，Zcode 持久化等待信号后回补 |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 现成工具比较与选型依据 | 前期调研，早于宿主范围最终确认 |
 | [会话收件箱方案](docs/plans/session-inbox.md) | 五路接入、通知抓取评估、实现建议和验收 | 当前方案，待接入验证；不是已验证规格 |
 | [本机接入验证](docs/research/2026-09-13-integration-probe.md) | 当前版本证据、可复现检查与联调缺口 | Claude 正常结束闭环通过一次；其余状态和来源待测 |
