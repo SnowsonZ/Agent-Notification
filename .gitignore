@@ -8,3 +8,4 @@ build/
 *.sqlite-wal
 *.sqlite-shm
 .zcode/
+.agents/
