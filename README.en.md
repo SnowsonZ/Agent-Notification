@@ -47,7 +47,7 @@ Key capabilities:
 
 ## Quick start
 
-From the repository root:
+A prebuilt SessionInbox.dmg is available on the [Releases](../../releases) page (double-click and drag into Applications). To build from source, from the repository root:
 
 ```sh
 python3 -m venv scratch/iterm-probe-venv
