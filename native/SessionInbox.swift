@@ -1968,6 +1968,10 @@ struct NewSessionLauncherRow: View {
 struct InboxView: View {
     @ObservedObject var model: InboxModel
     @Environment(\.openWindow) private var openWindow
+    private var notificationSymbol: String {
+        guard model.notificationsEnabled else { return "bell.slash" }
+        return model.notificationsAllowed ? "bell.badge.fill" : "bell.badge"
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("会话通知").font(.system(size: 22, weight: .bold))
@@ -1976,6 +1980,7 @@ struct InboxView: View {
             }
             VStack(spacing: 8) {
                 // 分段筛选居中；搜索默认只是行尾一个图标，点开才展开输入框。
+                // 新建会话与筛选之间多留一段，把「启动」和「查看」两块分开。
                 HStack {
                     Spacer()
                     Picker("显示范围", selection: $model.showAll) {
@@ -2001,6 +2006,7 @@ struct InboxView: View {
                     InboxSearchField(model: model)
                 }
             }
+            .padding(.top, 8)
             if model.visible.isEmpty {
                 Spacer()
                 VStack(spacing: 10) {
@@ -2064,9 +2070,12 @@ struct InboxView: View {
                     Label("工作日报", systemImage: "chart.bar.doc.horizontal")
                 }
                 .help("工作日报")
+                // 图标跟随用户开关：开且已授权=实心铃铛，开但未授权=空心铃铛（状态文字在列表下方），关=划线。
+                // 工具栏项会缓存 label，按状态换 id 强制重建，否则切换后图标不刷新。
                 Button { model.toggleNotifications() } label: {
-                    Label("通知", systemImage: model.notificationsEnabled && model.notificationsAllowed ? "bell.badge.fill" : "bell.slash")
+                    Label("通知", systemImage: notificationSymbol)
                 }
+                .id(notificationSymbol)
                 .help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
                 Button { model.refresh() } label: {
                     Label("刷新", systemImage: "arrow.clockwise")
