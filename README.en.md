@@ -60,6 +60,7 @@ python3 scripts/build_inbox_app.py
 Notes:
 
 - The virtualenv location `scratch/iterm-probe-venv` is fixed: `bin/session-manager` resolves its Python interpreter at that path, so do not relocate it.
+- That is the developer bundle: the app runs the repository's scripts and venv in place. The Release dmg is built with `python3 scripts/build_inbox_app.py --standalone`, which copies the scripts, `bin/session-manager`, `zcode-focus` and the pure-Python deps (`requirements-standalone.txt`) into `Contents/Resources`, so it runs without a checkout; it needs a python3 3.9+ on the machine (Homebrew or Xcode Command Line Tools). Both bundles share one codebase and switch on whether `Resources/pylib` exists.
 - `scratch/` and `build/` are not tracked by git; the steps above create them.
 - The build script refuses to overwrite a running app — quit "Agent Notification" before rebuilding.
 - The bundle is locally ad-hoc signed and verified; this is not notarized distribution. After a rebuild, re-drag the app into the Accessibility list (`bin/session-manager permissions`).

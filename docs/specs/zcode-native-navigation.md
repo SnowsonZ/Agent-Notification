@@ -38,7 +38,7 @@
 
 随后一次运行未切换，用户提供 `focus_changed_by_user; no further input sent`。该消息只能证明观察到前台不再是目标 PID，不能推断用户手动切换。现改为中性 focus_changed，并记录 observed bundle ID 和当前执行阶段，保留停止输入保护。
 
-入口自动将每次运行的阶段轨迹、helper SHA-256、开始时间及最终输出写到 `scratch/zcode-focus-latest.json`（0600）。终端仅显示最终结果，阶段日志不夹杂在用户输出里。编译、自检和日志保存/输出过滤测试通过；等待带日志的原生运行定位具体焦点来源。在拿到新证据前不继续堆叠重试或关闭焦点保护。
+入口自动将每次运行的阶段轨迹、helper SHA-256、开始时间及最终输出写到 `scratch/zcode-focus-latest.json`（0600；自包含发布包内没有 `scratch/`，改写到 `~/.local/state/session-manager/zcode-focus-latest.json`）。终端仅显示最终结果，阶段日志不夹杂在用户输出里。编译、自检和日志保存/输出过滤测试通过；等待带日志的原生运行定位具体焦点来源。在拿到新证据前不继续堆叠重试或关闭焦点保护。
 
 ## 定位方式
 

@@ -74,11 +74,13 @@ def main():
         if args.describe:
             print(json.dumps(data, ensure_ascii=False, indent=2))
             return 0
-        helper = Path(__file__).resolve().parents[1] / 'build/zcode-focus'
+        base = Path(__file__).resolve().parents[1]  # 仓库根，或发布包的 Contents/Resources
+        helper = base / 'build/zcode-focus'
         if not helper.is_file():
             raise ValueError('native helper is not built')
-        return run_helper(helper, data, args.diagnose_search,
-                          helper.parent.parent / 'scratch/zcode-focus-latest.json')
+        # 仓库内沿用 scratch/；发布包不能往已签名的 bundle 里写，阶段日志放状态目录。
+        log_dir = base / 'scratch' if (base / 'scratch').is_dir() else Path.home() / '.local/state/session-manager'
+        return run_helper(helper, data, args.diagnose_search, log_dir / 'zcode-focus-latest.json')
     except (ValueError, OSError, sqlite3.Error, subprocess.TimeoutExpired) as error:
         reason = str(error) if isinstance(error, ValueError) else type(error).__name__
         print(json.dumps({'status': 'refused', 'reason': reason}), file=sys.stderr)

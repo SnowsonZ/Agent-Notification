@@ -1,10 +1,30 @@
 #!/bin/sh
 set -eu
 task_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-runtime="$task_root/scratch/iterm-probe-venv/bin/python"
-if [ ! -x "$runtime" ]; then
-    echo "Missing runtime: $runtime" >&2
-    exit 1
+if [ -d "$task_root/pylib" ]; then
+    # 发布包：task_root 是 .app/Contents/Resources，依赖随包，解释器用本机 python3。
+    # /usr/bin/python3 需要 Command Line Tools，未安装时只是个会弹窗的桩，放到最后并先验证。
+    runtime=""
+    for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+        if [ -x "$candidate" ] && "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+            runtime="$candidate"
+            break
+        fi
+    done
+    if [ -z "$runtime" ]; then
+        echo "Missing runtime: python3 (3.9+) not found; install Xcode Command Line Tools or Homebrew python" >&2
+        exit 1
+    fi
+    export PYTHONPATH="$task_root/pylib${PYTHONPATH:+:$PYTHONPATH}"
+    export PYTHONDONTWRITEBYTECODE=1  # 不往已签名的 bundle 里写 __pycache__
+    app_bundle=$(CDPATH= cd -- "$task_root/../.." && pwd)
+else
+    runtime="$task_root/scratch/iterm-probe-venv/bin/python"
+    if [ ! -x "$runtime" ]; then
+        echo "Missing runtime: $runtime" >&2
+        exit 1
+    fi
+    app_bundle="$task_root/build/Agent Notification.app"
 fi
 action=${1:-help}
 if [ "$#" -gt 0 ]; then shift; fi
@@ -32,14 +52,14 @@ case "$action" in
         exec "$runtime" "$task_root/scripts/inbox.py" "$@"
         ;;
     app)
-        exec /usr/bin/open "$task_root/build/Agent Notification.app"
+        exec /usr/bin/open "$app_bundle"
         ;;
     permissions)
-        if [ ! -d "$task_root/build/Agent Notification.app" ]; then
-            echo "Missing app: $task_root/build/Agent Notification.app (run scripts/build_inbox_app.py first)" >&2
+        if [ ! -d "$app_bundle" ]; then
+            echo "Missing app: $app_bundle (run scripts/build_inbox_app.py first)" >&2
             exit 1
         fi
-        /usr/bin/open -R "$task_root/build/Agent Notification.app"
+        /usr/bin/open -R "$app_bundle"
         /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         echo "在系统设置「隐私与安全性 → 辅助功能」中，把 Finder 里的 Agent Notification.app 拖进右侧列表。"
         ;;
