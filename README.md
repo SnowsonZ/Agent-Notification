@@ -8,9 +8,9 @@ Agent Notification is a local session inbox for macOS: it aggregates Codex, Clau
 
 ## Interface preview
 
-| Pending | All sessions | Daily report |
-|---|---|---|
-| ![Pending list](docs/images/inbox-pending.png) | ![All sessions](docs/images/inbox-all.png) | ![Daily report](docs/images/daily-report.png) |
+| Pending | All sessions | Daily report | Day detail |
+|---|---|---|---|
+| ![Pending list](docs/images/inbox-pending.png) | ![All sessions](docs/images/inbox-all.png) | ![Daily report](docs/images/daily-report.png) | ![Day detail](docs/images/daily-report-day.png) |
 
 ## Components
 

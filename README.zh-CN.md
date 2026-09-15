@@ -6,9 +6,9 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 
 ## 界面预览
 
-| 待查看 | 全部会话 | 工作日报 |
-|---|---|---|
-| ![待查看列表](docs/images/inbox-pending.png) | ![全部会话列表](docs/images/inbox-all.png) | ![工作日报](docs/images/daily-report.png) |
+| 待查看 | 全部会话 | 工作日报 | 当日详情 |
+|---|---|---|---|
+| ![待查看列表](docs/images/inbox-pending.png) | ![全部会话列表](docs/images/inbox-all.png) | ![工作日报](docs/images/daily-report.png) | ![当日详情](docs/images/daily-report-day.png) |
 
 ## 项目组成
 
