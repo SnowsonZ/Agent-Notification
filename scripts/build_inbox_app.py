@@ -58,8 +58,8 @@ subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-
 info = {
     'CFBundleExecutable': 'Agent Notification', 'CFBundleIdentifier': 'local.session-manager.inbox',
     'CFBundleName': 'Agent Notification', 'CFBundleDisplayName': 'Agent Notification',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.5.1',
-    'CFBundleVersion': '12', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.5.2',
+    'CFBundleVersion': '13', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
     'NSHighResolutionCapable': True,
     'NSAppleEventsUsageDescription': '用于定位 iTerm2 中已有的 agent 会话，不向终端输入命令。',
 }
