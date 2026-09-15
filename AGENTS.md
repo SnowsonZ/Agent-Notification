@@ -1,6 +1,6 @@
 # Session Manager
 
-本地 macOS 会话收件箱：汇总 Claude/Codex/Zcode 桌面任务和受管理的 Pi/Kimi CLI 会话，并定位回原会话。当前实现与使用入口见 README.md，能力边界以 docs/specs/ 为准。
+本地 macOS 会话收件箱：汇总 Claude/Codex/Zcode 桌面任务和受管理的 Pi/Kimi CLI 会话，并定位回原会话。当前实现与使用入口见 README.zh-CN.md（README.md 为英文简版），能力边界以 docs/specs/ 为准。
 
 ## 开发入口
 
@@ -8,7 +8,7 @@
 - Python 检查：`python3 -m unittest discover -s tests -v`。
 - Zcode 辅助程序：`xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus`；无 UI 自检：`build/zcode-focus --self-test`。
 - 原生收件箱构建：`python3 scripts/build_inbox_app.py`。先退出正在运行的本项目 App，再覆盖可执行文件。
-- 新环境依赖与启动步骤见 README.md。不要把现有本机虚拟环境视为仓库自带依赖。
+- 新环境依赖与启动步骤见 README.zh-CN.md。不要把现有本机虚拟环境视为仓库自带依赖。
 
 ## 文档与提交
 
