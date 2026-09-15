@@ -1,0 +1,5 @@
+# 发布包（--standalone）内置的纯 Python 依赖，按 macOS 自带 python3（3.9）可用的版本锁定；
+# 开发环境仍按 requirements.txt 建 venv。
+iterm2==2.23
+protobuf==6.33.6
+websockets==15.0.1

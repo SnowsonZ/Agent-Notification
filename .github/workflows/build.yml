@@ -32,7 +32,7 @@ jobs:
           xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus
 
       - name: Build Agent Notification.app
-        run: python3 scripts/build_inbox_app.py
+        run: python3 scripts/build_inbox_app.py --standalone
 
       - name: Run tests
         run: scratch/iterm-probe-venv/bin/python -m unittest discover -s tests
