@@ -38,17 +38,10 @@ func tokenText(_ value: Int) -> String {
     }
     return String(value)
 }
-// 日报 20:00 定时语义：过了当天 20:00 且「日期#版本」标记不匹配即触发；
-// App 晚于 20:00 启动时首查即补跑。标记带 schema 版本，报告结构升级后当天会重生成。
+// 日报日期键「YYYY-MM-DD」：今日高亮与实时标注按它比对报告日期。
 func dailyReportDayKey(_ date: Date, calendar: Calendar = .current) -> String {
     let components = calendar.dateComponents([.year, .month, .day], from: date)
     return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
-}
-func shouldGenerateDailyReport(now: Date, lastGeneratedStamp: String?, version: Int, hour: Int = 20,
-                               calendar: Calendar = .current) -> Bool {
-    let components = calendar.dateComponents([.hour, .minute], from: now)
-    guard (components.hour ?? 0) * 60 + (components.minute ?? 0) >= hour * 60 else { return false }
-    return lastGeneratedStamp != "\(dailyReportDayKey(now, calendar: calendar))#\(version)"
 }
 // 节奏带时间轴：时间戳相对当天 0 点的小时数，截到 [0, 24]。
 // 跨零点任务的末次时间是次日 00:00，按"时:分"取值会变成 0 而画出负宽度，这里按偏移算即为 24。

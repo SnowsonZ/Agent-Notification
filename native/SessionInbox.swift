@@ -60,17 +60,9 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
-            let isDailyReport = (response.notification.request.content.userInfo["kind"] as? String) == "daily_report"
             Task { @MainActor in
                 NSApplication.shared.activate(ignoringOtherApps: true)
-                if isDailyReport {
-                    // 日报通知点击只进日报窗口，不打扰收件箱。
-                    if let window = NSApplication.shared.windows.first(where: { $0.identifier?.rawValue == "dailyReport" && $0.isVisible }) {
-                        window.makeKeyAndOrderFront(nil)
-                    } else {
-                        NotificationCenter.default.post(name: .reopenDailyReport, object: nil)
-                    }
-                } else if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
+                if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
                     window.makeKeyAndOrderFront(nil)
                 } else {
                     // Window 已被关闭时 SwiftUI 已释放它，只能经 openWindow 重建；
@@ -85,7 +77,6 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
 
 extension Notification.Name {
     static let reopenInbox = Notification.Name("SessionInboxReopenInbox")
-    static let reopenDailyReport = Notification.Name("SessionInboxReopenDailyReport")
 }
 
 // Dock 未读角标：dockTile.badgeLabel 在本应用不渲染（见 InboxModel.updateDockBadge 注），
@@ -215,19 +206,8 @@ struct ReportOverview: Decodable {
     @Published var loading = false
     @Published var error: String?
     let root: String
-    static let reportVersion = 2
-    private var generating = false
-    private var timer: Timer?
     init(root: String? = nil) {
         self.root = root ?? Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String ?? ""
-        // 20:00 触发用 60 秒粒度判定即可；App 晚于 20:00 启动时首查即补跑。
-        let scheduler = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in self.tick() }
-        }
-        RunLoop.main.add(scheduler, forMode: .common)
-        timer = scheduler
-        tick()
     }
     nonisolated static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -266,35 +246,6 @@ struct ReportOverview: Decodable {
             do { selectedDay = try Self.decode(DayReport.self, from: result.1) }
             catch { self.error = "当日报告读取失败：" + error.localizedDescription }
         }
-    }
-    func tick(now: Date = Date()) {
-        guard !generating else { return }
-        let stored = UserDefaults.standard.string(forKey: "dailyReportLastGeneratedDay")
-        guard shouldGenerateDailyReport(now: now, lastGeneratedStamp: stored, version: Self.reportVersion) else { return }
-        generating = true
-        Task {
-            // 生成失败静默等下个 tick 重试；成功才记键、通知并刷新总览。
-            let result = await run(["daily-report", "--persist"])
-            generating = false
-            guard result.0 == 0 else { return }
-            UserDefaults.standard.set(
-                "\(dailyReportDayKey(Date()))#\(Self.reportVersion)", forKey: "dailyReportLastGeneratedDay")
-            notifyGenerated(result.1)
-            loadOverview()
-        }
-    }
-    private func notifyGenerated(_ data: Data) {
-        var body = "今天的工作日报已生成"
-        if let report = try? Self.decode(DayReport.self, from: data) {
-            body = "今日 token 合计 \(tokenText(report.totals.totalTokens)) · \(report.totals.tasks) 个任务"
-        }
-        let content = UNMutableNotificationContent()
-        content.title = "日报已生成"
-        content.body = body
-        content.sound = .default
-        content.userInfo = ["kind": "daily_report", "date": dailyReportDayKey(Date())]
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: "daily-report-" + dailyReportDayKey(Date()), content: content, trigger: nil))
     }
 }
 
@@ -407,7 +358,7 @@ struct DailyReportView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("工作日报").font(.system(size: 24, weight: .bold))
-                        Text("数据来自本地会话元数据 · 今日随时实时汇总 · 每天 20:00 固化并通知").font(.subheadline).foregroundStyle(.secondary)
+                        Text("数据来自本地会话元数据 · 今日随时实时汇总 · 次日首次查看定稿").font(.subheadline).foregroundStyle(.secondary)
                     }
                     if let error = model.error {
                         HStack(alignment: .top, spacing: 8) {
@@ -928,11 +879,11 @@ struct SummaryCardView: View {
         }
         .dailyReportCard()
     }
-    // 今天不固化：每次打开即时重算，标明截止时刻，避免误以为 20:00 前已"生成"。
+    // 今天不固化：每次打开即时重算，标明截止时刻，次日首次查看时补算定稿。
     private var liveLabel: String? {
         guard report.date == dailyReportDayKey(Date()) else { return nil }
         let until = reportClock(report.generatedAt ?? Date().timeIntervalSince1970)
-        return "实时汇总 · 截至 \(until) · 20:00 固化"
+        return "实时汇总 · 截至 \(until)"
     }
     private var activeSourceCount: Int {
         report.totals.sources.values.filter { $0.totalTokens > 0 }.count
@@ -1952,10 +1903,6 @@ struct TrayIcon: View {
             .padding(.trailing, 5)
             .onReceive(NotificationCenter.default.publisher(for: .reopenInbox)) { _ in
                 openWindow(id: "inbox")
-                NSApplication.shared.activate()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .reopenDailyReport)) { _ in
-                openWindow(id: "dailyReport")
                 NSApplication.shared.activate()
             }
     }

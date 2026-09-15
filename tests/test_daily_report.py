@@ -263,7 +263,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(again['totals'], report['totals'])
         self.assertEqual(again['generated_at'], report['generated_at'])
 
-    def test_generate_day_keeps_today_live_unless_persist_requested(self):
+    def test_generate_day_keeps_today_live(self):
         today = date.today()
         self.zcode_index('sess_a')
         self.zcode_turn('sess_a', 't1', stamp(today, 0, 5), stamp(today, 0, 10), fresh=10)
@@ -271,9 +271,6 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(report['totals']['total_tokens'], 10)
         self.assertNotIn('path_md', report)
         self.assertIsNone(load_report(self.store.root, today.isoformat()))
-        persisted = generate_day(self.store, self.home, today.isoformat(), persist_today=True)
-        self.assertTrue(Path(persisted['path_md']).exists())
-        self.assertEqual(load_report(self.store.root, today.isoformat())['totals'], report['totals'])
 
     def test_task_segments_follow_real_activity_not_first_to_last_span(self):
         # Zcode：两轮相隔 6 小时，节奏带应得两段真实轮区间而非 09–17 一整条。
@@ -354,7 +351,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(load_report(self.store.root, self.day.isoformat())['totals']['total_tokens'], 1100)
 
     def test_overview_refreshes_past_day_snapshot_taken_before_day_end(self):
-        # 20:00 定时快照缺晚间消耗：generated_at 早于当日结束的过去日在总览中补算一次后定稿。
+        # 当日结束前的快照缺晚间消耗：generated_at 早于当日结束的过去日在总览中补算一次后定稿。
         self.zcode_index('sess_a', project='/work/alpha')
         self.zcode_turn('sess_a', 't1', stamp(self.day, 10), stamp(self.day, 11), fresh=600)
         snapshot = build_report(self.day, [], stamp(self.day, 20))
