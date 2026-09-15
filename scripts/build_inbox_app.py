@@ -83,8 +83,8 @@ info = {
     'CFBundleExecutable': 'Agent Notification', 'CFBundleIdentifier': 'local.session-manager.inbox',
     # 可执行文件与 bundle 目录名保留英文（路径稳定），用户可见名称为中文。
     'CFBundleName': '会话通知', 'CFBundleDisplayName': '会话通知',
-    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.5.4',
-    'CFBundleVersion': '15', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
+    'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.6.0',
+    'CFBundleVersion': '16', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
     'NSHighResolutionCapable': True,
     'NSAppleEventsUsageDescription': '用于定位 iTerm2 中已有的 agent 会话，不向终端输入命令。',
 }
