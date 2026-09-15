@@ -31,7 +31,7 @@ jobs:
           mkdir -p build
           xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus
 
-      - name: Build SessionInbox.app
+      - name: Build Agent Notification.app
         run: python3 scripts/build_inbox_app.py
 
       - name: Run tests
@@ -40,20 +40,20 @@ jobs:
       - name: Package
         run: |
           mkdir -p build/pkg
-          cp -R build/SessionInbox.app build/pkg/
+          cp -R "build/Agent Notification.app" build/pkg/
           ln -s /Applications build/pkg/Applications
-          hdiutil create -volname SessionManager -srcfolder build/pkg -ov -format UDZO build/SessionInbox.dmg
+          hdiutil create -volname "Agent Notification" -srcfolder build/pkg -ov -format UDZO build/Agent-Notification.dmg
           cd build
-          zip -qry SessionInbox.app.zip SessionInbox.app
+          zip -qry Agent-Notification.app.zip "Agent Notification.app"
           zip -q zcode-focus.zip zcode-focus
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SessionInbox-macos
+          name: Agent-Notification-macos
           path: |
-            build/SessionInbox.dmg
-            build/SessionInbox.app.zip
+            build/Agent-Notification.dmg
+            build/Agent-Notification.app.zip
             build/zcode-focus.zip
           if-no-files-found: error
 
@@ -65,4 +65,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "Agent Notification $GITHUB_REF_NAME" \
             --generate-notes \
-            build/SessionInbox.dmg build/SessionInbox.app.zip build/zcode-focus.zip
+            build/Agent-Notification.dmg build/Agent-Notification.app.zip build/zcode-focus.zip

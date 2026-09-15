@@ -15,7 +15,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 | 组件 | 说明 |
 |---|---|
 | `bin/session-manager` | 统一命令行入口：受管理启动、绑定查询、会话聚焦、收件箱维护 |
-| Agent Notification（`build/SessionInbox.app`） | 原生 macOS 应用：待处理列表、系统通知、菜单栏计数、CLI 快捷启动 |
+| Agent Notification（`build/Agent Notification.app`） | 原生 macOS 应用：待处理列表、系统通知、菜单栏与 Dock 角标计数、CLI 快捷启动 |
 | `build/zcode-focus` | Zcode 原生导航辅助工具（由 `native/ZcodeFocus.swift` 编译） |
 
 核心能力：
@@ -46,7 +46,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 
 ## 快速上手
 
-已打包版本从 [Releases](../../releases) 下载 SessionInbox.dmg（双击拖入「应用程序」即装）；从源码构建则克隆仓库后，在项目根目录执行：
+已打包版本从 [Releases](../../releases) 下载 Agent-Notification.dmg（双击拖入「应用程序」即装）；从源码构建则克隆仓库后，在项目根目录执行：
 
 ```sh
 python3 -m venv scratch/iterm-probe-venv
@@ -73,7 +73,7 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 
 授权采用拖拽方式：点击 Zcode 事项的「前往会话」时若缺辅助功能权限，应用会自动打开「隐私与安全性 → 辅助功能」面板，并弹出一个可拖拽的应用悬浮窗，把它拖进列表即完成授权，授权后悬浮窗自动收起；`bin/session-manager permissions` 是等效的手动入口（Finder 显示应用 + 打开面板）。应用为 ad-hoc 签名，每次重建后需要重新拖入；列表里旧条目开关显示开启不代表新版已获授权。
 
-应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「SessionInbox 控制 iTerm2」授权。
+应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「Agent Notification 控制 iTerm2」授权。
 
 ## 命令行参考
 
