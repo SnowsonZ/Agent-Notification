@@ -11,6 +11,11 @@ import Foundation
         precondition(!needsNotification(unread: false, token: "b", seen: "a", initialSnapshot: false, enabled: true))
         precondition(!needsNotification(unread: true, token: "b", seen: "a", initialSnapshot: false, enabled: false))
         precondition(needsNotification(unread: true, token: "b", seen: "a", initialSnapshot: false, enabled: true))
+        // closed 且入口不可用的行（如 /clear 后被替换的受管理会话）不展示也不计入待查看。
+        precondition(!inboxRowListed(state: "closed", openAvailable: false))
+        precondition(inboxRowListed(state: "closed", openAvailable: true))
+        precondition(inboxRowListed(state: "idle", openAvailable: false))
+        precondition(inboxRowListed(state: "waiting", openAvailable: false))
         precondition(inboxDurationText(from: 0, to: 59) == "59秒")
         precondition(inboxDurationText(from: 100, to: 200) == "1分40秒")
         precondition(inboxDurationText(from: 0, to: 3700) == "1小时1分")

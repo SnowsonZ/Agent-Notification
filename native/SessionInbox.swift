@@ -1155,11 +1155,10 @@ struct TaskListView: View {
         checkNotificationPermission()
         loadAgents()
     }
-    var unreadCount: Int { rows.filter(\.unread).count }
+    var unreadCount: Int { rows.filter { $0.unread && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.count }
     var filtered: [InboxRow] {
         rows.filter { row in
-            // 已退出且原会话入口不可用的行没有可执行的后续，直接不展示。
-            guard !(row.state == "closed" && !row.openAvailable) else { return false }
+            guard inboxRowListed(state: row.state, openAvailable: row.openAvailable) else { return false }
             return (showAll || row.unread) && (query.isEmpty ||
                 (row.title + " " + row.project + " " + row.provider).localizedCaseInsensitiveContains(query))
         }.sorted {
