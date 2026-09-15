@@ -1414,6 +1414,11 @@ struct TaskListView: View {
     @Published var rows: [InboxRow] = []
     @Published var showAll = false { didSet { page = 0 } }
     @Published var query = "" { didSet { page = 0 } }
+    @Published var searchExpanded = false
+    func setSearchExpanded(_ expanded: Bool) {
+        searchExpanded = expanded
+        if !expanded { query = "" }
+    }
     @Published var page = 0
     let pageSize = 20
     @Published var loading = false
@@ -1511,7 +1516,7 @@ struct TaskListView: View {
                 do {
                     let granted = try await center.requestAuthorization(options: [.alert, .sound])
                     notificationsAllowed = granted
-                    notificationStatus = granted ? "通知已开启" : "请在系统设置 → 通知中允许 Agent Notification"
+                    notificationStatus = granted ? "通知已开启" : "请在系统设置 → 通知中允许「会话通知」"
                 } catch {
                     let detail = error as NSError
                     notificationStatus = "通知授权请求失败（\(detail.domain) \(detail.code)）"
@@ -1838,7 +1843,7 @@ final class DragBadgeView: NSView, NSDraggingSource {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(iconView)
 
-        let title = NSTextField(labelWithString: "Agent Notification")
+        let title = NSTextField(labelWithString: "会话通知")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         title.frame = NSRect(x: 76, y: 46, width: 176, height: 18)
         addSubview(title)
@@ -1965,33 +1970,36 @@ struct InboxView: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // 标题、新建会话、分段筛选、搜索全部左对齐到同一列，
-            // 分段控件不再居中悬在中间。
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Agent Notification").font(.system(size: 22, weight: .bold))
-                Text(model.unreadCount == 0 ? "暂无新通知" : "\(model.unreadCount) 条会话有新动态")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            }
+            Text("会话通知").font(.system(size: 22, weight: .bold))
             if !model.agents.isEmpty {
                 NewSessionLauncherRow(model: model)
             }
             VStack(spacing: 8) {
-                Picker("显示范围", selection: $model.showAll) {
-                    Text("待查看（\(model.unreadCount)）").tag(false)
-                    Text("全部会话（\(model.rows.count)）").tag(true)
+                // 分段筛选居中；搜索默认只是行尾一个图标，点开才展开输入框。
+                HStack {
+                    Spacer()
+                    Picker("显示范围", selection: $model.showAll) {
+                        Text("待查看（\(model.unreadCount)）").tag(false)
+                        Text("全部会话（\(model.rows.count)）").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    Spacer()
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                // macOS 分段控件按内容定宽、无法拉伸，只能靠左对齐进同一列。
-                .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                    TextField("搜索会话或项目", text: $model.query)
-                        .textFieldStyle(.plain)
+                .overlay(alignment: .trailing) {
+                    Button { model.setSearchExpanded(true) } label: {
+                        Image(systemName: "magnifyingglass")
+                            .frame(width: 28, height: 28)
+                            .foregroundStyle(model.searchExpanded ? Color.accentColor : Color.secondary)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("搜索会话或项目")
+                    .accessibilityLabel("搜索")
                 }
-                .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.06)))
+                if model.searchExpanded {
+                    InboxSearchField(model: model)
+                }
             }
             if model.visible.isEmpty {
                 Spacer()
@@ -2067,6 +2075,31 @@ struct InboxView: View {
             }
         }
         .onAppear { model.refresh() }
+    }
+}
+
+// 展开态搜索框：出现即聚焦；关闭清空关键词，让列表回到未过滤状态。
+struct InboxSearchField: View {
+    @ObservedObject var model: InboxModel
+    @FocusState private var focused: Bool
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
+            TextField("搜索会话或项目", text: $model.query)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .onExitCommand { model.setSearchExpanded(false) }
+            Button { model.setSearchExpanded(false) } label: {
+                Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help("关闭搜索")
+            .accessibilityLabel("关闭搜索")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.06)))
+        .onAppear { focused = true }
     }
 }
 
@@ -2208,7 +2241,7 @@ struct TrayIcon: View {
     var body: some Scene {
         // Window（而非 WindowGroup）：收件箱只允许一个实例，openWindow 聚焦已有窗口；
         // WindowGroup 的 openWindow 每次调用都会新建窗口。
-        Window("Agent Notification", id: "inbox") { InboxView(model: model) }
+        Window("会话通知", id: "inbox") { InboxView(model: model) }
             .defaultSize(width: 400, height: 620)
             .windowResizability(.contentMinSize)
             .windowToolbarStyle(.unifiedCompact(showsTitle: false))

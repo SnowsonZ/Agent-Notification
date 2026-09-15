@@ -81,7 +81,8 @@ subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-
                 str(root / 'native/InboxPolicy.swift'), str(root / 'native/SessionInbox.swift'), '-o', str(contents / 'MacOS/Agent Notification')], check=True)
 info = {
     'CFBundleExecutable': 'Agent Notification', 'CFBundleIdentifier': 'local.session-manager.inbox',
-    'CFBundleName': 'Agent Notification', 'CFBundleDisplayName': 'Agent Notification',
+    # 可执行文件与 bundle 目录名保留英文（路径稳定），用户可见名称为中文。
+    'CFBundleName': '会话通知', 'CFBundleDisplayName': '会话通知',
     'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.5.4',
     'CFBundleVersion': '15', 'LSMinimumSystemVersion': '14.0', 'CFBundleIconFile': 'AppIcon.icns',
     'NSHighResolutionCapable': True,

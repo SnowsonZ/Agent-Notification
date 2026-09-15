@@ -15,7 +15,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 | 组件 | 说明 |
 |---|---|
 | `bin/session-manager` | 统一命令行入口：受管理启动、绑定查询、会话聚焦、收件箱维护 |
-| Agent Notification（`build/Agent Notification.app`） | 原生 macOS 应用：待处理列表、系统通知、菜单栏与 Dock 角标计数、CLI 快捷启动 |
+| Agent Notification（`build/Agent Notification.app`，界面显示名「会话通知」） | 原生 macOS 应用：待处理列表、系统通知、菜单栏与 Dock 角标计数、CLI 快捷启动 |
 | `build/zcode-focus` | Zcode 原生导航辅助工具（由 `native/ZcodeFocus.swift` 编译） |
 
 核心能力：
@@ -60,7 +60,7 @@ python3 scripts/build_inbox_app.py
 
 - 虚拟环境固定位于 `scratch/iterm-probe-venv`：`bin/session-manager` 按该路径定位 Python 解释器，请勿更改位置。
 - `scratch/` 与 `build/` 不纳入版本控制，由上述步骤生成。
-- 构建脚本拒绝覆盖正在运行的应用，重建前请先退出「Agent Notification」。
+- 构建脚本拒绝覆盖正在运行的应用，重建前请先退出「会话通知」。
 - 构建产物使用本地 ad-hoc 签名并通过 bundle 校验，不是分发公证；重新构建后如遇权限失效，需在系统设置中重新授权。
 - 应用图标有两套来源：`native/GenerateAppIcon.swift` 生成 icns（所有系统可用）；`native/AppIcon.icon` 是 macOS 26+ 的 Liquid Glass 分层图标，构建脚本在检测到 Xcode 26 的 `actool` 时把它编成 `Assets.car`，只有命令行工具时跳过并回退 icns。Release 由 CI（macos-26）构建，因此带分层图标。
 - 以上是开发包：应用运行仓库内的脚本和 venv，改脚本无需重建。Release 里的 dmg 由 `python3 scripts/build_inbox_app.py --standalone` 构建，脚本、`bin/session-manager`、`zcode-focus` 和纯 Python 依赖（`requirements-standalone.txt`）随包放在 `Contents/Resources`，不依赖仓库；运行需要本机有 python3 3.9+（Homebrew 或 Xcode Command Line Tools 自带的均可）。两种包用同一套代码，按 `Resources/pylib` 是否存在自动切换。
@@ -69,13 +69,13 @@ python3 scripts/build_inbox_app.py
 
 ```sh
 bin/session-manager inbox setup   # 安装 Claude/Kimi 观察 hooks，保留既有配置，可重复执行
-bin/session-manager app           # 打开「Agent Notification」
+bin/session-manager app           # 打开「会话通知」
 bin/session-manager permissions   # 打开辅助功能授权面板，把应用拖进列表
 ```
 
 授权采用拖拽方式：点击 Zcode 事项的「前往会话」时若缺辅助功能权限，应用会自动打开「隐私与安全性 → 辅助功能」面板，并弹出一个可拖拽的应用悬浮窗，把它拖进列表即完成授权，授权后悬浮窗自动收起；`bin/session-manager permissions` 是等效的手动入口（Finder 显示应用 + 打开面板）。应用为 ad-hoc 签名，每次重建后需要重新拖入；列表里旧条目开关显示开启不代表新版已获授权。
 
-应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「Agent Notification 控制 iTerm2」授权。
+应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「会话通知 控制 iTerm2」授权。
 
 ## 命令行参考
 
@@ -88,7 +88,7 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 | `bin/session-manager inbox setup` | 安装或更新观察 hooks（幂等，不覆盖既有配置） |
 | `bin/session-manager inbox rows \| sync \| open \| ack` | 收件箱数据查询与维护 |
 | `bin/session-manager inbox daily-report [--date YYYY-MM-DD] \| --overview` | 生成单日报告或热力图总览（自动补录缺失日期） |
-| `bin/session-manager app` | 打开「Agent Notification」 |
+| `bin/session-manager app` | 打开「会话通知」 |
 
 诊断脚本：
 

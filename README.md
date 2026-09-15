@@ -17,7 +17,7 @@ Agent Notification is a local session inbox for macOS: it aggregates Codex, Clau
 | Component | Description |
 |---|---|
 | `bin/session-manager` | Unified CLI: managed launch, binding queries, session focus, inbox maintenance |
-| Agent Notification (`build/Agent Notification.app`) | Native macOS app: pending list, system notifications, menu-bar count, one-click CLI launch |
+| Agent Notification (`build/Agent Notification.app`; shown in the UI as 会话通知) | Native macOS app: pending list, system notifications, menu-bar count, one-click CLI launch |
 | `build/zcode-focus` | Native helper for Zcode accessibility navigation (built from `native/ZcodeFocus.swift`) |
 
 Key capabilities:
