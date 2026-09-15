@@ -276,37 +276,9 @@ extension Color {
     static let attention = Color(nsColor: .systemOrange)
 }
 
-// Liquid Glass（macOS 26+）只用于控件层：工具栏按钮、新建会话按钮、悬浮提示卡。
-// 内容层（列表行、日报卡片、搜索框）保持实色，遵循系统「玻璃只做浮层」的分层约定。
-// 构建目标仍是 macOS 14：旧系统走原有实色圆角底，视觉与之前一致。
-struct GlassSurface: ViewModifier {
-    let radius: CGFloat
-    let interactive: Bool
-    func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content.glassEffect(interactive ? .regular.interactive() : .regular,
-                                in: RoundedRectangle(cornerRadius: radius))
-        } else {
-            content
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: radius))
-                .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.primary.opacity(0.06)))
-        }
-    }
-}
-extension View {
-    func glassSurface(radius: CGFloat, interactive: Bool = false) -> some View {
-        modifier(GlassSurface(radius: radius, interactive: interactive))
-    }
-    // 同一容器内相邻玻璃控件在靠近时会互相融合；旧系统直接透传。
-    @ViewBuilder
-    func glassGroup(spacing: CGFloat) -> some View {
-        if #available(macOS 26, *) {
-            GlassEffectContainer(spacing: spacing) { self }
-        } else {
-            self
-        }
-    }
-}
+// Liquid Glass（macOS 26+）只用于浮层：窗口工具栏由系统自动套玻璃，日报悬浮卡见 HoverTipSurface。
+// 内容层（新建会话按钮、列表行、日报卡片、搜索框）保持实色——玻璃落在实色窗口底上
+// 只会变成一块块凸起的暗色方砖，尤其深色模式下与轻量的页面语言冲突。
 func stateDotColor(_ state: String) -> Color {
     switch state {
     case "running": return .green
@@ -1924,15 +1896,12 @@ struct NewSessionLauncherRow: View {
             HStack(spacing: 12) {
                 Text("新建会话").font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: true, vertical: false)
-                HStack(spacing: 12) {
-                    ForEach(model.agents.prefix(visible)) { agent in
-                        launcherButton(agent)
-                    }
-                    if visible < total {
-                        overflowMenu(hidden: Array(model.agents.suffix(total - visible)))
-                    }
+                ForEach(model.agents.prefix(visible)) { agent in
+                    launcherButton(agent)
                 }
-                .glassGroup(spacing: 12)
+                if visible < total {
+                    overflowMenu(hidden: Array(model.agents.suffix(total - visible)))
+                }
                 Spacer()
             }
         }
@@ -1954,7 +1923,7 @@ struct NewSessionLauncherRow: View {
             Image(nsImage: agentIcon(agent.id, size: 24))
                 .frame(width: 24, height: 24)
                 .frame(width: 36, height: 36)
-                .glassSurface(radius: 10, interactive: true)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .disabled(!agent.iterm)
@@ -1982,7 +1951,7 @@ struct NewSessionLauncherRow: View {
                 .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)
-                .glassSurface(radius: 10, interactive: true)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -1995,25 +1964,26 @@ struct InboxView: View {
     @ObservedObject var model: InboxModel
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Agent Notification").font(.system(size: 24, weight: .bold))
-                    Text(model.unreadCount == 0 ? "暂无新通知" : "\(model.unreadCount) 条会话有新动态")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            // 标题、新建会话、分段筛选、搜索全部左对齐到同一列，
+            // 分段控件不再居中悬在中间。
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Agent Notification").font(.system(size: 22, weight: .bold))
+                Text(model.unreadCount == 0 ? "暂无新通知" : "\(model.unreadCount) 条会话有新动态")
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
             if !model.agents.isEmpty {
                 NewSessionLauncherRow(model: model)
             }
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 Picker("显示范围", selection: $model.showAll) {
                     Text("待查看（\(model.unreadCount)）").tag(false)
                     Text("全部会话（\(model.rows.count)）").tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                // macOS 分段控件按内容定宽、无法拉伸，只能靠左对齐进同一列。
+                .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
                     TextField("搜索会话或项目", text: $model.query)
