@@ -1,6 +1,6 @@
 # 统一会话收件箱 v0.4.0
 
-状态：v0.4.0 已构建并通过完整 bundle 签名校验；在 v0.3 能力（Pi 标题、应用图标、成功打开后自动处理、系统通知、CLI 启动入口与官方图标）之上重做界面：列表懒加载（滚动到底自动追加，无手动翻页）、列表内 agent 名称用各家品牌主色、苹果风格排版与控件。Zcode 辅助功能授权已生效，"打开会话"停在任务搜索结果页的语义已实测；CLI 检测与进程 PATH 解耦（含已知安装路径第二通道）。统计类能力（每日 20:00 工作日报、热力图与 Top 项目）独立成篇：[daily-report.md](daily-report.md)。
+状态：v0.4.0 已构建并通过完整 bundle 签名校验；在 v0.3 能力（Pi 标题、应用图标、成功打开后自动处理、系统通知、CLI 启动入口与官方图标）之上重做界面：列表懒加载（滚动到底自动追加，无手动翻页）、列表内 agent 名称用各家品牌主色、苹果风格排版与控件。Zcode 辅助功能授权已生效，"打开会话"停在任务搜索结果页的语义已实测；CLI 检测与进程 PATH 解耦（含已知安装路径第二通道）。统计类能力（工作日报、热力图与 Top 项目）独立成篇：[daily-report.md](daily-report.md)。
 
 ## 界面更新（2026-09-14）
 
@@ -67,7 +67,7 @@ Zcode 会用最新轮次的真实时间作事件时钟，任务的改名或查�
 
 状态：running、waiting、idle、failed、interrupted、closed、unknown。“本轮已结束”不表示业务目标成功。Stop 后如果继续运行，后续运行事件会清除过期的待处理状态。来源没有事件时不能凭一段时间无输出判断完成。
 
-状态与展示文案对照：running→运行中、waiting→等待输入、idle→本轮已结束、failed→发生错误、interrupted→已中断、closed→已退出、unknown→状态待确认。未读视图 waiting 优先、failed 次之；closed 且无法打开的项直接过滤；closed 与 idle 对用户含义一致（都可经原入口重开查看），卡片外观不做区分。卡片只在未处理时显示“会话时长”：从最近一次通知抬升（`attention_at`）起实时累计；已处理（手动标记与成功打开自动确认，处理时刻记为 `acknowledged_at`）后不再展示时长。来源侧自行清除未读（如 Interrupt、新一轮 running 事件）同样不展示。时长以事件时钟为准，来源事件时间戳滞后（如 Zcode 补扫完成回合）会相应放大显示值。
+状态与展示文案对照：running→运行中、waiting→等待输入、idle→本轮已结束、failed→发生错误、interrupted→已中断、closed→已退出、unknown→状态待确认。未读视图 waiting 优先、failed 次之；closed 且无法打开的项直接过滤，也不计入待查看数量（菜单栏、Dock 角标与列表同口径，2026-09-15 起生效，替代原先"过滤但仍计数"）；closed 与 idle 对用户含义一致（都可经原入口重开查看），卡片外观不做区分。卡片只在未处理时显示“会话时长”：从最近一次通知抬升（`attention_at`）起实时累计；已处理（手动标记与成功打开自动确认，处理时刻记为 `acknowledged_at`）后不再展示时长。来源侧自行清除未读（如 Interrupt、新一轮 running 事件）同样不展示。时长以事件时钟为准，来源事件时间戳滞后（如 Zcode 补扫完成回合）会相应放大显示值。
 
 各状态的可达来源（2026-09-14 梳理）：`waiting` 只来自 hooks 与 Pi 扩展事件（Claude/Kimi PermissionRequest、Pi ui_prompt_start）；`closed` 只来自 Claude/Kimi SessionEnd 与 Pi session_shutdown；`failed` 来自各来源 error/StopFailure；`interrupted` 来自 Codex turn_aborted、Zcode 回合取消和 hook Interrupt；`unknown` 是库默认值及未知 task_status 的兜底。
 

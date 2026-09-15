@@ -60,17 +60,9 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
-            let isDailyReport = (response.notification.request.content.userInfo["kind"] as? String) == "daily_report"
             Task { @MainActor in
                 NSApplication.shared.activate(ignoringOtherApps: true)
-                if isDailyReport {
-                    // 日报通知点击只进日报窗口，不打扰收件箱。
-                    if let window = NSApplication.shared.windows.first(where: { $0.identifier?.rawValue == "dailyReport" && $0.isVisible }) {
-                        window.makeKeyAndOrderFront(nil)
-                    } else {
-                        NotificationCenter.default.post(name: .reopenDailyReport, object: nil)
-                    }
-                } else if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
+                if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
                     window.makeKeyAndOrderFront(nil)
                 } else {
                     // Window 已被关闭时 SwiftUI 已释放它，只能经 openWindow 重建；
@@ -85,7 +77,6 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
 
 extension Notification.Name {
     static let reopenInbox = Notification.Name("SessionInboxReopenInbox")
-    static let reopenDailyReport = Notification.Name("SessionInboxReopenDailyReport")
 }
 
 // Dock 未读角标：dockTile.badgeLabel 在本应用不渲染（见 InboxModel.updateDockBadge 注），
@@ -115,8 +106,8 @@ func applyDockIcon(dark: Bool, unread: Int) {
     let center = NSPoint(x: 852, y: 852)
     let radius: CGFloat = text.count >= 3 ? 176 : 158
     let circle = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-    // 橙底白字与托盘徽标、行内未读点同一视觉语言；白描边与浅色瓦片分隔。
-    NSColor(red: 1, green: 0.54, blue: 0.10, alpha: 1).setFill()
+    // 橙底白字与托盘徽标、行内未读点同一视觉语言（统一 systemOrange，明暗自适应）；白描边与浅色瓦片分隔。
+    NSColor.systemOrange.setFill()
     NSBezierPath(ovalIn: circle).fill()
     NSColor.white.setStroke()
     let border = NSBezierPath(ovalIn: circle)
@@ -215,19 +206,8 @@ struct ReportOverview: Decodable {
     @Published var loading = false
     @Published var error: String?
     let root: String
-    static let reportVersion = 2
-    private var generating = false
-    private var timer: Timer?
     init(root: String? = nil) {
         self.root = root ?? Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String ?? ""
-        // 20:00 触发用 60 秒粒度判定即可；App 晚于 20:00 启动时首查即补跑。
-        let scheduler = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in self.tick() }
-        }
-        RunLoop.main.add(scheduler, forMode: .common)
-        timer = scheduler
-        tick()
     }
     nonisolated static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -267,35 +247,6 @@ struct ReportOverview: Decodable {
             catch { self.error = "当日报告读取失败：" + error.localizedDescription }
         }
     }
-    func tick(now: Date = Date()) {
-        guard !generating else { return }
-        let stored = UserDefaults.standard.string(forKey: "dailyReportLastGeneratedDay")
-        guard shouldGenerateDailyReport(now: now, lastGeneratedStamp: stored, version: Self.reportVersion) else { return }
-        generating = true
-        Task {
-            // 生成失败静默等下个 tick 重试；成功才记键、通知并刷新总览。
-            let result = await run(["daily-report", "--persist"])
-            generating = false
-            guard result.0 == 0 else { return }
-            UserDefaults.standard.set(
-                "\(dailyReportDayKey(Date()))#\(Self.reportVersion)", forKey: "dailyReportLastGeneratedDay")
-            notifyGenerated(result.1)
-            loadOverview()
-        }
-    }
-    private func notifyGenerated(_ data: Data) {
-        var body = "今天的工作日报已生成"
-        if let report = try? Self.decode(DayReport.self, from: data) {
-            body = "今日 token 合计 \(tokenText(report.totals.totalTokens)) · \(report.totals.tasks) 个任务"
-        }
-        let content = UNMutableNotificationContent()
-        content.title = "日报已生成"
-        content.body = body
-        content.sound = .default
-        content.userInfo = ["kind": "daily_report", "date": dailyReportDayKey(Date())]
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: "daily-report-" + dailyReportDayKey(Date()), content: content, trigger: nil))
-    }
 }
 
 func providerReportColor(_ provider: String) -> Color {
@@ -318,6 +269,11 @@ func heatColor(_ level: Int) -> Color {
     case 4: return Color.accentColor
     default: return Color.primary.opacity(0.07)
     }
+}
+// 需要用户关注的统一橙：未读点、未读文字、未读行底色、托盘与 Dock 角标同一色。
+// 状态点（stateDotColor）保留语义化系统色，不走这里。
+extension Color {
+    static let attention = Color(nsColor: .systemOrange)
 }
 func stateDotColor(_ state: String) -> Color {
     switch state {
@@ -407,7 +363,7 @@ struct DailyReportView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("工作日报").font(.system(size: 24, weight: .bold))
-                        Text("数据来自本地会话元数据 · 今日随时实时汇总 · 每天 20:00 固化并通知").font(.subheadline).foregroundStyle(.secondary)
+                        Text("数据来自本地会话元数据 · 今日随时实时汇总 · 次日首次查看定稿").font(.subheadline).foregroundStyle(.secondary)
                     }
                     if let error = model.error {
                         HStack(alignment: .top, spacing: 8) {
@@ -484,7 +440,7 @@ struct HeatmapView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("").frame(height: 15)
                             ForEach(["一", "二", "三", "四", "五", "六", "日"], id: \.self) { label in
-                                Text(label).font(.system(size: 8)).foregroundStyle(.tertiary)
+                                Text(label).font(.system(size: 9)).foregroundStyle(.tertiary)
                                     .frame(width: 13, height: 13, alignment: .trailing)
                             }
                         }
@@ -492,7 +448,7 @@ struct HeatmapView: View {
                             HStack(spacing: 3) {
                                 ForEach(marks.indices, id: \.self) { index in
                                     Text(marks[index] ?? "")
-                                        .font(.system(size: 8)).foregroundStyle(.tertiary)
+                                        .font(.system(size: 9)).foregroundStyle(.tertiary)
                                         .frame(width: 13, alignment: .leading)
                                 }
                             }
@@ -665,7 +621,7 @@ struct DailyReportCardBackground: ViewModifier {
         content
             .padding(14)
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.06)))
     }
 }
 extension View {
@@ -719,7 +675,7 @@ struct WeekTrendView: View {
                 ForEach(days) { day in
                     VStack(spacing: 3) {
                         Text(tokenText(day.totalTokens))
-                            .font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                            .font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
                         stackedBar(day, longest: longest)
                             .frame(maxWidth: .infinity)
                             .overlay {
@@ -729,7 +685,7 @@ struct WeekTrendView: View {
                                 }
                             }
                         Text(reportShortDay(day.date))
-                            .font(.system(size: 8)).foregroundStyle(.tertiary)
+                            .font(.system(size: 9)).foregroundStyle(.tertiary)
                     }
                     .dailyHoverTip(title: reportDayDisplay(day.date),
                                    lines: classTipLines(input: day.inputTokens,
@@ -792,15 +748,15 @@ struct ProviderShareCard: View {
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
                                 Circle().fill(providerReportColor(entry.key)).frame(width: 7, height: 7)
-                                Text(providerName(entry.key)).font(.system(size: 11))
+                                Text(providerName(entry.key)).font(.callout)
                                 Spacer()
-                                Text(tokenText(entry.usage.totalTokens)).font(.system(size: 11)).monospacedDigit()
+                                Text(tokenText(entry.usage.totalTokens)).font(.callout).monospacedDigit()
                                 Text("\(Int((Double(entry.usage.totalTokens) / Double(total) * 100).rounded()))%")
-                                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.tertiary)
                                     .frame(width: 32, alignment: .trailing)
                             }
                             Text(usageLine(entry.usage))
-                                .font(.system(size: 9)).foregroundStyle(.tertiary)
+                                .font(.footnote).foregroundStyle(.tertiary)
                         }
                         .dailyHoverTip(title: providerName(entry.key),
                                        lines: classTipLines(entry.usage)
@@ -827,17 +783,17 @@ struct TopProjectsCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 8) {
                             Text(project.name)
-                                .font(.system(size: 12)).lineLimit(1)
+                                .font(.callout).lineLimit(1)
                                 .help(project.project)
                             Spacer()
                             Text(tokenText(project.totalTokens))
-                                .font(.system(size: 11, weight: .medium)).monospacedDigit()
+                                .font(.callout.weight(.medium)).monospacedDigit()
                             Text("\(Int((project.share * 100).rounded()))%")
-                                .font(.system(size: 10)).foregroundStyle(.tertiary)
+                                .font(.system(size: 10)).monospacedDigit().foregroundStyle(.tertiary)
                                 .frame(width: 32, alignment: .trailing)
                         }
                         Text(usageLine(input: project.inputTokens, cache: project.cacheTokens, output: project.outputTokens))
-                            .font(.system(size: 9)).foregroundStyle(.tertiary)
+                            .font(.footnote).foregroundStyle(.tertiary)
                         GeometryReader { proxy in
                             ZStack(alignment: .leading) {
                                 Capsule().fill(Color.primary.opacity(0.06))
@@ -928,11 +884,11 @@ struct SummaryCardView: View {
         }
         .dailyReportCard()
     }
-    // 今天不固化：每次打开即时重算，标明截止时刻，避免误以为 20:00 前已"生成"。
+    // 今天不固化：每次打开即时重算，标明截止时刻，次日首次查看时补算定稿。
     private var liveLabel: String? {
         guard report.date == dailyReportDayKey(Date()) else { return nil }
         let until = reportClock(report.generatedAt ?? Date().timeIntervalSince1970)
-        return "实时汇总 · 截至 \(until) · 20:00 固化"
+        return "实时汇总 · 截至 \(until)"
     }
     private var activeSourceCount: Int {
         report.totals.sources.values.filter { $0.totalTokens > 0 }.count
@@ -994,7 +950,7 @@ struct RhythmBandView: View {
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(stride(from: range.0, through: range.1, by: 2)), id: \.self) { hour in
                         Text(String(format: "%02d", Int(hour)))
-                            .font(.system(size: 8)).foregroundStyle(.tertiary)
+                            .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
                             .position(x: min(max((hour - range.0) / hours * width, 8), width - 8), y: 6)
                     }
                 }
@@ -1049,15 +1005,15 @@ struct ProviderShareView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
                             Circle().fill(providerReportColor(entry.key)).frame(width: 7, height: 7)
-                            Text(providerName(entry.key)).font(.system(size: 11))
+                            Text(providerName(entry.key)).font(.callout)
                             Spacer()
-                            Text(tokenText(entry.usage.totalTokens)).font(.system(size: 11)).monospacedDigit()
+                            Text(tokenText(entry.usage.totalTokens)).font(.callout).monospacedDigit()
                             Text("\(Int((Double(entry.usage.totalTokens) / Double(total) * 100).rounded()))%")
-                                .font(.system(size: 10)).foregroundStyle(.tertiary)
+                                .font(.system(size: 10)).monospacedDigit().foregroundStyle(.tertiary)
                                 .frame(width: 32, alignment: .trailing)
                         }
                         Text(usageLine(entry.usage))
-                            .font(.system(size: 9)).foregroundStyle(.tertiary)
+                            .font(.footnote).foregroundStyle(.tertiary)
                     }
                     .dailyHoverTip(title: providerName(entry.key),
                                    lines: classTipLines(entry.usage)
@@ -1085,11 +1041,11 @@ struct ProjectBarsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 8) {
                             Text((entry.key as NSString).lastPathComponent)
-                                .font(.system(size: 12)).lineLimit(1)
+                                .font(.callout).lineLimit(1)
                                 .help(entry.key)
                             Spacer()
                             Text(tokenText(entry.usage.totalTokens))
-                                .font(.system(size: 11, weight: .medium)).monospacedDigit()
+                                .font(.callout.weight(.medium)).monospacedDigit()
                         }
                         GeometryReader { proxy in
                             ZStack(alignment: .leading) {
@@ -1099,7 +1055,7 @@ struct ProjectBarsView: View {
                             }
                         }.frame(height: 6)
                         Text(usageLine(entry.usage))
-                            .font(.system(size: 9)).foregroundStyle(.tertiary)
+                            .font(.footnote).foregroundStyle(.tertiary)
                     }
                     .dailyHoverTip(title: (entry.key as NSString).lastPathComponent,
                                    lines: classTipLines(entry.usage)
@@ -1122,7 +1078,7 @@ struct TaskListView: View {
                     HStack(spacing: 6) {
                         Circle().fill(providerReportColor(task.provider)).frame(width: 8, height: 8)
                         Text(task.title)
-                            .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                            .font(.body.weight(.medium)).lineLimit(1)
                             .help(task.title)
                         Spacer()
                         Text(task.fidelity == "unavailable" ? "无 token" : tokenText(task.totalTokens))
@@ -1142,7 +1098,7 @@ struct TaskListView: View {
                         }
                         Text("·").foregroundStyle(.tertiary)
                         Text(reportTimeRange(task)).foregroundStyle(.secondary)
-                    }.font(.system(size: 11))
+                    }.font(.subheadline)
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.primary.opacity(0.05))
@@ -1156,7 +1112,7 @@ struct TaskListView: View {
                         Text("· " + usageLine(task)).foregroundStyle(.tertiary)
                             .lineLimit(1)
                         Spacer()
-                    }.font(.system(size: 10))
+                    }.font(.footnote)
                 }
                 .dailyReportCard()
                 .dailyHoverTip(title: task.title,
@@ -1204,11 +1160,10 @@ struct TaskListView: View {
         checkNotificationPermission()
         loadAgents()
     }
-    var unreadCount: Int { rows.filter(\.unread).count }
+    var unreadCount: Int { rows.filter { $0.unread && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.count }
     var filtered: [InboxRow] {
         rows.filter { row in
-            // 已退出且原会话入口不可用的行没有可执行的后续，直接不展示。
-            guard !(row.state == "closed" && !row.openAvailable) else { return false }
+            guard inboxRowListed(state: row.state, openAvailable: row.openAvailable) else { return false }
             return (showAll || row.unread) && (query.isEmpty ||
                 (row.title + " " + row.project + " " + row.provider).localizedCaseInsensitiveContains(query))
         }.sorted {
@@ -1487,11 +1442,11 @@ private func renderAgentIcon(_ id: String, size: NSSize) -> NSImage {
             return true
         }
     }
-    // 缺失时画品牌色字符兜底。
-    let glyphs = ["pi": ("π", NSColor(srgbRed: 0.42, green: 0.48, blue: 0.55, alpha: 1)),
-                  "kimi": ("K", NSColor(srgbRed: 0.30, green: 0.43, blue: 0.96, alpha: 1)),
-                  "codex": (">_", NSColor(srgbRed: 0.35, green: 0.45, blue: 0.95, alpha: 1)),
-                  "zcode": ("Z", NSColor(srgbRed: 0.22, green: 0.25, blue: 0.30, alpha: 1)),
+    // 缺失时画品牌色字符兜底；色值与 providerReportColor 逐一对应，保持同一来源同一色。
+    let glyphs = ["pi": ("π", NSColor(srgbRed: 0.392, green: 0.824, blue: 1.0, alpha: 1)),
+                  "kimi": ("K", NSColor(srgbRed: 0.749, green: 0.353, blue: 0.949, alpha: 1)),
+                  "codex": (">_", NSColor(srgbRed: 0.063, green: 0.639, blue: 0.498, alpha: 1)),
+                  "zcode": ("Z", NSColor(srgbRed: 0.0, green: 0.478, blue: 1.0, alpha: 1)),
                   "claude": ("C", NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1)),
                   "agy": ("A", NSColor(srgbRed: 0.259, green: 0.522, blue: 0.957, alpha: 1)),
                   "opencode": ("OC", NSColor(srgbRed: 0.961, green: 0.620, blue: 0.043, alpha: 1))]
@@ -1684,7 +1639,8 @@ struct NewSessionLauncherRow: View {
             Image(nsImage: agentIcon(agent.id, size: 24))
                 .frame(width: 24, height: 24)
                 .frame(width: 36, height: 36)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.06)))
         }
         .buttonStyle(.plain)
         .disabled(!agent.iterm)
@@ -1712,7 +1668,8 @@ struct NewSessionLauncherRow: View {
                 .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.06)))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -1737,20 +1694,19 @@ struct InboxView: View {
                     openWindow(id: "dailyReport")
                     NSApplication.shared.activate(ignoringOtherApps: true)
                 } label: {
-                    Image(systemName: "chart.bar.doc.horizontal").foregroundStyle(.secondary)
+                    Image(systemName: "chart.bar.doc.horizontal")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(InboxIconButtonStyle())
                 .help("工作日报")
                 Button { model.toggleNotifications() } label: {
                     Image(systemName: model.notificationsEnabled && model.notificationsAllowed ? "bell.badge.fill" : "bell.slash")
-                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(InboxIconButtonStyle())
                 .help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
                 Button { model.refresh() } label: {
-                    Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
+                    Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(InboxIconButtonStyle())
                 .help("刷新").disabled(model.loading)
             }
             if !model.agents.isEmpty {
@@ -1769,8 +1725,8 @@ struct InboxView: View {
                         .textFieldStyle(.plain)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.primary.opacity(0.06)))
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.06)))
             }
             if model.visible.isEmpty {
                 Spacer()
@@ -1833,11 +1789,31 @@ struct InboxActionButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(isEnabled ? Color.primary.opacity(0.75) : Color.secondary.opacity(0.4))
             .background {
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.primary.opacity(isEnabled && configuration.isPressed ? 0.18 : 0.035))
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(isEnabled && configuration.isPressed ? 0.12 : 0.035))
             }
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
             .scaleEffect(isEnabled && configuration.isPressed ? 0.90 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+// 头部图标按钮：与行内 InboxActionButtonStyle 同一交互语言——28pt 热区、
+// 按下浅底并轻微缩放。裸 swiftc 构建没有 SwiftUIMacros（@State 不可用），
+// 悬停态改用 onContinuousHover 需视图级状态，这里与行内按钮一致只做按下反馈。
+struct InboxIconButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 28, height: 28)
+            .foregroundStyle(isEnabled ? Color.secondary : Color.secondary.opacity(0.4))
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(isEnabled && configuration.isPressed ? 0.10 : 0))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .scaleEffect(isEnabled && configuration.isPressed ? 0.92 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
@@ -1855,7 +1831,7 @@ struct InboxRowView: View {
                 .overlay(alignment: .topTrailing) {
                     if row.unread {
                         Circle()
-                            .fill(Color.orange)
+                            .fill(Color.attention)
                             .frame(width: 9, height: 9)
                             .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
                             .offset(x: 3, y: -3)
@@ -1865,13 +1841,13 @@ struct InboxRowView: View {
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 5) {
                 Text(row.title)
-                    .font(.system(size: 13, weight: row.unread ? .semibold : .medium))
+                    .font(.body.weight(row.unread ? .semibold : .medium))
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(row.title)
                 HStack(spacing: 5) {
                     Text(stateName(row.state))
-                        .foregroundStyle(row.unread ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(row.unread ? AnyShapeStyle(Color.attention) : AnyShapeStyle(.secondary))
                         .fixedSize()
                     if !row.project.isEmpty {
                         Text("·").foregroundStyle(.tertiary)
@@ -1879,12 +1855,12 @@ struct InboxRowView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1).help(row.project)
                     }
-                }.font(.system(size: 11))
+                }.font(.subheadline)
                 // 会话时长只在未处理期间展示：从最近一次通知起实时累计（随刷新周期）；
                 // 已处理即不再展示，来源侧清未读（如 Interrupt）同样不展示。
                 if row.unread, let start = row.attentionAt, start > 0 {
                     Text(inboxDurationText(from: start, to: Date().timeIntervalSince1970))
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(.secondary)
                         .help("会话时长：从最近一次通知起累计")
                 }
             }
@@ -1905,7 +1881,7 @@ struct InboxRowView: View {
             .buttonStyle(InboxActionButtonStyle())
         }
         .padding(.horizontal, 4).padding(.vertical, 12)
-        .background(row.unread ? Color.orange.opacity(0.045) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(row.unread ? Color.attention.opacity(0.045) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         .onAppear { model.loadMoreIfNeeded(for: row) }
     }
 }
@@ -1944,7 +1920,7 @@ struct TrayIcon: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 3)
                         .frame(minWidth: 12, minHeight: 12)
-                        .background(Circle().fill(.orange))
+                        .background(Circle().fill(Color.attention))
                         .offset(x: 5, y: -2)
                 }
             }
@@ -1952,10 +1928,6 @@ struct TrayIcon: View {
             .padding(.trailing, 5)
             .onReceive(NotificationCenter.default.publisher(for: .reopenInbox)) { _ in
                 openWindow(id: "inbox")
-                NSApplication.shared.activate()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .reopenDailyReport)) { _ in
-                openWindow(id: "dailyReport")
                 NSApplication.shared.activate()
             }
     }

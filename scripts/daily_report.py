@@ -3,7 +3,7 @@
 token 三类口径：输入（新鲜输入+缓存写入）、缓存（缓存读取）、输出（含 reasoning）；
 三类之和 = 合计，参与一切比较与计算（热力分级/排名/占比/趋势），三类在界面全部展示。
 取消与出错轮次的消耗照计。只读取时间戳、标题、项目与数值字段，从不读取或存储
-消息正文。过去日以报告文件固化（version=3），当日始终实时计算。
+消息正文。过去日以报告文件固化（version=5），当日始终实时计算。
 """
 from datetime import date, datetime, timedelta
 import json
@@ -603,9 +603,9 @@ def load_report(root, date_text):
     return None  # 旧版本报告视为缺失，触发重算。
 
 
-def generate_day(store, home, date_text=None, *, persist_today=False, refresh=False):
+def generate_day(store, home, date_text=None, *, refresh=False):
     """单日报告。过去日优先返回已定稿缓存（版本匹配且在该日结束后生成），缺失/未定稿或 refresh 才扫描来源并落盘；
-    今天始终实时重算，默认只返回快照，仅 20:00 定时（persist_today）落盘。"""
+    今天始终实时重算、不落盘，次日按未定稿规则补算定稿。"""
     day = parse_day(date_text) if date_text else date.today()
     path_md = str(reports_dir(store.root) / (day.isoformat() + '.md'))
     if day < date.today() and not refresh:
@@ -615,14 +615,14 @@ def generate_day(store, home, date_text=None, *, persist_today=False, refresh=Fa
             return cached
     records = scan_buckets(store, home, day, day).get(day, [])
     report = build_report(day, records, time.time())
-    if persist_today or day < date.today():
+    if day < date.today():
         _write_report(store.root, report)
         report['path_md'] = path_md
     return report
 
 
 def _finalized(report, day):
-    """过去日报告在该日结束后生成才算定稿；20:00 定时快照缺晚间消耗，次日补算一次。"""
+    """过去日报告在该日结束后生成才算定稿；当日结束前的快照缺晚间消耗，次日补算一次。"""
     return report is not None and report.get('generated_at', 0) >= day_bounds(day)[1]
 
 

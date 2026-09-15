@@ -21,7 +21,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 核心能力：
 
 - 聚合五类来源的会话状态（运行中、等待输入、本轮已结束、发生错误、已中断、已退出），按最近活动排序，懒加载分页。
-- 工作日报：每天 20:00 自动按 token 消耗（输入/缓存/输出三类）统计当天会话任务，GitHub 式热力图回看近半年，附近 7 天 Top 项目与来源占比。
+- 工作日报：按 token 消耗（输入/缓存/输出三类）统计每天会话任务，GitHub 式热力图回看近半年，附近 7 天 Top 项目与来源占比；当天实时计算，过去日在查看时定稿固化。
 - Pi/Kimi 经受管理启动器运行，登记 run_id 与 session_id 绑定；跳转前复核运行锁、会话 ID 与前台进程组，进程退出后旧绑定一律拒绝。
 - Zcode 通过辅助功能接口打开任务搜索并预填标题，停在结果页，由使用者自行选择目标。
 - 从应用成功打开会话后自动标记已处理（携带 revision 校验，不吞并打开期间到达的新事件）；打开失败保留未读。
@@ -114,7 +114,7 @@ python3 -m unittest discover -s tests -v
 | 文档 | 类别 | 说明 |
 |---|---|---|
 | [统一收件箱](docs/specs/unified-inbox.md) | 规范 | 使用入口、数据来源、状态语义与已知边界 |
-| [工作日报](docs/specs/daily-report.md) | 规范 | token 统计口径、热力分级、20:00 触发与补录语义 |
+| [工作日报](docs/specs/daily-report.md) | 规范 | token 统计口径、热力分级、固化与补录语义 |
 | [CLI 会话绑定](docs/specs/cli-session-binding.md) | 规范 | 受管理启动、存活锁、会话 ID 与前台进程组校验 |
 | [Zcode 原生导航](docs/specs/zcode-native-navigation.md) | 规范 | task ID 查标题、AX 搜索、复制任务路径校验 |
 | [会话收件箱方案](docs/plans/session-inbox.md) | 设计方案 | 五路接入、通知抓取评估与实现路径 |
