@@ -20,7 +20,8 @@ PROVIDER_NAMES = {'zcode': 'Zcode', 'codex': 'Codex', 'claude': 'Claude', 'pi': 
 FIDELITY_NAMES = {'exact': '精确', 'unavailable': '无 token'}
 ZCODE_STATES = {'completed': 'idle', 'error': 'failed', 'running': 'running', 'waiting': 'waiting'}
 NO_PROJECT = '(无项目)'
-REPORT_VERSION = 3
+REPORT_VERSION = 5
+SEGMENT_GAP = 15 * 60  # 逐条时间戳来源：相邻消息间隔不超过 15 分钟视为同一段活动
 CLASSES = ('input_tokens', 'cache_tokens', 'output_tokens')
 
 
@@ -83,7 +84,7 @@ class _Buckets:
         if task is None:
             task = {'provider': provider, 'session_id': sid, 'title': title, 'project': project,
                     'fidelity': fidelity, 'state': state, 'first': None, 'last': None,
-                    'input': 0.0, 'cache': 0.0, 'output': 0.0, 'turns': 0}
+                    'input': 0.0, 'cache': 0.0, 'output': 0.0, 'turns': 0, 'segments': []}
             tasks[key] = task
         else:
             if title and not task['title']:
@@ -97,8 +98,11 @@ class _Buckets:
         return task
 
     def spread(self, provider, sid, start, end, *, input=0, cache=0, output=0, title='', project='',
-               fidelity='exact', state='unknown', turn_stamp=None):
-        """把一段区间（含三类 token 消耗）按天窗口交集比例分摊，跨零点不重复计数。"""
+               fidelity='exact', state='unknown', turn_stamp=None, activity=None):
+        """把一段区间（含三类 token 消耗）按天窗口交集比例分摊，跨零点不重复计数。
+
+        activity：该区间内真实的请求时段列表；给出时节奏段只记这些（轮里等待用户批准/回答的
+        空闲不算活动），否则整段视为活动。"""
         if end <= start:
             return
         for day, (low, high) in self.windows.items():
@@ -114,6 +118,10 @@ class _Buckets:
                 task['first'] = first
             if task['last'] is None or last > task['last']:
                 task['last'] = last
+            for a_start, a_end in (activity or [(start, end)]):
+                a_first, a_last = max(a_start, low), min(a_end, high)
+                if a_last >= a_first:
+                    task['segments'].append([a_first, a_last])
             if turn_stamp is not None and low <= turn_stamp < high:
                 task['turns'] += 1
 
@@ -131,12 +139,25 @@ class _Buckets:
             task['first'] = stamp
         if task['last'] is None or stamp > task['last']:
             task['last'] = stamp
+        task['segments'].append([stamp, stamp])
         if turn:
             task['turns'] += 1
 
 
+def merge_segments(segments, gap=SEGMENT_GAP):
+    """把区间/时间点按时间排序后合并：重叠或间隔不超过 gap 的并为一段，供节奏带只画真实活动。"""
+    merged = []
+    for start, end in sorted(segments):
+        if merged and start - merged[-1][1] <= gap:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [[round(start), round(end)] for start, end in merged]
+
+
 def _zcode_data(home):
-    """(turns, titles, tokenized)；turns=(sid, start, end, 输入, 缓存, 输出, count_turn)。
+    """(turns, titles, tokenized)；turns=(sid, start, end, 输入, 缓存, 输出, count_turn, activity)。
+    activity 取自 model_usage 的逐请求时段（无该表则 None，整轮视为活动）。
 
     子代理轮次（sess_subagent_*）的 token 是独立消耗，经 session.parent_id 归属到
     父任务，但不计入父任务的轮次数。
@@ -157,11 +178,12 @@ def _zcode_data(home):
     if not runtime.exists():
         return [], titles, False
     token_select = ('SELECT session_id,started_at,completed_at,input_tokens,cache_read_input_tokens,'
-                    'cache_creation_input_tokens,output_tokens,reasoning_tokens FROM turn_usage')
-    minimal_select = 'SELECT session_id,started_at,completed_at,NULL,NULL,NULL FROM turn_usage'
+                    'cache_creation_input_tokens,output_tokens,reasoning_tokens,turn_id FROM turn_usage')
+    minimal_select = 'SELECT session_id,started_at,completed_at,NULL,NULL,NULL,NULL,NULL,turn_id FROM turn_usage'
     turns = []
     tokenized = True
     parents = {}
+    requests = {}  # turn_id -> [(start, end)]：逐请求时段，轮内等待用户的空档不算活动
     connection = sqlite3.connect(runtime.as_uri() + '?mode=ro', uri=True)
     try:
         try:
@@ -173,6 +195,12 @@ def _zcode_data(home):
             parents = {sid: parent for sid, parent in connection.execute('SELECT id,parent_id FROM session')}
         except sqlite3.Error:
             parents = {}
+        try:
+            for turn_id, started, completed in connection.execute(
+                    'SELECT turn_id,started_at,completed_at FROM model_usage'):
+                requests.setdefault(turn_id, []).append((started, completed))
+        except sqlite3.Error:
+            requests = {}
     finally:
         connection.close()
     now = time.time()
@@ -196,7 +224,10 @@ def _zcode_data(home):
             output_cls = int(output or 0) + int(reasoning or 0)
         else:
             input_cls = cache_cls = output_cls = None
-        turns.append((target, start, end, input_cls, cache_cls, output_cls, not is_subagent))
+        activity = [(seconds(r_start), seconds(r_end) if r_end else now)
+                    for r_start, r_end in requests.get(row[8], ()) if seconds(r_start) > 0]
+        activity = [(a, b) for a, b in activity if b >= a] or None
+        turns.append((target, start, end, input_cls, cache_cls, output_cls, not is_subagent, activity))
     return turns, titles, tokenized
 
 
@@ -415,7 +446,7 @@ def scan_buckets(store, home, first_day, last_day):
         return title, project, state
 
     turns, titles, tokenized = _zcode_data(home)
-    for sid, start, end, input_cls, cache_cls, output_cls, count_turn in turns:
+    for sid, start, end, input_cls, cache_cls, output_cls, count_turn, activity in turns:
         title, project, status = titles.get(sid, ('', '', ''))
         title, project, state = known('zcode', sid, title, project)
         buckets.spread('zcode', sid, start, end,
@@ -423,7 +454,7 @@ def scan_buckets(store, home, first_day, last_day):
                        title=title, project=project,
                        fidelity='exact' if tokenized else 'unavailable',
                        state=ZCODE_STATES.get(status) or state,
-                       turn_stamp=start if count_turn else None)
+                       turn_stamp=start if count_turn else None, activity=activity)
 
     events, turn_starts, titles, projects = _codex_data(home, window_start)
     for sid, stamp, input_cls, cache_cls, output_cls in events:
@@ -474,7 +505,8 @@ def scan_buckets(store, home, first_day, last_day):
                 'last_at': round(task['last']), 'input_tokens': input_tokens,
                 'cache_tokens': cache_tokens, 'output_tokens': output_tokens,
                 'total_tokens': total, 'turns': task['turns'],
-                'state': task['state'], 'fidelity': task['fidelity']})
+                'state': task['state'], 'fidelity': task['fidelity'],
+                'segments': merge_segments(task['segments'])})
         records.sort(key=lambda item: (-item['total_tokens'], item['provider'], item['session_id']))
         reports[day] = records
     return reports
@@ -571,13 +603,21 @@ def load_report(root, date_text):
     return None  # 旧版本报告视为缺失，触发重算。
 
 
-def generate_day(store, home, date_text=None):
-    """单日报告，始终从来源实时重算（幂等覆盖）。"""
+def generate_day(store, home, date_text=None, *, persist_today=False, refresh=False):
+    """单日报告。过去日优先返回已定稿缓存（版本匹配且在该日结束后生成），缺失/未定稿或 refresh 才扫描来源并落盘；
+    今天始终实时重算，默认只返回快照，仅 20:00 定时（persist_today）落盘。"""
     day = parse_day(date_text) if date_text else date.today()
+    path_md = str(reports_dir(store.root) / (day.isoformat() + '.md'))
+    if day < date.today() and not refresh:
+        cached = load_report(store.root, day.isoformat())
+        if _finalized(cached, day):
+            cached['path_md'] = path_md
+            return cached
     records = scan_buckets(store, home, day, day).get(day, [])
     report = build_report(day, records, time.time())
-    _write_report(store.root, report)
-    report['path_md'] = str(reports_dir(store.root) / (report['date'] + '.md'))
+    if persist_today or day < date.today():
+        _write_report(store.root, report)
+        report['path_md'] = path_md
     return report
 
 

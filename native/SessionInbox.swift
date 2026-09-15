@@ -159,10 +159,12 @@ struct ReportTask: Decodable, Identifiable {
     let turns: Int
     let state: String
     let fidelity: String
+    let segments: [[Double]]?  // 真实活动区间（Zcode 轮区间 / 逐条消息聚类），节奏带只画这些
     var id: String { provider + "/" + sessionId }
 }
 struct DayReport: Decodable {
     let date: String
+    let generatedAt: Double?
     let totals: ReportTotals
     let tasks: [ReportTask]
 }
@@ -272,7 +274,7 @@ struct ReportOverview: Decodable {
         generating = true
         Task {
             // 生成失败静默等下个 tick 重试；成功才记键、通知并刷新总览。
-            let result = await run(["daily-report"])
+            let result = await run(["daily-report", "--persist"])
             generating = false
             guard result.0 == 0 else { return }
             UserDefaults.standard.set(
@@ -369,21 +371,6 @@ func reportTimeRange(_ task: ReportTask) -> String {
     let last = reportClock(task.lastAt)
     return first == last ? first : "\(first)–\(last)"
 }
-func dayFraction(_ stamp: Double) -> Double {
-    let components = Calendar.current.dateComponents([.hour, .minute], from: Date(timeIntervalSince1970: stamp))
-    return Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60
-}
-func rhythmRange(_ tasks: [ReportTask]) -> (Double, Double) {
-    var low = 24.0, high = 0.0
-    for task in tasks where task.firstAt > 0 && task.lastAt > task.firstAt {
-        low = min(low, dayFraction(task.firstAt))
-        high = max(high, dayFraction(task.lastAt))
-    }
-    guard high > low else { return (8, 24) }
-    let start = max(0, (floor(low / 2) * 2))
-    let end = min(24, max(start + 2, ceil(high / 2) * 2))
-    return (start, end)
-}
 func heatWeekColumns(_ days: [OverviewDay], calendar: Calendar = .current) -> [[OverviewDay?]] {
     guard let first = days.first, let startDate = reportDate(first.date) else { return [] }
     // GitHub 布局：列=周、行=周一至周日；首列按周几留空补位。
@@ -420,7 +407,7 @@ struct DailyReportView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("工作日报").font(.system(size: 24, weight: .bold))
-                        Text("数据来自本地会话元数据 · 每天 20:00 自动生成").font(.subheadline).foregroundStyle(.secondary)
+                        Text("数据来自本地会话元数据 · 今日随时实时汇总 · 每天 20:00 固化并通知").font(.subheadline).foregroundStyle(.secondary)
                     }
                     if let error = model.error {
                         HStack(alignment: .top, spacing: 8) {
@@ -885,9 +872,10 @@ struct DayDetailView: View {
                             Text("这一天没有会话记录").font(.subheadline).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity).padding(.vertical, 60)
                     } else {
-                        SummaryCardView(report: report, overview: model.overview)
-                        RhythmBandView(tasks: report.tasks)
-                        ProviderShareView(report: report)
+                        // 各区块统一卡片内边距，比例条/节奏带左右边界对齐。
+                        SummaryCardView(report: report)
+                        RhythmBandView(report: report).dailyReportCard()
+                        ProviderShareView(report: report).dailyReportCard()
                         ProjectBarsView(report: report)
                         TaskListView(report: report)
                     }
@@ -917,7 +905,6 @@ struct DayDetailView: View {
 
 struct SummaryCardView: View {
     let report: DayReport
-    let overview: ReportOverview?
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
             ZStack {
@@ -933,22 +920,19 @@ struct SummaryCardView: View {
                 Text(usageLine(input: report.totals.inputTokens, cache: report.totals.cacheTokens,
                                output: report.totals.outputTokens))
                     .font(.caption).foregroundStyle(.tertiary)
-            }
-            Spacer()
-            if let week = weekBars {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("最近 7 天").font(.caption2).foregroundStyle(.tertiary)
-                    HStack(alignment: .bottom, spacing: 3) {
-                        ForEach(week) { day in
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(day.date == report.date ? Color.accentColor : heatColor(day.level))
-                                .frame(width: 9, height: max(3, CGFloat(day.totalTokens) / maxWeek * 30))
-                        }
-                    }
+                if let live = liveLabel {
+                    Text(live).font(.caption).foregroundStyle(Color.accentColor)
                 }
             }
+            Spacer()
         }
         .dailyReportCard()
+    }
+    // 今天不固化：每次打开即时重算，标明截止时刻，避免误以为 20:00 前已"生成"。
+    private var liveLabel: String? {
+        guard report.date == dailyReportDayKey(Date()) else { return nil }
+        let until = reportClock(report.generatedAt ?? Date().timeIntervalSince1970)
+        return "实时汇总 · 截至 \(until) · 20:00 固化"
     }
     private var activeSourceCount: Int {
         report.totals.sources.values.filter { $0.totalTokens > 0 }.count
@@ -969,23 +953,15 @@ struct SummaryCardView: View {
                 .stroke(segment.color, style: StrokeStyle(lineWidth: 11, lineCap: .butt))
         }
     }
-    private var weekBars: [OverviewDay]? {
-        guard let overview, let current = reportDate(report.date) else { return nil }
-        let prior = overview.days.filter { day in
-            guard let date = reportDate(day.date) else { return false }
-            return date <= current
-        }
-        return prior.isEmpty ? nil : Array(prior.suffix(7))
-    }
-    private var maxWeek: Double {
-        Double(weekBars?.map(\.totalTokens).max() ?? 1)
-    }
 }
 
 struct RhythmBandView: View {
-    let tasks: [ReportTask]
+    let report: DayReport
+    var tasks: [ReportTask] { report.tasks }
+    private var dayStart: Double { reportDate(report.date)?.timeIntervalSince1970 ?? 0 }
     var body: some View {
-        let range = rhythmRange(tasks)
+        let range = rhythmRange(tasks.map(taskSegments), dayStart: dayStart)
+        let hours = range.1 - range.0
         VStack(alignment: .leading, spacing: 5) {
             Text("一天节奏 · \(Int(range.0))–\(Int(range.1)) 时").font(.headline)
             GeometryReader { proxy in
@@ -993,37 +969,43 @@ struct RhythmBandView: View {
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.045))
                     ForEach(tasks) { task in
-                        let first = max(task.firstAt, 0)
-                        let last = max(task.lastAt, first)
-                        let left = (dayFraction(first) - range.0) / (range.1 - range.0)
-                        let span = (dayFraction(last) - dayFraction(first)) / (range.1 - range.0)
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(providerReportColor(task.provider).opacity(0.85))
-                            .frame(width: max(3, span * width), height: proxy.size.height - 8)
-                            .offset(x: max(0, left * width), y: 4)
-                            .dailyHoverTip(title: task.title,
-                                           lines: ["\(providerName(task.provider)) · \(reportTimeRange(task)) · \(task.turns) 轮"]
-                                               + classTipLines(input: task.inputTokens, cache: task.cacheTokens,
-                                                               output: task.outputTokens)
-                                               + ["合计：\(tokenText(task.totalTokens))"])
+                        // 只画真实活动段：空闲间隔留白，跨零点段按当天 0–24 时截断。
+                        ForEach(Array(taskSegments(task).enumerated()), id: \.offset) { _, segment in
+                            let left = (rhythmHour(segment[0], dayStart: dayStart) - range.0) / hours
+                            let span = (rhythmHour(segment[1], dayStart: dayStart)
+                                        - rhythmHour(segment[0], dayStart: dayStart)) / hours
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(providerReportColor(task.provider).opacity(0.85))
+                                .frame(width: max(3, span * width), height: proxy.size.height - 8)
+                                .offset(x: min(max(0, left * width), width - 3), y: 4)
+                                .dailyHoverTip(title: task.title,
+                                               lines: ["\(providerName(task.provider)) · \(reportClock(segment[0]))–\(reportClock(segment[1])) · 全天 \(reportTimeRange(task)) · \(task.turns) 轮"]
+                                                   + classTipLines(input: task.inputTokens, cache: task.cacheTokens,
+                                                                   output: task.outputTokens)
+                                                   + ["合计：\(tokenText(task.totalTokens))"])
+                        }
                     }
                 }
             }
             .frame(height: 26)
-            .help("按任务首末时间的来源着色节奏带")
+            .help("按任务真实活动时段的来源着色节奏带；空闲留白")
             GeometryReader { proxy in
                 let width = proxy.size.width
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(stride(from: range.0, through: range.1, by: 2)), id: \.self) { hour in
                         Text(String(format: "%02d", Int(hour)))
                             .font(.system(size: 8)).foregroundStyle(.tertiary)
-                            .position(x: min(max((hour - range.0) / (range.1 - range.0) * width, 8), width - 8), y: 6)
+                            .position(x: min(max((hour - range.0) / hours * width, 8), width - 8), y: 6)
                     }
                 }
             }
             .frame(height: 12)
             legend
         }
+    }
+    private func taskSegments(_ task: ReportTask) -> [[Double]] {
+        if let segments = task.segments, !segments.isEmpty { return segments }
+        return task.firstAt > 0 ? [[task.firstAt, max(task.lastAt, task.firstAt)]] : []
     }
     private var legend: some View {
         let providers = Array(Set(tasks.map(\.provider))).sorted()
@@ -1124,6 +1106,7 @@ struct ProjectBarsView: View {
                                        + ["合计：\(tokenText(entry.usage.totalTokens))"])
                 }
             }
+            .dailyReportCard()
         }
     }
 }
@@ -1133,7 +1116,7 @@ struct TaskListView: View {
     var body: some View {
         let longest = max(report.tasks.map(\.totalTokens).max() ?? 1, 1)
         VStack(alignment: .leading, spacing: 8) {
-            Text("任务 · \(report.tasks.count)").font(.headline)
+            Text("任务 · \(report.tasks.count)").font(.headline).padding(.leading, 14)
             ForEach(report.tasks) { task in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
@@ -1175,9 +1158,7 @@ struct TaskListView: View {
                         Spacer()
                     }.font(.system(size: 10))
                 }
-                .padding(11)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.05)))
+                .dailyReportCard()
                 .dailyHoverTip(title: task.title,
                                lines: ["\(providerName(task.provider)) · \(task.turns) 轮 · \(reportTimeRange(task))"]
                                    + classTipLines(input: task.inputTokens, cache: task.cacheTokens,

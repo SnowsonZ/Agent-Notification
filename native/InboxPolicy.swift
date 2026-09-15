@@ -50,6 +50,23 @@ func shouldGenerateDailyReport(now: Date, lastGeneratedStamp: String?, version: 
     guard (components.hour ?? 0) * 60 + (components.minute ?? 0) >= hour * 60 else { return false }
     return lastGeneratedStamp != "\(dailyReportDayKey(now, calendar: calendar))#\(version)"
 }
+// 节奏带时间轴：时间戳相对当天 0 点的小时数，截到 [0, 24]。
+// 跨零点任务的末次时间是次日 00:00，按"时:分"取值会变成 0 而画出负宽度，这里按偏移算即为 24。
+func rhythmHour(_ stamp: Double, dayStart: Double) -> Double {
+    min(max((stamp - dayStart) / 3600, 0), 24)
+}
+// 按所有活动段的最早/最晚小时取偶数刻度区间；无有效段回退 8–24。
+func rhythmRange(_ segments: [[[Double]]], dayStart: Double) -> (Double, Double) {
+    var low = 24.0, high = 0.0
+    for segment in segments.joined() where segment.count == 2 && segment[0] > 0 {
+        low = min(low, rhythmHour(segment[0], dayStart: dayStart))
+        high = max(high, rhythmHour(max(segment[1], segment[0]), dayStart: dayStart))
+    }
+    guard high >= low else { return (8, 24) }  // 单条消息也是活动段（零长度）
+    let start = max(0, floor(low / 2) * 2)
+    let end = min(24, max(start + 2, ceil(high / 2) * 2))
+    return (start, end)
+}
 // GitHub 贡献图同款五级强度（有效 tokens，按本机活跃日分布校准）：
 // 无记录 / <100万 / <1000万 / <5000万 / ≥5000万。
 func heatLevel(activeSeconds: Int) -> Int {

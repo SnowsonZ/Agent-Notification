@@ -118,6 +118,10 @@ def main():
                        help='heatmap totals + top projects instead of one day')
     daily.add_argument('--days', type=int, default=182)
     daily.add_argument('--top', type=int, default=5)
+    daily.add_argument('--persist', action='store_true',
+                       help='also write today\'s snapshot to disk (20:00 scheduled run)')
+    daily.add_argument('--refresh', action='store_true',
+                       help='rescan sources for a past day even if a finalized report is cached')
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     try:
@@ -159,7 +163,8 @@ def main():
                 payload = generate_overview(store, Path.home(),
                                             days=max(7, args.days), top=max(1, min(args.top, 10)))
             else:
-                payload = generate_day(store, Path.home(), args.date)
+                payload = generate_day(store, Path.home(), args.date, persist_today=args.persist,
+                                       refresh=args.refresh)
             print(json.dumps(payload, ensure_ascii=False))
             return 0
         if args.action in ('sync', 'watch'):

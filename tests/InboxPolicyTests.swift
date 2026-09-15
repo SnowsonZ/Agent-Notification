@@ -42,6 +42,15 @@ import Foundation
         precondition([0, 999_999, 1_000_000, 9_999_999, 10_000_000, 49_999_999, 50_000_000].map { heatLevel(tokens: $0) } == [0, 1, 2, 2, 3, 3, 4])
         precondition(heatLevel(tokens: -5) == 0)
         precondition(heatLevel(activeSeconds: 100) == 1)  // 兼容旧调用名
+        // 节奏带：跨零点末次时间（次日 00:00）算 24 而不是 0；范围取偶数刻度；无段回退 8–24。
+        let dayStart = 1_000_000.0
+        precondition(rhythmHour(dayStart + 24 * 3600, dayStart: dayStart) == 24)
+        precondition(rhythmHour(dayStart - 3600, dayStart: dayStart) == 0)
+        precondition(rhythmHour(dayStart + 9.5 * 3600, dayStart: dayStart) == 9.5)
+        precondition(rhythmRange([[[dayStart + 9.5 * 3600, dayStart + 10 * 3600]],
+                                  [[dayStart + 16 * 3600, dayStart + 24 * 3600]]], dayStart: dayStart) == (8, 24))
+        precondition(rhythmRange([[[dayStart + 1 * 3600, dayStart + 1 * 3600]]], dayStart: dayStart) == (0, 2))
+        precondition(rhythmRange([[]], dayStart: dayStart) == (8, 24))
         print("Pagination, notification, daily report policy checks passed")
     }
 }

@@ -57,6 +57,14 @@ class DailyReportTests(unittest.TestCase):
                        (sid, turn_id, status, round(start * 1000), round(end * 1000),
                         fresh + cached, cached, cache_creation, output, reasoning))
 
+    def zcode_requests(self, turn_id, intervals):
+        runtime = self.home / '.zcode/cli/db/db.sqlite'
+        with sqlite3.connect(runtime) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS model_usage (turn_id,started_at,completed_at)')
+            for start, end in intervals:
+                db.execute('INSERT INTO model_usage VALUES (?,?,?)',
+                           (turn_id, round(start * 1000), round(end * 1000) if end else None))
+
     def zcode_parents(self, mapping):
         runtime = self.home / '.zcode/cli/db/db.sqlite'
         runtime.parent.mkdir(parents=True, exist_ok=True)
@@ -231,12 +239,12 @@ class DailyReportTests(unittest.TestCase):
                                                   553_010_996, 1_000_000_000)],
                          ['0', '895', '6.6k', '457k', '614k', '1M', '55.7M', '143M', '553M', '1B'])
 
-    def test_generate_day_writes_v3_and_markdown(self):
+    def test_generate_day_writes_v5_and_markdown(self):
         self.zcode_index('sess_a', '收件箱日报', '/work/session-manager')
         self.zcode_turn('sess_a', 't1', stamp(self.day, 10), stamp(self.day, 12),
                         fresh=40_000, cached=900_000, output=10_000)
         report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report['version'], 3)
+        self.assertEqual(report['version'], 5)
         self.assertEqual((report['totals']['input_tokens'], report['totals']['cache_tokens'],
                           report['totals']['output_tokens'], report['totals']['total_tokens']),
                          (40_000, 900_000, 10_000, 950_000))
@@ -248,9 +256,61 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn('合计 950k', markdown)
         self.assertIn('900k', markdown)
         self.assertIn('收件箱日报', markdown)
-        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 3)
+        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 5)
+        # 过去日已定稿：再次查看直接读缓存，不重扫来源（新增轮次不会出现）。
+        self.zcode_turn('sess_a', 't2', stamp(self.day, 13), stamp(self.day, 14), fresh=1)
         again = generate_day(self.store, self.home, self.day.isoformat())
         self.assertEqual(again['totals'], report['totals'])
+        self.assertEqual(again['generated_at'], report['generated_at'])
+
+    def test_generate_day_keeps_today_live_unless_persist_requested(self):
+        today = date.today()
+        self.zcode_index('sess_a')
+        self.zcode_turn('sess_a', 't1', stamp(today, 0, 5), stamp(today, 0, 10), fresh=10)
+        report = generate_day(self.store, self.home, today.isoformat())
+        self.assertEqual(report['totals']['total_tokens'], 10)
+        self.assertNotIn('path_md', report)
+        self.assertIsNone(load_report(self.store.root, today.isoformat()))
+        persisted = generate_day(self.store, self.home, today.isoformat(), persist_today=True)
+        self.assertTrue(Path(persisted['path_md']).exists())
+        self.assertEqual(load_report(self.store.root, today.isoformat())['totals'], report['totals'])
+
+    def test_task_segments_follow_real_activity_not_first_to_last_span(self):
+        # Zcode：两轮相隔 6 小时，节奏带应得两段真实轮区间而非 09–17 一整条。
+        self.zcode_index('sess_a')
+        self.zcode_turn('sess_a', 't1', stamp(self.day, 9), stamp(self.day, 9, 20), fresh=10)
+        self.zcode_turn('sess_a', 't2', stamp(self.day, 16), stamp(self.day, 17), fresh=10)
+        # Claude：逐条消息时间戳，≤15 分钟聚成一段，跨大间隔分段。
+        self.claude_session('cli-1', stamp(self.day, 8), stamp(self.day, 13),
+                            usage_lines=[((self.day, 8, 0), {'input_tokens': 1, 'output_tokens': 1}),
+                                         ((self.day, 8, 10), {'input_tokens': 1, 'output_tokens': 1}),
+                                         ((self.day, 8, 24), {'input_tokens': 1, 'output_tokens': 1}),
+                                         ((self.day, 12, 50), {'input_tokens': 1, 'output_tokens': 1})])
+        records = scan_buckets(self.store, self.home, self.day, self.day)[self.day]
+        by_sid = {record['session_id']: record for record in records}
+        self.assertEqual(by_sid['sess_a']['segments'],
+                         [[stamp(self.day, 9), stamp(self.day, 9, 20)], [stamp(self.day, 16), stamp(self.day, 17)]])
+        self.assertEqual(by_sid['cli-1']['segments'],
+                         [[stamp(self.day, 8), stamp(self.day, 8, 24)], [stamp(self.day, 12, 50), stamp(self.day, 12, 50)]])
+
+    def test_zcode_segments_use_model_requests_not_whole_turn(self):
+        # 一轮 16:00–23:00 中间等用户批准 6 个多小时：节奏段只取两次真实请求；token 归属不变。
+        self.zcode_index('sess_a')
+        self.zcode_turn('sess_a', 't1', stamp(self.day, 16), stamp(self.day, 23), fresh=100)
+        self.zcode_requests('t1', [(stamp(self.day, 16), stamp(self.day, 16, 10)),
+                                   (stamp(self.day, 22, 50), stamp(self.day, 23))])
+        record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
+        self.assertEqual(record['segments'], [[stamp(self.day, 16), stamp(self.day, 16, 10)],
+                                              [stamp(self.day, 22, 50), stamp(self.day, 23)]])
+        self.assertEqual((record['total_tokens'], record['turns']), (100, 1))
+        self.assertEqual((record['first_at'], record['last_at']), (stamp(self.day, 16), stamp(self.day, 23)))
+
+    def test_segments_clamped_to_day_window_across_midnight(self):
+        self.zcode_index('sess_a')
+        self.zcode_turn('sess_a', 't1', stamp(self.prev, 23), stamp(self.day, 1), fresh=10)
+        buckets = scan_buckets(self.store, self.home, self.prev, self.day)
+        self.assertEqual(buckets[self.prev][0]['segments'], [[stamp(self.prev, 23), stamp(self.day, 0)]])
+        self.assertEqual(buckets[self.day][0]['segments'], [[stamp(self.day, 0), stamp(self.day, 1)]])
 
     def test_empty_day_renders_placeholder(self):
         report = generate_day(self.store, self.home, self.day.isoformat())
@@ -283,13 +343,15 @@ class DailyReportTests(unittest.TestCase):
         self.assertIsNone(load_report(self.store.root, self.day.isoformat()))
         refreshed = generate_overview(self.store, self.home, days=30, top=5)
         self.assertEqual({row['date']: row for row in refreshed['days']}[self.day.isoformat()]['total_tokens'], 600)
-        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 3)
-        # 过去日读缓存：新增历史轮次不改变固化结果；单日重算（详情路径）取最新。
+        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 5)
+        # 过去日读缓存：新增历史轮次不改变固化结果，总览与详情一致；只有 refresh 才重扫来源。
         self.zcode_turn('sess_a', 't3', stamp(self.day, 15), stamp(self.day, 16), fresh=500)
         cached = {row['date']: row for row in generate_overview(self.store, self.home, days=30, top=5)['days']}
         self.assertEqual(cached[self.day.isoformat()]['total_tokens'], 600)
-        fresh = generate_day(self.store, self.home, self.day.isoformat())
+        self.assertEqual(generate_day(self.store, self.home, self.day.isoformat())['totals']['total_tokens'], 600)
+        fresh = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
         self.assertEqual(fresh['totals']['total_tokens'], 1100)
+        self.assertEqual(load_report(self.store.root, self.day.isoformat())['totals']['total_tokens'], 1100)
 
     def test_overview_refreshes_past_day_snapshot_taken_before_day_end(self):
         # 20:00 定时快照缺晚间消耗：generated_at 早于当日结束的过去日在总览中补算一次后定稿。
