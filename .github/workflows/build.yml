@@ -45,7 +45,6 @@ jobs:
           hdiutil create -volname "Agent Notification" -srcfolder build/pkg -ov -format UDZO build/Agent-Notification.dmg
           cd build
           zip -qry Agent-Notification.app.zip "Agent Notification.app"
-          zip -q zcode-focus.zip zcode-focus
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -54,7 +53,6 @@ jobs:
           path: |
             build/Agent-Notification.dmg
             build/Agent-Notification.app.zip
-            build/zcode-focus.zip
           if-no-files-found: error
 
       - name: Create release
@@ -65,4 +63,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "Agent Notification $GITHUB_REF_NAME" \
             --generate-notes \
-            build/Agent-Notification.dmg build/Agent-Notification.app.zip build/zcode-focus.zip
+            build/Agent-Notification.dmg build/Agent-Notification.app.zip
