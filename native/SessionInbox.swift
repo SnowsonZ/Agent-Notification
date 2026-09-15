@@ -48,13 +48,10 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
             self?.applyAppearanceIcon()
         }
     }
-    // macOS 不为 icns 做外观切换：随系统明暗手动换 Dock 图标。
+    // macOS 不为 icns 做外观切换：随系统明暗手动换 Dock 图标（并叠加当前未读角标）。
     func applyAppearanceIcon() {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        if let url = Bundle.main.url(forResource: dark ? "AppIconDark" : "AppIcon", withExtension: "icns"),
-           let image = NSImage(contentsOf: url) {
-            NSApplication.shared.applicationIconImage = image
-        }
+        applyDockIcon(dark: dark, unread: DockBadge.unread)
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -89,6 +86,45 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
 extension Notification.Name {
     static let reopenInbox = Notification.Name("SessionInboxReopenInbox")
     static let reopenDailyReport = Notification.Name("SessionInboxReopenDailyReport")
+}
+
+// Dock 未读角标：dockTile.badgeLabel 在本应用不渲染（见 InboxModel.updateDockBadge 注），
+// 把角标直接画进应用图标。主题切换重绘底图时要带上同一数值，故未读数存全局。
+enum DockBadge {
+    static var unread = 0
+}
+
+func applyDockIcon(dark: Bool, unread: Int) {
+    guard let url = Bundle.main.url(forResource: dark ? "AppIconDark" : "AppIcon", withExtension: "icns"),
+          let base = NSImage(contentsOf: url) else { return }
+    guard unread > 0 else {
+        NSApplication.shared.applicationIconImage = base
+        return
+    }
+    let canvas = NSSize(width: 1024, height: 1024)
+    let image = NSImage(size: canvas)
+    image.lockFocus()
+    base.draw(in: NSRect(origin: .zero, size: canvas))
+    let text = unread > 99 ? "99+" : String(unread)
+    let fontSize: CGFloat = text.count >= 3 ? 140 : (text.count == 2 ? 180 : 230)
+    let string = NSAttributedString(string: text, attributes: [
+        .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+        .foregroundColor: NSColor.white,
+    ])
+    let bounds = string.boundingRect(with: canvas, options: [.usesLineFragmentOrigin])
+    let center = NSPoint(x: 852, y: 852)
+    let radius: CGFloat = text.count >= 3 ? 176 : 158
+    let circle = NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+    // 橙底白字与托盘徽标、行内未读点同一视觉语言；白描边与浅色瓦片分隔。
+    NSColor(red: 1, green: 0.54, blue: 0.10, alpha: 1).setFill()
+    NSBezierPath(ovalIn: circle).fill()
+    NSColor.white.setStroke()
+    let border = NSBezierPath(ovalIn: circle)
+    border.lineWidth = 16
+    border.stroke()
+    string.draw(at: NSPoint(x: center.x - bounds.width / 2, y: center.y - bounds.height / 2))
+    image.unlockFocus()
+    NSApplication.shared.applicationIconImage = image
 }
 
 // MARK: - 工作日报
@@ -578,24 +614,28 @@ final class HoverTipCenter: ObservableObject {
         activeFrame = frames[id] ?? activeFrame
     }
 }
+// 悬浮身份必须按视图身份稳定：帧登记只发生在 onAppear/帧变化，若键随父视图重建换新
+// （悬浮本身就会触发 HoverTipCenter 发布→日报根视图重算），新键永远查不到帧，
+// hover() 回退 activeFrame 就继承上一次悬浮位置。@StateObject 每个视图身份只建一次。
+final class HoverTipIdentity: ObservableObject { let id = UUID() }
 struct DailyHoverTip: ViewModifier {
     let title: String
     let lines: [String]
-    private let id = UUID()
+    @StateObject private var identity = HoverTipIdentity()
     @ObservedObject private var center = HoverTipCenter.shared
     func body(content: Content) -> some View {
         content
             .background(
                 GeometryReader { geo in
                     Color.clear
-                        .onAppear { center.move(id, frame: geo.frame(in: .named(HoverTipCenter.space))) }
+                        .onAppear { center.move(identity.id, frame: geo.frame(in: .named(HoverTipCenter.space))) }
                         .onChange(of: geo.frame(in: .named(HoverTipCenter.space))) { _, newFrame in
-                            center.move(id, frame: newFrame)
+                            center.move(identity.id, frame: newFrame)
                         }
                 }
             )
             .onHover { inside in
-                center.hover(id, inside: inside, tip: HoverTipCenter.Tip(title: title, lines: lines))
+                center.hover(identity.id, inside: inside, tip: HoverTipCenter.Tip(title: title, lines: lines))
             }
     }
 }
@@ -1169,6 +1209,7 @@ struct TaskListView: View {
     private var initialNotificationSnapshot = true
     private var notificationInFlight = Set<String>()
     private var notificationRetry: [String: Date] = [:]
+    private var lastDockBadge = -1
     let root: String
     private var timer: Timer?
     init() {
@@ -1294,6 +1335,17 @@ struct TaskListView: View {
         initialNotificationSnapshot = false
         if previousSeen != notificationSeen { UserDefaults.standard.set(notificationSeen, forKey: "notificationSeen") }
     }
+    // Dock 角标与菜单栏托盘同口径（未读会话数）；refresh 每 3 秒跑一次，仅数值变化时改写。
+    // 不用 dockTile.badgeLabel：本应用启动时替换 applicationIconImage 后系统角标不再渲染
+    // （实测 badgeLabel 有值而 Dock 不画、邻居应用角标正常），改为把角标画进应用图标。
+    private func updateDockBadge() {
+        let count = unreadCount
+        guard count != lastDockBadge else { return }
+        lastDockBadge = count
+        DockBadge.unread = count
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        applyDockIcon(dark: dark, unread: count)
+    }
     nonisolated static func call(root: String, arguments: [String]) -> (Int32, Data, String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: root + "/scratch/iterm-probe-venv/bin/python")
@@ -1323,6 +1375,7 @@ struct TaskListView: View {
                 page = max(0, min(page, totalPages - 1))
                 if agents.isEmpty { loadAgents() } // 启动时检测偶发失败会在后续刷新里自动补试。
                 notifyNewItems(rows)
+                updateDockBadge()
                 degraded = (payload.health?.sources ?? [:]).filter { $0.value.status != "ok" }.map { name, info in
                     if let count = info.errors, count > 0 { return "\(providerName(name))：\(count) 个历史记录暂未接入" }
                     return "\(providerName(name))：来源暂不可用"
@@ -1360,55 +1413,110 @@ struct TaskListView: View {
     }
 }
 
-func agentIcon(_ id: String) -> NSImage {
-    let size = NSSize(width: 16, height: 16)
-    // 有桌面 App 的来源用应用图标；CLI 用官方图标；缺失时画品牌色字符兜底。
-    let bundleIds = ["claude": "com.anthropic.claudefordesktop", "zcode": "dev.zcode.app"]
+private var agentIconCache: [String: NSImage] = [:]
+
+// 统一来源标志：每个标志先按透明边界裁掉自带留白，再等比缩进目标方框居中，
+// 各家标志在列表和入口里占的框一致；按目标点数光栅化（Retina 下 2x），不做二次放大。
+func agentIcon(_ id: String, size points: CGFloat = 16) -> NSImage {
+    let key = "\(id)@\(points)"
+    if let cached = agentIconCache[key] { return cached }
+    let image = renderAgentIcon(id, size: NSSize(width: points, height: points))
+    agentIconCache[key] = image
+    return image
+}
+
+private func agentIconSource(_ id: String) -> NSImage? {
+    // 有桌面 App 的来源用应用图标；CLI 用官方标志。
+    // claude 指 Claude Code，用其 Clawd 标志而非 Claude 桌面版图标，两者是不同产品。
+    let bundleIds = ["zcode": "dev.zcode.app"]
     if let bundleId = bundleIds[id], let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
-        icon.size = size
-        return icon
+        return NSWorkspace.shared.icon(forFile: url.path)
     }
-    // Codex 桌面内嵌在 ChatGPT.app 的 Framework 里，icon 资源随包路径带版本号，
-    // 因此把官方 logo 收进 agent-icons 随本 App 打包。
+    // 官方标志收进 agent-icons 随本 App 打包：claude.svg 取自 Claude Code VS Code 扩展的 clawd.svg；
+    // codex.png、agy.png 分别由 ChatGPT.app 的 icon-codex-dark-color.png 和 Antigravity.app 图标抠掉瓦片得到，
+    // 不直接用应用图标，避免出现白色方框；kimi.svg 按官方 favicon 几何重绘，避免 64px 位图放大发糊。
     let official: [String: (ext: String, fallbackPath: String)] = [
         "pi": ("svg", "native/agent-icons/pi.svg"),
-        "kimi": ("ico", "/opt/homebrew/lib/node_modules/@moonshot-ai/kimi-code/dist-web/favicon.ico"),
-        "codex": ("png", "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/Current/Resources/product_logo_32.png"),
+        "claude": ("svg", "native/agent-icons/claude.svg"),
+        "kimi": ("svg", "native/agent-icons/kimi.svg"),
+        "codex": ("png", "native/agent-icons/codex.png"),
+        "agy": ("png", "native/agent-icons/agy.png"),
     ]
-    if let entry = official[id] {
-        var urls = [Bundle.main.url(forResource: id, withExtension: entry.ext)].compactMap { $0 }
-        if let root = Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String {
-            urls.append(URL(fileURLWithPath: root + "/" + entry.fallbackPath))
-        }
-        urls.append(URL(fileURLWithPath: entry.fallbackPath))
-        for url in urls where FileManager.default.fileExists(atPath: url.path) {
-            if let icon = NSImage(contentsOf: url) {
-                icon.size = size
-                return icon
-            }
+    guard let entry = official[id] else { return nil }
+    var urls = [Bundle.main.url(forResource: id, withExtension: entry.ext)].compactMap { $0 }
+    if let root = Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String {
+        urls.append(URL(fileURLWithPath: root + "/" + entry.fallbackPath))
+    }
+    for url in urls where FileManager.default.fileExists(atPath: url.path) {
+        if let icon = NSImage(contentsOf: url) { return icon }
+    }
+    return nil
+}
+
+// 在 256px 画布上光栅化后扫描 alpha，得到标志实际占据的区域（源图坐标）。
+private func agentIconContentRect(_ image: NSImage) -> NSRect {
+    let full = NSRect(origin: .zero, size: image.size)
+    let px = 256
+    guard image.size.width > 0, image.size.height > 0,
+          let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8,
+                                     samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                     colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+          let data = rep.bitmapData else { return full }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    image.draw(in: NSRect(x: 0, y: 0, width: px, height: px), from: full, operation: .sourceOver, fraction: 1)
+    NSGraphicsContext.restoreGraphicsState()
+    var minX = px, minY = px, maxX = -1, maxY = -1
+    let rowBytes = rep.bytesPerRow
+    for y in 0..<px {
+        for x in 0..<px where data[y * rowBytes + x * 4 + 3] > 24 {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
         }
     }
+    guard maxX >= minX, maxY >= minY else { return full }
+    // 位图 y 向下，NSImage 坐标 y 向上。
+    let sx = image.size.width / CGFloat(px), sy = image.size.height / CGFloat(px)
+    return NSRect(x: CGFloat(minX) * sx, y: CGFloat(px - 1 - maxY) * sy,
+                  width: CGFloat(maxX - minX + 1) * sx, height: CGFloat(maxY - minY + 1) * sy)
+}
+
+private func renderAgentIcon(_ id: String, size: NSSize) -> NSImage {
+    if let source = agentIconSource(id) {
+        let content = agentIconContentRect(source)
+        // 方框内再按视觉分量微调：横宽形的 Kimi 本就矮一截保持满框，其余标志统一收一档，
+        // 实心方块的 Pi 和撑满方框的 Antigravity 再多收一点。
+        let emphasis: CGFloat = ["kimi": 1, "pi": 0.68, "agy": 0.78][id] ?? 0.88
+        let scale = min(size.width / max(content.width, 1), size.height / max(content.height, 1)) * emphasis
+        let fitted = NSSize(width: content.width * scale, height: content.height * scale)
+        // 用绘制闭包而非 lockFocus：按实际输出的缩放因子按需绘制，Retina 下矢量与高清位图保持清晰。
+        return NSImage(size: size, flipped: false) { _ in
+            NSGraphicsContext.current?.imageInterpolation = .high
+            source.draw(in: NSRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2,
+                                   width: fitted.width, height: fitted.height),
+                        from: content, operation: .sourceOver, fraction: 1)
+            return true
+        }
+    }
+    // 缺失时画品牌色字符兜底。
     let glyphs = ["pi": ("π", NSColor(srgbRed: 0.42, green: 0.48, blue: 0.55, alpha: 1)),
                   "kimi": ("K", NSColor(srgbRed: 0.30, green: 0.43, blue: 0.96, alpha: 1)),
                   "codex": (">_", NSColor(srgbRed: 0.35, green: 0.45, blue: 0.95, alpha: 1)),
                   "zcode": ("Z", NSColor(srgbRed: 0.22, green: 0.25, blue: 0.30, alpha: 1)),
+                  "claude": ("C", NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1)),
                   "agy": ("A", NSColor(srgbRed: 0.259, green: 0.522, blue: 0.957, alpha: 1)),
                   "opencode": ("OC", NSColor(srgbRed: 0.961, green: 0.620, blue: 0.043, alpha: 1))]
     let (glyph, color) = glyphs[id] ?? ("?", NSColor.systemGray)
-    let image = NSImage(size: size)
-    image.lockFocus()
-    let rect = NSRect(origin: .zero, size: size)
-    color.setFill()
-    NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-    let text = NSAttributedString(string: glyph, attributes: [
-        .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-        .foregroundColor: NSColor.white,
-    ])
-    let bounds = text.boundingRect(with: size, options: [.usesLineFragmentOrigin])
-    text.draw(at: NSPoint(x: (size.width - bounds.width) / 2, y: (size.height - bounds.height) / 2))
-    image.unlockFocus()
-    return image
+    return NSImage(size: size, flipped: false) { rect in
+        color.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: size.width / 4, yRadius: size.height / 4).fill()
+        let text = NSAttributedString(string: glyph, attributes: [
+            .font: NSFont.systemFont(ofSize: size.height * 0.7, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ])
+        let bounds = text.boundingRect(with: size, options: [.usesLineFragmentOrigin])
+        text.draw(at: NSPoint(x: (size.width - bounds.width) / 2, y: (size.height - bounds.height) / 2))
+        return true
+    }
 }
 
 func stateName(_ state: String) -> String {    ["running": "运行中", "waiting": "等待输入", "idle": "本轮已结束", "failed": "发生错误",
@@ -1583,8 +1691,7 @@ struct NewSessionLauncherRow: View {
         Button {
             model.launch(agent)
         } label: {
-            Image(nsImage: agentIcon(agent.id))
-                .resizable()
+            Image(nsImage: agentIcon(agent.id, size: 24))
                 .frame(width: 24, height: 24)
                 .frame(width: 36, height: 36)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
@@ -1604,8 +1711,7 @@ struct NewSessionLauncherRow: View {
                     Label {
                         Text(agent.name)
                     } icon: {
-                        Image(nsImage: agentIcon(agent.id))
-                            .resizable()
+                        Image(nsImage: agentIcon(agent.id, size: 16))
                             .frame(width: 16, height: 16)
                     }
                 }
@@ -1754,8 +1860,7 @@ struct InboxRowView: View {
             // 主内容为 agent 图标；待处理时右上角橙色圆点，描边取窗口背景色，
             // 亮色/暗色模式自动适配。
             // 已退出与已结束对用户含义一致（都可重开查看），外观保持一致，不做置灰。
-            Image(nsImage: agentIcon(row.provider))
-                .resizable()
+            Image(nsImage: agentIcon(row.provider, size: 30))
                 .frame(width: 30, height: 30)
                 .overlay(alignment: .topTrailing) {
                     if row.unread {

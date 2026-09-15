@@ -32,16 +32,16 @@ case "$action" in
         exec "$runtime" "$task_root/scripts/inbox.py" "$@"
         ;;
     app)
-        exec /usr/bin/open "$task_root/build/SessionInbox.app"
+        exec /usr/bin/open "$task_root/build/Agent Notification.app"
         ;;
     permissions)
-        if [ ! -d "$task_root/build/SessionInbox.app" ]; then
-            echo "Missing app: $task_root/build/SessionInbox.app (run scripts/build_inbox_app.py first)" >&2
+        if [ ! -d "$task_root/build/Agent Notification.app" ]; then
+            echo "Missing app: $task_root/build/Agent Notification.app (run scripts/build_inbox_app.py first)" >&2
             exit 1
         fi
-        /usr/bin/open -R "$task_root/build/SessionInbox.app"
+        /usr/bin/open -R "$task_root/build/Agent Notification.app"
         /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-        echo "在系统设置「隐私与安全性 → 辅助功能」中，把 Finder 里的 SessionInbox.app（Agent Notification）拖进右侧列表。"
+        echo "在系统设置「隐私与安全性 → 辅助功能」中，把 Finder 里的 Agent Notification.app 拖进右侧列表。"
         ;;
     help|--help|-h)
         echo "Usage: session-manager pi|kimi [agent options]"

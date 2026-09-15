@@ -56,7 +56,7 @@
 bin/session-manager zcode-focus TASK_ID
 ```
 
-TASK_ID 为本地任务索引中的真实任务 ID。已验证的运行打开了目标任务并返回 status=focused、selection_identity_matches=true。如果报告 accessibility_permission_required，运行 `bin/session-manager permissions`（或在 App 内点击 Zcode 事项的「前往会话」会自动触发同一流程），在打开的「隐私与安全性 → 辅助功能」面板中把可拖拽悬浮窗里的 SessionInbox.app（Agent Notification）拖入列表（从终端直接运行时则检查启动它的终端 App），授权后悬浮窗自动收起，再重新运行。[Apple 的权限检查说明](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions)说明权限提示是异步的，当次返回并不自动变成已授权。
+TASK_ID 为本地任务索引中的真实任务 ID。已验证的运行打开了目标任务并返回 status=focused、selection_identity_matches=true。如果报告 accessibility_permission_required，运行 `bin/session-manager permissions`（或在 App 内点击 Zcode 事项的「前往会话」会自动触发同一流程），在打开的「隐私与安全性 → 辅助功能」面板中把可拖拽悬浮窗里的 Agent Notification.app拖入列表（从终端直接运行时则检查启动它的终端 App），授权后悬浮窗自动收起，再重新运行。[Apple 的权限检查说明](https://developer.apple.com/documentation/applicationservices/1459186-axisprocesstrustedwithoptions)说明权限提示是异步的，当次返回并不自动变成已授权。
 
 仅解析目标而不操作界面：
 
