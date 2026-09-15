@@ -581,17 +581,33 @@ def generate_day(store, home, date_text=None):
     return report
 
 
+def _finalized(report, day):
+    """过去日报告在该日结束后生成才算定稿；20:00 定时快照缺晚间消耗，次日补算一次。"""
+    return report is not None and report.get('generated_at', 0) >= day_bounds(day)[1]
+
+
 def generate_overview(store, home, *, days=182, top=5):
-    """热力图总量（三类合计）+ 近 7 天 Top 项目与来源；缺失的过去日自动补录。"""
+    """热力图总量（三类合计）+ 近 7 天 Top 项目与来源；缺失/未定稿的过去日自动补录。
+
+    来源扫描只覆盖最早未定稿日至今，常态下仅今天（毫秒级），避免每次打开重读半年转写。
+    """
     today = date.today()
     first_day = today - timedelta(days=days - 1)
-    buckets = scan_buckets(store, home, first_day, today)
+    cached, pending = {}, [today]
+    for offset in range(days - 1):
+        day = first_day + timedelta(days=offset)
+        report = load_report(store.root, day.isoformat())
+        if _finalized(report, day):
+            cached[day] = report
+        else:
+            pending.append(day)
+    buckets = scan_buckets(store, home, min(pending), today)
     live_today = build_report(today, buckets.get(today, []), time.time())
     day_rows = []
     for offset in range(days):
         day = first_day + timedelta(days=offset)
         text = day.isoformat()
-        report = live_today if day == today else load_report(store.root, text)
+        report = live_today if day == today else cached.get(day)
         if report is None:
             report = build_report(day, buckets.get(day, []), time.time())
             _write_report(store.root, report)

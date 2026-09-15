@@ -291,6 +291,22 @@ class DailyReportTests(unittest.TestCase):
         fresh = generate_day(self.store, self.home, self.day.isoformat())
         self.assertEqual(fresh['totals']['total_tokens'], 1100)
 
+    def test_overview_refreshes_past_day_snapshot_taken_before_day_end(self):
+        # 20:00 定时快照缺晚间消耗：generated_at 早于当日结束的过去日在总览中补算一次后定稿。
+        self.zcode_index('sess_a', project='/work/alpha')
+        self.zcode_turn('sess_a', 't1', stamp(self.day, 10), stamp(self.day, 11), fresh=600)
+        snapshot = build_report(self.day, [], stamp(self.day, 20))
+        (self.store.root / 'reports').mkdir(parents=True, exist_ok=True)
+        (self.store.root / 'reports' / f'{self.day.isoformat()}.json').write_text(json.dumps(snapshot))
+        by_date = {row['date']: row for row in generate_overview(self.store, self.home, days=30)['days']}
+        self.assertEqual(by_date[self.day.isoformat()]['total_tokens'], 600)
+        finalized = load_report(self.store.root, self.day.isoformat())
+        self.assertGreaterEqual(finalized['generated_at'], stamp(self.day + timedelta(days=1), 0))
+        # 定稿后不再随来源变化。
+        self.zcode_turn('sess_a', 't2', stamp(self.day, 15), stamp(self.day, 16), fresh=500)
+        by_date = {row['date']: row for row in generate_overview(self.store, self.home, days=30)['days']}
+        self.assertEqual(by_date[self.day.isoformat()]['total_tokens'], 600)
+
 
 if __name__ == '__main__':
     unittest.main()
