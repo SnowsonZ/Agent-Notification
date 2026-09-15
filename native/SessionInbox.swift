@@ -275,6 +275,38 @@ func heatColor(_ level: Int) -> Color {
 extension Color {
     static let attention = Color(nsColor: .systemOrange)
 }
+
+// Liquid Glass（macOS 26+）只用于控件层：工具栏按钮、新建会话按钮、悬浮提示卡。
+// 内容层（列表行、日报卡片、搜索框）保持实色，遵循系统「玻璃只做浮层」的分层约定。
+// 构建目标仍是 macOS 14：旧系统走原有实色圆角底，视觉与之前一致。
+struct GlassSurface: ViewModifier {
+    let radius: CGFloat
+    let interactive: Bool
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.glassEffect(interactive ? .regular.interactive() : .regular,
+                                in: RoundedRectangle(cornerRadius: radius))
+        } else {
+            content
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: radius))
+                .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.primary.opacity(0.06)))
+        }
+    }
+}
+extension View {
+    func glassSurface(radius: CGFloat, interactive: Bool = false) -> some View {
+        modifier(GlassSurface(radius: radius, interactive: interactive))
+    }
+    // 同一容器内相邻玻璃控件在靠近时会互相融合；旧系统直接透传。
+    @ViewBuilder
+    func glassGroup(spacing: CGFloat) -> some View {
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: spacing) { self }
+        } else {
+            self
+        }
+    }
+}
 func stateDotColor(_ state: String) -> Color {
     switch state {
     case "running": return .green
@@ -547,25 +579,48 @@ func tokenClassColor(_ cls: TokenClass) -> Color {
 struct HoverTipCard: View {
     let title: String
     let lines: [String]
+    private var tipTitleStyle: AnyShapeStyle {
+        if #available(macOS 26, *) { return AnyShapeStyle(.primary) }
+        return AnyShapeStyle(Color.white)
+    }
+    private var tipLineStyle: AnyShapeStyle {
+        if #available(macOS 26, *) { return AnyShapeStyle(.secondary) }
+        return AnyShapeStyle(Color.white.opacity(0.85))
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.white)
+                .foregroundStyle(tipTitleStyle)
                 .lineLimit(1)
             ForEach(lines.indices, id: \.self) { index in
                 Text(lines[index])
                     .font(.system(size: 11))
-                    .foregroundStyle(Color.white.opacity(0.85))
+                    .foregroundStyle(tipLineStyle)
                     .lineLimit(1)
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.12)))
-        .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+        .modifier(HoverTipSurface())
         .fixedSize()
+    }
+}
+
+// 悬浮卡是典型浮层：macOS 26 起用玻璃承托并沿用系统前景色；旧系统保留深色实底。
+struct HoverTipSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content
+                .foregroundStyle(.primary)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        } else {
+            content
+                .background(Color.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.12)))
+                .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+        }
     }
 }
 
@@ -1869,12 +1924,15 @@ struct NewSessionLauncherRow: View {
             HStack(spacing: 12) {
                 Text("新建会话").font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: true, vertical: false)
-                ForEach(model.agents.prefix(visible)) { agent in
-                    launcherButton(agent)
+                HStack(spacing: 12) {
+                    ForEach(model.agents.prefix(visible)) { agent in
+                        launcherButton(agent)
+                    }
+                    if visible < total {
+                        overflowMenu(hidden: Array(model.agents.suffix(total - visible)))
+                    }
                 }
-                if visible < total {
-                    overflowMenu(hidden: Array(model.agents.suffix(total - visible)))
-                }
+                .glassGroup(spacing: 12)
                 Spacer()
             }
         }
@@ -1896,8 +1954,7 @@ struct NewSessionLauncherRow: View {
             Image(nsImage: agentIcon(agent.id, size: 24))
                 .frame(width: 24, height: 24)
                 .frame(width: 36, height: 36)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.06)))
+                .glassSurface(radius: 10, interactive: true)
         }
         .buttonStyle(.plain)
         .disabled(!agent.iterm)
@@ -1925,8 +1982,7 @@ struct NewSessionLauncherRow: View {
                 .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.06)))
+                .glassSurface(radius: 10, interactive: true)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -1947,24 +2003,6 @@ struct InboxView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button {
-                    openWindow(id: "dailyReport")
-                    NSApplication.shared.activate(ignoringOtherApps: true)
-                } label: {
-                    Image(systemName: "chart.bar.doc.horizontal")
-                }
-                .buttonStyle(InboxIconButtonStyle())
-                .help("工作日报")
-                Button { model.toggleNotifications() } label: {
-                    Image(systemName: model.notificationsEnabled && model.notificationsAllowed ? "bell.badge.fill" : "bell.slash")
-                }
-                .buttonStyle(InboxIconButtonStyle())
-                .help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
-                Button { model.refresh() } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(InboxIconButtonStyle())
-                .help("刷新").disabled(model.loading)
             }
             if !model.agents.isEmpty {
                 NewSessionLauncherRow(model: model)
@@ -2035,6 +2073,29 @@ struct InboxView: View {
         .padding(16)
         .frame(minWidth: 360, idealWidth: 400, minHeight: 480, idealHeight: 620)
         .background(Color(nsColor: .windowBackgroundColor))
+        // 头部动作进窗口工具栏：macOS 26 起系统自动给工具栏项套 Liquid Glass，
+        // 内容标题留在页内（工具栏用 unifiedCompact 且不显示标题，避免重复）。
+        .toolbar {
+            // 紧凑工具栏无标题时项目从左排起：先放弹性空白，把动作组推到右侧。
+            ToolbarItem(placement: .automatic) { Spacer() }
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    openWindow(id: "dailyReport")
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                } label: {
+                    Label("工作日报", systemImage: "chart.bar.doc.horizontal")
+                }
+                .help("工作日报")
+                Button { model.toggleNotifications() } label: {
+                    Label("通知", systemImage: model.notificationsEnabled && model.notificationsAllowed ? "bell.badge.fill" : "bell.slash")
+                }
+                .help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
+                Button { model.refresh() } label: {
+                    Label("刷新", systemImage: "arrow.clockwise")
+                }
+                .help("刷新").disabled(model.loading)
+            }
+        }
         .onAppear { model.refresh() }
     }
 }
@@ -2051,26 +2112,6 @@ struct InboxActionButtonStyle: ButtonStyle {
             }
             .contentShape(RoundedRectangle(cornerRadius: 8))
             .scaleEffect(isEnabled && configuration.isPressed ? 0.90 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
-// 头部图标按钮：与行内 InboxActionButtonStyle 同一交互语言——28pt 热区、
-// 按下浅底并轻微缩放。裸 swiftc 构建没有 SwiftUIMacros（@State 不可用），
-// 悬停态改用 onContinuousHover 需视图级状态，这里与行内按钮一致只做按下反馈。
-struct InboxIconButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .frame(width: 28, height: 28)
-            .foregroundStyle(isEnabled ? Color.secondary : Color.secondary.opacity(0.4))
-            .background {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(isEnabled && configuration.isPressed ? 0.10 : 0))
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-            .scaleEffect(isEnabled && configuration.isPressed ? 0.92 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
@@ -2200,6 +2241,7 @@ struct TrayIcon: View {
         Window("Agent Notification", id: "inbox") { InboxView(model: model) }
             .defaultSize(width: 400, height: 620)
             .windowResizability(.contentMinSize)
+            .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         Window("日报", id: "dailyReport") { DailyReportView(model: reportModel) }
             .defaultSize(width: 600, height: 780)
             .windowResizability(.contentMinSize)

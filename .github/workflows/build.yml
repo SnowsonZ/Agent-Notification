@@ -12,7 +12,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-26 自带 Xcode 26：build 脚本用 actool 把 native/AppIcon.icon 编成 Liquid Glass 分层图标。
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 

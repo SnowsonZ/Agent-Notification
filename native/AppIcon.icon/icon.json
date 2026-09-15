@@ -1,0 +1,180 @@
+{
+  "fill-specializations" : [
+    {
+      "value" : {
+        "linear-gradient" : [
+          "srgb:0.99000,0.99000,1.00000,1.00000",
+          "srgb:0.88000,0.89000,0.92000,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : "system-dark"
+    }
+  ],
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:1.00000,0.66000,0.20000,1.00000",
+                  "srgb:1.00000,0.43000,0.06000,1.00000"
+                ]
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Badge.svg",
+          "name" : "Badge"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.96000,0.96000,0.98000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.20000,0.20000,0.23000,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "BadgeRing.svg",
+          "name" : "BadgeRing"
+        }
+      ],
+      "lighting" : "individual",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.4
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.22000,0.25000,0.31000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Eyes.svg",
+          "name" : "Eyes"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.94000,0.97000,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.17000,0.19000,0.23000,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "Face.svg",
+          "name" : "Face"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.39000,0.43000,0.50000,1.00000",
+                  "srgb:0.22000,0.25000,0.31000,1.00000"
+                ]
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "linear-gradient" : [
+                  "srgb:0.91000,0.91000,0.94000,1.00000",
+                  "srgb:0.69000,0.70000,0.75000,1.00000"
+                ]
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Head.svg",
+          "name" : "Head"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.22000,0.25000,0.31000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.69000,0.70000,0.75000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Arms.svg",
+          "name" : "Arms"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.22000,0.25000,0.31000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "srgb:0.69000,0.70000,0.75000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "Antenna.svg",
+          "name" : "Antenna"
+        }
+      ],
+      "lighting" : "individual",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

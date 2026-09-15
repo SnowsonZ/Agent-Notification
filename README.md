@@ -64,6 +64,7 @@ Notes:
 - `scratch/` and `build/` are not tracked by git; the steps above create them.
 - The build script refuses to overwrite a running app — quit "Agent Notification" before rebuilding.
 - The bundle is locally ad-hoc signed and verified; this is not notarized distribution. After a rebuild, re-drag the app into the Accessibility list (`bin/session-manager permissions`).
+- Two icon sources: `native/GenerateAppIcon.swift` renders the icns (all systems), and `native/AppIcon.icon` is the macOS 26+ Liquid Glass layered icon — the build script compiles it into `Assets.car` when Xcode 26's `actool` is available and silently falls back to the icns with Command Line Tools only. Releases are built by CI on macos-26, so they carry the layered icon.
 
 Install the observer hooks and launch the app:
 

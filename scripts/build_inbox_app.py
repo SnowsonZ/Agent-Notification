@@ -53,6 +53,30 @@ subprocess.run([str(generator), str(iconset), 'light'], check=True)
 subprocess.run([str(generator), str(iconset_dark), 'dark'], check=True)
 subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(contents / 'Resources/AppIcon.icns')], check=True)
 subprocess.run(['iconutil', '-c', 'icns', str(iconset_dark), '-o', str(contents / 'Resources/AppIconDark.icns')], check=True)
+
+
+def compile_liquid_glass_icon() -> bool:
+    """macOS 26+ 分层图标：把 native/AppIcon.icon 编成 Resources/Assets.car。
+
+    actool 只随 Xcode 26 提供（命令行工具没有），缺失时静默跳过，系统回退到 icns。
+    """
+    probe = subprocess.run(['xcrun', '--find', 'actool'], capture_output=True, text=True)
+    if probe.returncode != 0:
+        print('actool unavailable (needs Xcode 26); Liquid Glass icon skipped, icns fallback only')
+        return False
+    (contents / 'Resources/Assets.car').unlink(missing_ok=True)
+    subprocess.run([probe.stdout.strip(), str(root / 'native/AppIcon.icon'),
+                    '--compile', str(contents / 'Resources'), '--app-icon', 'AppIcon',
+                    '--include-all-app-icons', '--enable-on-demand-resources', 'NO',
+                    '--development-region', 'en', '--target-device', 'mac', '--platform', 'macosx',
+                    '--minimum-deployment-target', '14.0', '--output-partial-info-plist', '/dev/null',
+                    '--output-format', 'human-readable-text', '--warnings', '--errors'], check=True)
+    if not (contents / 'Resources/Assets.car').is_file():
+        raise SystemExit('actool finished without producing Assets.car')
+    return True
+
+
+liquid_glass_icon = compile_liquid_glass_icon()
 subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-macosx14.0',
                 str(root / 'native/InboxPolicy.swift'), str(root / 'native/SessionInbox.swift'), '-o', str(contents / 'MacOS/Agent Notification')], check=True)
 info = {
@@ -63,6 +87,8 @@ info = {
     'NSHighResolutionCapable': True,
     'NSAppleEventsUsageDescription': '用于定位 iTerm2 中已有的 agent 会话，不向终端输入命令。',
 }
+if liquid_glass_icon:
+    info['CFBundleIconName'] = 'AppIcon'  # macOS 26+ 读 Assets.car 分层图标，旧系统仍用 CFBundleIconFile
 if not args.standalone:
     info['SessionManagerRoot'] = str(root)  # 开发包：运行仓库内的脚本与 venv
 (contents / 'Info.plist').write_bytes(plistlib.dumps(info))
