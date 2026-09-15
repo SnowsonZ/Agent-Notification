@@ -1,179 +1,193 @@
 {
-  "fill-specializations" : [
+  "fill-specializations": [
     {
-      "value" : {
-        "linear-gradient" : [
+      "value": {
+        "linear-gradient": [
           "srgb:0.99000,0.99000,1.00000,1.00000",
           "srgb:0.88000,0.89000,0.92000,1.00000"
         ]
       }
     },
     {
-      "appearance" : "dark",
-      "value" : "system-dark"
+      "appearance": "dark",
+      "value": "system-dark"
     }
   ],
-  "groups" : [
+  "groups": [
     {
-      "layers" : [
+      "layers": [
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "linear-gradient" : [
+              "value": {
+                "linear-gradient": [
                   "srgb:1.00000,0.66000,0.20000,1.00000",
                   "srgb:1.00000,0.43000,0.06000,1.00000"
                 ]
               }
             }
           ],
-          "glass" : true,
-          "image-name" : "Badge.svg",
-          "name" : "Badge"
+          "glass": true,
+          "image-name": "Badge.svg",
+          "name": "Badge"
         },
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "solid" : "srgb:0.96000,0.96000,0.98000,1.00000"
+              "value": {
+                "solid": "srgb:0.96000,0.96000,0.98000,1.00000"
               }
             },
             {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.20000,0.20000,0.23000,1.00000"
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.20000,0.20000,0.23000,1.00000"
               }
             }
           ],
-          "glass" : false,
-          "image-name" : "BadgeRing.svg",
-          "name" : "BadgeRing"
+          "glass": false,
+          "image-name": "BadgeRing.svg",
+          "name": "BadgeRing"
         }
       ],
-      "lighting" : "individual",
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.4
+      "lighting": "individual",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.4
       },
-      "specular" : true,
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
+      "specular": true,
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      },
+      "position": {
+        "scale": 1.12,
+        "translation-in-points": [
+          0,
+          0
+        ]
       }
     },
     {
-      "layers" : [
+      "layers": [
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "solid" : "srgb:0.22000,0.25000,0.31000,1.00000"
+              "value": {
+                "solid": "srgb:0.22000,0.25000,0.31000,1.00000"
               }
             },
             {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:1.00000,1.00000,1.00000,1.00000"
               }
             }
           ],
-          "glass" : false,
-          "image-name" : "Eyes.svg",
-          "name" : "Eyes"
+          "glass": false,
+          "image-name": "Eyes.svg",
+          "name": "Eyes"
         },
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "solid" : "srgb:0.94000,0.97000,1.00000,1.00000"
+              "value": {
+                "solid": "srgb:0.94000,0.97000,1.00000,1.00000"
               }
             },
             {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.17000,0.19000,0.23000,1.00000"
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.17000,0.19000,0.23000,1.00000"
               }
             }
           ],
-          "glass" : false,
-          "image-name" : "Face.svg",
-          "name" : "Face"
+          "glass": false,
+          "image-name": "Face.svg",
+          "name": "Face"
         },
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "linear-gradient" : [
+              "value": {
+                "linear-gradient": [
                   "srgb:0.39000,0.43000,0.50000,1.00000",
                   "srgb:0.22000,0.25000,0.31000,1.00000"
                 ]
               }
             },
             {
-              "appearance" : "dark",
-              "value" : {
-                "linear-gradient" : [
+              "appearance": "dark",
+              "value": {
+                "linear-gradient": [
                   "srgb:0.91000,0.91000,0.94000,1.00000",
                   "srgb:0.69000,0.70000,0.75000,1.00000"
                 ]
               }
             }
           ],
-          "glass" : true,
-          "image-name" : "Head.svg",
-          "name" : "Head"
+          "glass": true,
+          "image-name": "Head.svg",
+          "name": "Head"
         },
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "solid" : "srgb:0.22000,0.25000,0.31000,1.00000"
+              "value": {
+                "solid": "srgb:0.22000,0.25000,0.31000,1.00000"
               }
             },
             {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.69000,0.70000,0.75000,1.00000"
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.69000,0.70000,0.75000,1.00000"
               }
             }
           ],
-          "glass" : true,
-          "image-name" : "Arms.svg",
-          "name" : "Arms"
+          "glass": true,
+          "image-name": "Arms.svg",
+          "name": "Arms"
         },
         {
-          "fill-specializations" : [
+          "fill-specializations": [
             {
-              "value" : {
-                "solid" : "srgb:0.22000,0.25000,0.31000,1.00000"
+              "value": {
+                "solid": "srgb:0.22000,0.25000,0.31000,1.00000"
               }
             },
             {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.69000,0.70000,0.75000,1.00000"
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.69000,0.70000,0.75000,1.00000"
               }
             }
           ],
-          "glass" : true,
-          "image-name" : "Antenna.svg",
-          "name" : "Antenna"
+          "glass": true,
+          "image-name": "Antenna.svg",
+          "name": "Antenna"
         }
       ],
-      "lighting" : "individual",
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "lighting": "individual",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
       },
-      "specular" : true,
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      },
+      "position": {
+        "scale": 1.12,
+        "translation-in-points": [
+          0,
+          0
+        ]
       }
     }
   ],
-  "supported-platforms" : {
-    "squares" : [
+  "supported-platforms": {
+    "squares": [
       "macOS"
     ]
   }
