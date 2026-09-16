@@ -23,12 +23,12 @@ class AgentLaunchTests(unittest.TestCase):
         repo = Path('/repo')
         self.assertEqual(command_for('pi', repo), '/repo/bin/session-manager pi')
         self.assertEqual(command_for('kimi', repo), '/repo/bin/session-manager kimi')
+        self.assertEqual(command_for('opencode', repo), '/repo/bin/session-manager opencode')
+        self.assertEqual(command_for('agy', repo), '/repo/bin/session-manager agy')
 
     def test_unmanaged_agents_run_bare_command(self):
         self.assertEqual(command_for('claude'), 'claude')
         self.assertEqual(command_for('codex'), 'codex')
-        self.assertEqual(command_for('agy'), 'agy')
-        self.assertEqual(command_for('opencode'), 'opencode')
 
     def test_unknown_agent_is_rejected(self):
         with self.assertRaises(ValueError):

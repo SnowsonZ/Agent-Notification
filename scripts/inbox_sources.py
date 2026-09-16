@@ -39,6 +39,34 @@ def collect_codex(store, home):
             except (ValueError, KeyError, TypeError):
                 continue
     errors, changed = 0, 0
+    if not store.meta('codex-cli:error-cache-reset'):
+        # 一次性迁移：①CLI 纳入的中间态曾把非 Desktop 文件以 originator mismatch
+        # 缓存为错误，清掉让其重解析（Desktop 混合身份文件保持缓存不动）；
+        # ②存量 cli 行的 locator 补 rollout 文件路径（供跳转做 fd 聚焦）。
+        # 老游标没有来源记录，读 rollout 首行判定一次后即写入缓存。
+        with store.db() as db:
+            cached = db.execute("SELECT key, value FROM metadata WHERE key LIKE 'codex-cursor:%'").fetchall()
+        for row in cached:
+            value = json.loads(row['value'])
+            path = Path(row['key'].replace('codex-cursor:', ''))
+            if value.get('error') or value.get('cli-migrated'):
+                continue
+            try:
+                originator = json.loads(path.open(errors='replace').readline()).get('payload', {}).get('originator')
+            except (OSError, ValueError):
+                continue
+            if originator == 'Codex Desktop':
+                value['cli-migrated'] = True
+                with store.db() as db:
+                    db.execute('UPDATE metadata SET value=? WHERE key=?', (json.dumps(value), row['key']))
+                continue
+            sid = value.get('sid')
+            if sid:
+                store.patch('codex', sid, locator={'kind': 'cli', 'cwd': '', 'file': str(path)})
+            value['cli-migrated'] = True
+            with store.db() as db:
+                db.execute('UPDATE metadata SET value=? WHERE key=?', (json.dumps(value), row['key']))
+        store.set_meta('codex-cli:error-cache-reset', True)
     baseline = store.meta('started_at')
     for path in root.rglob('rollout-*.jsonl'):
         key, signature = None, None
@@ -57,29 +85,48 @@ def collect_codex(store, home):
             with path.open() as file:
                 first = json.loads(file.readline())
             meta = first.get('payload', {})
-            if first.get('type') != 'session_meta' or meta.get('originator') != 'Codex Desktop':
+            if first.get('type') != 'session_meta':
                 continue
+            originator = meta.get('originator')
+            desktop = originator == 'Codex Desktop'
+            cli_origin = bool(originator) and not desktop
+            if not desktop and not cli_origin:
+                continue
+            if cli_origin:
+                # CLI/exec 会话首次纳入时以当下为提醒基线：历史完成不轰炸。
+                cli_baseline = store.meta('codex-cli:baseline')
+                if cli_baseline is None:
+                    cli_baseline = time.time()
+                    store.set_meta('codex-cli:baseline', cli_baseline)
             sid = meta['id']
             try:
                 sid = str(UUID(path.stem[-36:]))
             except ValueError:
                 pass
-            reader = RolloutReader(path, sid, allow_ancestry=True)
+            reader = RolloutReader(path, sid, allow_ancestry=True,
+                                   originator=originator if cli_origin else None)
             if prior and prior.get('sid') == sid:
                 reader.offset, reader.identity, reader.session = prior['offset'], tuple(prior['identity']), prior.get('validated_session', sid)
             batch = reader.poll()
             project = reader.metadata.get('cwd', '') if reader.metadata else None
+            if desktop:
+                locator = {'kind': 'url', 'url': 'codex://threads/' + quote(sid, safe='')}
+            else:
+                # CLI/exec 会话：按会话 ID 经 `codex resume` 恢复；
+                # 携带 rollout 路径供「已打开则聚焦」做 fd 匹配。
+                locator = {'kind': 'cli', 'cwd': project or '', 'file': str(path)}
+            attention_baseline = cli_baseline if cli_origin else baseline
             store.patch('codex', sid, title=titles.get(sid), project=project, activity_at=activity.get(sid),
-                        locator={'kind': 'url', 'url': 'codex://threads/' + quote(sid, safe='')})
+                        locator=locator)
             for event in batch:
                 stamp = seconds(event['timestamp'])
                 state = {'task_started': 'running', 'task_complete': 'idle', 'turn_aborted': 'interrupted'}[event['event']]
                 # Import old history without flooding the new inbox.
-                attention = event['event'] == 'task_complete' and stamp >= baseline
+                attention = event['event'] == 'task_complete' and stamp >= attention_baseline
                 store.event('codex', sid, event_id=event['event_id'], timestamp=stamp,
                             state=state, attention=attention, token=event['turn_id'])
             store.set_meta(key, {'signature': signature, 'sid': sid, 'offset': reader.offset, 'identity': reader.identity,
-                                 'validated_session': reader.session})
+                                 'validated_session': reader.session, 'cli': cli_origin, 'file': str(path) if cli_origin else None})
             changed += 1
         except (OSError, ValueError, KeyError, TypeError) as error:
             errors += 1
@@ -119,8 +166,67 @@ def collect_claude(store, home):
             stamp = seconds(data.get('errorAt') or data.get('lastActivityAt'))
             store.event('claude', sid, event_id=f'claude-error:{sid}:{stamp}', timestamp=stamp,
                         state='failed', attention=stamp >= store.meta('started_at'))
+    # claude CLI 直启会话（hook 创建、无桌面元数据）：旧版被隐藏，迁移为可见的
+    # cli 定位（cwd 已由 hook 事件写入 project）；标题从转写首条用户消息提取。
+    with store.db() as db:
+        legacy = db.execute(
+            "SELECT session_id, project FROM sessions WHERE provider='claude' "
+            "AND locator='{}' AND hidden=1 AND project!=''").fetchall()
+    for sid, project in legacy:
+        store.patch('claude', sid, locator={'kind': 'cli', 'cwd': project},
+                    project=project, hidden=False)
+    titled = 0
+    for row in store.rows():
+        if row['provider'] != 'claude' or row['locator'].get('kind') != 'cli':
+            continue
+        if not row['locator'].get('file'):
+            transcript = next((home / '.claude/projects').glob(f"*/{row['session_id']}.jsonl"), None)
+            if transcript:
+                locator = dict(row['locator'], file=str(transcript))
+                store.patch('claude', row['session_id'], locator=locator)
+            elif not store.meta('claude-cli-title-missing:' + row['session_id']):
+                store.set_meta('claude-cli-title-missing:' + row['session_id'], True)
+        if row['title'] and not row['title'].startswith('claude ·'):
+            continue
+        title = _claude_cli_title(home, row['session_id'], store)
+        if title:
+            store.patch('claude', row['session_id'], title=title)
+            titled += 1
     return {'status': 'degraded' if errors else 'ok', 'sessions': len(grouped), 'errors': errors,
+            'cli_titled': titled,
             'note': 'Live status requires hooks in sessions started after setup'}
+
+
+def _claude_cli_title(home, sid, store, limit=80):
+    """claude CLI 转写首条用户消息作展示标题（≤80 字符）；找不到转写返回 None 并记忆，
+    避免每次刷新重复全目录查找。"""
+    if store.meta('claude-cli-title-missing:' + sid):
+        return None
+    transcript = next((home / '.claude/projects').glob(f'*/{sid}.jsonl'), None)
+    if transcript is None:
+        store.set_meta('claude-cli-title-missing:' + sid, True)
+        return None
+    with transcript.open(errors='replace') as file:
+        for line in file:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if record.get('type') != 'user' or record.get('isMeta'):
+                continue
+            message = record.get('message')
+            content = message.get('content') if isinstance(message, dict) else None
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text = ' '.join(block.get('text', '') for block in content
+                                if isinstance(block, dict) and block.get('type') == 'text')
+            else:
+                continue
+            text = ' '.join(text.split())
+            if text and not text.startswith('<'):
+                return text[:limit]
+    return None
 
 
 def collect_zcode(store, home):
@@ -196,11 +302,65 @@ def collect_zcode(store, home):
             'turn_sessions': matched, 'note': turn_source_error or 'Real turn lifecycle with independent inbox acknowledgement'}
 
 
+def _sweep_managed_directories(store):
+    """agy/opencode 受管理行：项目目录被删的条目隐藏（2026-09-16 用户决定：目录缺失
+    不允许跳转、条目不可见）；目录恢复存在时自动取消隐藏。"""
+    with store.db() as db:
+        rows = db.execute("SELECT id, project FROM sessions "
+                          "WHERE provider IN ('agy','opencode') AND project != ''").fetchall()
+    for row_id, project in rows:
+        exists = Path(project).expanduser().is_dir()
+        with store.db() as db:
+            db.execute('UPDATE sessions SET hidden=? WHERE id=?', (0 if exists else 1, row_id))
+
+
+def _purge_passive_opencode(store):
+    """一次性迁移：opencode 由被动扫描切换为受管理模式（2026-09-16 用户决定），
+    旧被动行（directory 定位）删除；受管理运行后同会话 ID 会以 managed 定位重建。"""
+    if store.meta('opencode:managed-migration'):
+        return
+    with store.db() as db:
+        removed = db.execute("DELETE FROM sessions WHERE provider='opencode' "
+                             "AND json_extract(locator,'$.kind')='directory'").rowcount
+    store.set_meta('opencode:managed-migration', {'removed': removed, 'at': time.time()})
+
+
+def collect_agy_titles(store, home):
+    """给已有受管理 agy 行补标题（来自 summaries 库）；不产生新会话与事件。
+
+    agy hooks 载荷没有标题字段，标题只能从 conversation_summaries 反查；
+    只 patch store 里已存在的 provider='agy' 行，因此非受管理会话不会因此入箱。
+    """
+    path = home / '.gemini/antigravity-cli/conversation_summaries.db'
+    if not path.exists():
+        return {'status': 'unavailable', 'reason': 'summaries database missing'}
+    targets = {row['session_id']: row['id'] for row in store.rows() if row['provider'] == 'agy'}
+    titled = 0
+    if targets:
+        connection = sqlite3.connect(str(path))
+        try:
+            # agy 的标题常在 preview 而 title 为空：按 title → preview 兜底。
+            for conversation_id, title, preview, workspace in connection.execute(
+                    'SELECT conversation_id,title,preview,workspace_uris FROM conversation_summaries'):
+                if conversation_id not in targets:
+                    continue
+                display = str(title or '').strip() or str(preview or '').strip()
+                store.patch('agy', conversation_id, title=display[:300] or None)
+                titled += 1
+        finally:
+            connection.close()
+    return {'status': 'ok', 'titled': titled,
+            'note': 'Titles from summaries db; hooks carry no title field'}
+
+
 def refresh(store, home=None):
     home = Path.home() if home is None else home
     health = {}
     from pi_titles import collect_pi_titles
-    for name, collector in [('codex', collect_codex), ('claude', collect_claude), ('zcode', collect_zcode), ('pi', collect_pi_titles)]:
+    _purge_passive_opencode(store)
+    _sweep_managed_directories(store)
+    for name, collector in [('codex', collect_codex), ('claude', collect_claude), ('zcode', collect_zcode),
+                            ('pi', collect_pi_titles), ('agy', collect_agy_titles)]:
         try:
             health[name] = collector(store, home)
         except (OSError, ValueError, KeyError, sqlite3.Error) as error:

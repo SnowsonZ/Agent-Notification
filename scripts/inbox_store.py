@@ -133,7 +133,7 @@ EVENTS = {
 }
 
 
-def receive(root, provider, sid, event, *, run_id=None, title=None, project=None, idle=True):
+def receive(root, provider, sid, event, *, run_id=None, title=None, project=None, transcript=None, idle=True):
     from uuid import uuid4
     store = Store(root)
     title = title[:300] if isinstance(title, str) and title else None
@@ -141,7 +141,21 @@ def receive(root, provider, sid, event, *, run_id=None, title=None, project=None
     if provider == 'claude':
         key = store.ensure(provider, sid)
         with store.db() as db:
-            db.execute("UPDATE sessions SET hidden=1 WHERE id=? AND locator='{}'", (key,))
+            row = db.execute('SELECT locator, project FROM sessions WHERE id=?', (key,)).fetchone()
+        if row and row['locator'] == '{}':
+            # CLI 直启的 claude 会话（hook 带 cwd）：给出可恢复定位并可见；
+            # Desktop 内嵌会话由采集器在刷新时改写为 claude:// 深链。
+            cwd = row['project'] or project
+            if cwd:
+                locator = {'kind': 'cli', 'cwd': cwd}
+                if isinstance(transcript, str) and transcript:
+                    locator['file'] = transcript
+                with store.db() as db:
+                    db.execute("UPDATE sessions SET hidden=0, locator=? WHERE id=? AND locator='{}'",
+                               (json.dumps(locator), key))
+            else:
+                with store.db() as db:
+                    db.execute("UPDATE sessions SET hidden=1 WHERE id=? AND locator='{}'", (key,))
     locator = {'kind': 'managed', 'run_id': run_id, 'session_id': sid} if run_id else None
     store.patch(provider, sid, title=title, project=project, locator=locator,
                 activity_at=time.time() if event == 'session_info_changed' else None)

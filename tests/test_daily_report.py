@@ -214,6 +214,42 @@ class DailyReportTests(unittest.TestCase):
                          (320, 1200, 80))
         self.assertEqual((record['total_tokens'], record['title']), (1600, 'Kimi · kimi-1'))
 
+    def opencode_messages(self, sid, entries, *, title='OC 会话', directory='/work/oc', parent=None):
+        database = self.home / '.local/share/opencode/opencode.db'
+        database.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(database) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS session (id text PRIMARY KEY, title text, directory text,'
+                       ' time_updated integer, time_archived integer, parent_id text)')
+            db.execute('CREATE TABLE IF NOT EXISTS message (id text PRIMARY KEY, session_id text,'
+                       ' time_created integer, time_updated integer, data text)')
+            db.execute('INSERT OR IGNORE INTO session VALUES (?,?,?,?,?,?)', (sid, title, directory, 0, None, parent))
+            for index, (moment, usage) in enumerate(entries):
+                stamp_ms = round(stamp(self.day, *moment) * 1000)
+                data = {'role': 'assistant', 'time': {'created': stamp_ms - 1000, 'completed': stamp_ms},
+                        'tokens': usage}
+                db.execute('INSERT INTO message VALUES (?,?,?,?,?)',
+                           (f'msg_{sid}_{index}', sid, stamp_ms, stamp_ms, json.dumps(data)))
+
+    def test_opencode_assistant_usage_counted(self):
+        self.opencode_messages('ses_1', [
+            ((10, 0), {'input': 100, 'output': 30, 'reasoning': 5, 'cache': {'read': 900, 'write': 10}}),
+            ((10, 30), {'input': 50, 'output': 20, 'reasoning': 0, 'cache': {'read': 100, 'write': 0}}),
+        ])
+        record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
+        # 输入 = 100+10 + 50；缓存 = 900+100；输出 = 30+5 + 20；合计 1215
+        self.assertEqual((record['input_tokens'], record['cache_tokens'], record['output_tokens']),
+                         (160, 1000, 55))
+        self.assertEqual((record['total_tokens'], record['turns'], record['provider']), (1215, 2, 'opencode'))
+        self.assertEqual((record['title'], record['project'], record['fidelity']),
+                         ('OC 会话', '/work/oc', 'exact'))
+
+    def test_opencode_subagent_tokens_not_counted(self):
+        self.opencode_messages('ses_sub', [
+            ((10, 0), {'input': 100, 'output': 30, 'cache': {'read': 0, 'write': 0}}),
+        ], parent='ses_parent')
+        records = scan_buckets(self.store, self.home, self.day, self.day)[self.day]
+        self.assertEqual(records, [])
+
     def test_claude_transcript_tokens_and_missing_fallback(self):
         self.claude_session('cli-1', stamp(self.day, 8), stamp(self.day, 12), cwd='/work/claude', transcript=True,
                             usage_lines=[((self.day, 9), {'input_tokens': 100, 'cache_creation_input_tokens': 10,
@@ -239,12 +275,12 @@ class DailyReportTests(unittest.TestCase):
                                                   553_010_996, 1_000_000_000)],
                          ['0', '895', '6.6k', '457k', '614k', '1M', '55.7M', '143M', '553M', '1B'])
 
-    def test_generate_day_writes_v5_and_markdown(self):
+    def test_generate_day_writes_v6_and_markdown(self):
         self.zcode_index('sess_a', '收件箱日报', '/work/session-manager')
         self.zcode_turn('sess_a', 't1', stamp(self.day, 10), stamp(self.day, 12),
                         fresh=40_000, cached=900_000, output=10_000)
         report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report['version'], 5)
+        self.assertEqual(report['version'], 6)
         self.assertEqual((report['totals']['input_tokens'], report['totals']['cache_tokens'],
                           report['totals']['output_tokens'], report['totals']['total_tokens']),
                          (40_000, 900_000, 10_000, 950_000))
@@ -256,7 +292,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn('合计 950k', markdown)
         self.assertIn('900k', markdown)
         self.assertIn('收件箱日报', markdown)
-        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 5)
+        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 6)
         # 过去日已定稿：再次查看直接读缓存，不重扫来源（新增轮次不会出现）。
         self.zcode_turn('sess_a', 't2', stamp(self.day, 13), stamp(self.day, 14), fresh=1)
         again = generate_day(self.store, self.home, self.day.isoformat())
@@ -340,7 +376,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIsNone(load_report(self.store.root, self.day.isoformat()))
         refreshed = generate_overview(self.store, self.home, days=30, top=5)
         self.assertEqual({row['date']: row for row in refreshed['days']}[self.day.isoformat()]['total_tokens'], 600)
-        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 5)
+        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 6)
         # 过去日读缓存：新增历史轮次不改变固化结果，总览与详情一致；只有 refresh 才重扫来源。
         self.zcode_turn('sess_a', 't3', stamp(self.day, 15), stamp(self.day, 16), fresh=500)
         cached = {row['date']: row for row in generate_overview(self.store, self.home, days=30, top=5)['days']}

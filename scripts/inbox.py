@@ -12,6 +12,14 @@ import tempfile
 import time
 from inbox_store import DEFAULT_ROOT, Store, receive
 from inbox_sources import refresh
+from agent_launch import iterm_select_tty, launch as launch_agent, ttys_for_command, ttys_for_open_file
+from agent_launch import iterm_select_tty, launch as launch_agent, ttys_for_command, ttys_for_open_file
+
+# 四家受管理 CLI 均原生支持按会话 ID 恢复（实测 help：pi --session、kimi --session、
+# opencode --session、agy --conversation）：绑定死亡时跳转统一降级为受管理恢复。
+RESUMABLE_PROVIDERS = ('pi', 'kimi', 'opencode', 'agy')
+RESUME_ARGS = {'pi': ('--session',), 'kimi': ('--session',), 'opencode': ('--session',),
+               'agy': ('--conversation',), 'claude': ('--resume',), 'codex': ('resume',)}
 
 
 def setup_claude(root):
@@ -53,12 +61,26 @@ def display_rows(store, all_rows):
     result = store.rows(unread_only=not all_rows)
     for row in result:
         locator = row['locator']
-        available = locator.get('kind') in ('url', 'zcode')
+        available = locator.get('kind') in ('url', 'zcode', 'cli')
         if locator.get('kind') == 'managed':
             binding = bindings.get(locator.get('run_id'))
-            available = bool(binding and binding['session_id'] == row['session_id'] and alive(store.root, binding['run_id']))
+            live = bool(binding and binding['session_id'] == row['session_id'] and alive(store.root, binding['run_id']))
+            # 绑定死亡但 provider 支持按 ID 恢复（agy/opencode）：跳转改为受管理恢复，仍可点。
+            available = live or (row['provider'] in RESUMABLE_PROVIDERS and bool(row['session_id']))
         row['open_available'] = available
     return result
+
+
+def _live_binding_for(root, provider, session_id, *, exclude=None):
+    """同 provider+session_id 的其它活绑定（会话在新标签恢复/改绑后行定位滞后时使用）。"""
+    from session_binding import alive, connect
+    with connect(root) as db:
+        rows = [dict(row) for row in db.execute(
+            'SELECT * FROM bindings WHERE provider=? AND session_id=?', (provider, session_id))]
+    live = [row['run_id'] for row in rows if alive(root, row['run_id']) and row['run_id'] != exclude]
+    if len(live) > 1:
+        raise ValueError('multiple live bindings for this session')
+    return live[0] if live else None
 
 
 def open_session(store, key, revision=None):
@@ -66,11 +88,91 @@ def open_session(store, key, revision=None):
     locator = row['locator']
     scripts = Path(__file__).resolve().parent
     if locator.get('kind') == 'managed':
-        command = [sys.executable, str(scripts / 'iterm_probe.py'),
-            '--state-dir', str(store.root), '--run-id', locator['run_id'],
-            '--agent-session-id', row['session_id'], '--activate']
+        def probe(run_id):
+            return subprocess.run([sys.executable, str(scripts / 'iterm_probe.py'),
+                '--state-dir', str(store.root), '--run-id', run_id,
+                '--agent-session-id', row['session_id'], '--activate'],
+                capture_output=True, text=True, timeout=100)
+        result = probe(locator['run_id'])
+        if result.returncode != 0:
+            # 绑定死亡：先找同会话的其它活绑定（改绑/恢复后行定位滞后的情形）。
+            try:
+                alternate = _live_binding_for(store.root, row['provider'], row['session_id'],
+                                              exclude=locator.get('run_id'))
+            except ValueError as error:
+                print(error, file=sys.stderr)
+                return 1
+            if alternate:
+                result = probe(alternate)
+        if result.returncode != 0 and row['provider'] in RESUMABLE_PROVIDERS:
+            # 仍无活绑定：经包装器在新标签受管理恢复目标会话（注册新绑定，
+            # 下一回合事件把条目改挂新绑定）；恢复前不自动确认。
+            directory = row['project']
+            if not directory or not Path(directory).expanduser().is_dir():
+                print('session directory is missing', file=sys.stderr)
+                return result.returncode
+            try:
+                launch_agent(row['provider'], directory,
+                             args=RESUME_ARGS[row['provider']] + (row['session_id'],))
+            except ValueError as error:
+                print(error, file=sys.stderr)
+                return 1
+            acknowledged = store.acknowledge(key, row['revision'] if revision is None else revision)
+            print(json.dumps({'opened': True, 'acknowledged': acknowledged,
+                              'new_activity_preserved': not acknowledged, 'navigation': 'managed_resume'}))
+            return 0
+        if result.returncode != 0:
+            print(result.stderr or result.stdout or 'Open failed', file=sys.stderr, end='\n')
+            return result.returncode
+        acknowledged = store.acknowledge(key, row['revision'] if revision is None else revision)
+        print(json.dumps({'opened': True, 'acknowledged': acknowledged, 'new_activity_preserved': not acknowledged,
+                          'navigation': 'verified_adapter'}))
+        return 0
     elif locator.get('kind') == 'zcode':
         command = [sys.executable, str(scripts / 'zcode_focus.py'), row['session_id']]
+    elif locator.get('kind') == 'cli':
+        # claude/codex CLI 直启会话。与受管理 provider 同语义的"已打开则聚焦"：
+        # 1) 命令行匹配（经包装器恢复的会话，命令行携带会话 ID）；
+        # 2) 会话文件 fd 匹配（运行中的 claude/codex 持有转写/rollout 文件）；
+        # 都没有才在新标签按会话 ID 恢复；目录缺失仍拒绝。
+        args = RESUME_ARGS[row['provider']] + (row['session_id'],)
+        ttys = []
+        try:
+            ttys = ttys_for_command(args)
+            session_file = locator.get('file', '')
+            if session_file:
+                ttys += ttys_for_open_file(session_file)
+        except OSError as error:
+            print(f'process lookup failed: {error}', file=sys.stderr)
+            return 1
+        seen = []
+        for tty in ttys:
+            if tty in seen:
+                continue
+            seen.append(tty)
+            try:
+                focused = iterm_select_tty(tty)
+            except ValueError as error:
+                print(error, file=sys.stderr)
+                return 1
+            if focused:
+                acknowledged = store.acknowledge(key, row['revision'] if revision is None else revision)
+                print(json.dumps({'opened': True, 'acknowledged': acknowledged,
+                                  'new_activity_preserved': not acknowledged, 'navigation': 'iterm_focus'}))
+                return 0
+        directory = row['project'] or locator.get('cwd', '')
+        if not directory or not Path(directory).expanduser().is_dir():
+            print('session directory is missing', file=sys.stderr)
+            return 1
+        try:
+            launch_agent(row['provider'], directory, args=args)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 1
+        acknowledged = store.acknowledge(key, row['revision'] if revision is None else revision)
+        print(json.dumps({'opened': True, 'acknowledged': acknowledged,
+                          'new_activity_preserved': not acknowledged, 'navigation': 'cli_resume'}))
+        return 0
     elif locator.get('kind') == 'url':
         url = locator.get('url', '')
         if not url.startswith(('codex://threads/', 'claude://code/continue?session=')):
@@ -138,7 +240,8 @@ def main():
                     event = 'PermissionRequest'
                 else:
                     return 0
-            receive(root, 'claude', sid, event, project=payload.get('cwd'))
+            receive(root, 'claude', sid, event, project=payload.get('cwd'),
+                    transcript=payload.get('transcript_path'))
             return 0
         if args.action == 'setup':
             from session_binding import install_kimi_hooks

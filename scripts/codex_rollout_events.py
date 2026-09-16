@@ -12,13 +12,16 @@ import time
 
 
 class RolloutReader:
-    def __init__(self, path, expected_session, allow_ancestry=False):
+    def __init__(self, path, expected_session, allow_ancestry=False, originator=None):
         self.path = path
         self.expected_session = expected_session
         self.offset = 0
         self.identity = None
         self.session = None
         self.allow_ancestry = allow_ancestry
+        # None 保持历史行为：仅接受 Codex Desktop；调用方为 CLI 文件传入其自身
+        # originator 做精确匹配。Desktop 路径的校验完全不变。
+        self.originator = originator
         self.metadata = None
 
     def poll(self):
@@ -45,8 +48,9 @@ class RolloutReader:
                     if record.get('type') == 'session_meta':
                         if self.allow_ancestry and self.session is None and payload.get('id') != self.expected_session:
                             continue
+                        required_originator = self.originator or 'Codex Desktop'
                         if (payload.get('id') != self.expected_session
-                                or payload.get('originator') != 'Codex Desktop'):
+                                or payload.get('originator') != required_originator):
                             raise ValueError('rollout identity or originator mismatch')
                         self.session = payload['id']
                         self.metadata = payload
@@ -60,7 +64,11 @@ class RolloutReader:
                             raise ValueError('lifecycle record before verified session metadata')
                         turn = payload.get('turn_id')
                         if not isinstance(turn, str) or not turn:
-                            raise ValueError('lifecycle record lacks turn_id')
+                            # Desktop 模式保持报错（格式漂移哨兵）；显式传入
+                            # originator 的调用方（CLI/exec 变体）允许缺 turn_id，跳过该条。
+                            if self.originator is None:
+                                raise ValueError('lifecycle record lacks turn_id')
+                            continue
                         output.append({'provider': 'codex', 'session_id': self.session,
                                        'event': kind, 'turn_id': turn,
                                        'event_id': f'{self.session}:{turn}:{kind}',

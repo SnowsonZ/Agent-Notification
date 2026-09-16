@@ -3,7 +3,7 @@
 token 三类口径：输入（新鲜输入+缓存写入）、缓存（缓存读取）、输出（含 reasoning）；
 三类之和 = 合计，参与一切比较与计算（热力分级/排名/占比/趋势），三类在界面全部展示。
 取消与出错轮次的消耗照计。只读取时间戳、标题、项目与数值字段，从不读取或存储
-消息正文。过去日以报告文件固化（version=5），当日始终实时计算。
+消息正文。过去日以报告文件固化（version=6），当日始终实时计算。
 """
 from datetime import date, datetime, timedelta
 import json
@@ -16,11 +16,12 @@ from inbox_sources import seconds
 from inbox_store import Store
 
 WEEKDAYS = ('周一', '周二', '周三', '周四', '周五', '周六', '周日')
-PROVIDER_NAMES = {'zcode': 'Zcode', 'codex': 'Codex', 'claude': 'Claude', 'pi': 'Pi', 'kimi': 'Kimi'}
+PROVIDER_NAMES = {'zcode': 'Zcode', 'codex': 'Codex', 'claude': 'Claude', 'pi': 'Pi', 'kimi': 'Kimi',
+                  'opencode': 'OpenCode'}
 FIDELITY_NAMES = {'exact': '精确', 'unavailable': '无 token'}
 ZCODE_STATES = {'completed': 'idle', 'error': 'failed', 'running': 'running', 'waiting': 'waiting'}
 NO_PROJECT = '(无项目)'
-REPORT_VERSION = 5
+REPORT_VERSION = 6
 SEGMENT_GAP = 15 * 60  # 逐条时间戳来源：相邻消息间隔不超过 15 分钟视为同一段活动
 CLASSES = ('input_tokens', 'cache_tokens', 'output_tokens')
 
@@ -429,6 +430,51 @@ def _kimi_data(home, window_start):
     return results
 
 
+def _opencode_data(home, window_start):
+    """opencode 逐条 assistant 消息 usage：(sid, stamp, 输入, 缓存, 输出)；附标题/项目。
+
+    子代理会话（parent_id 非空）的消息无法归属到父任务，按"宁可不计"跳过；
+    消费时刻优先取回合完成时间（data.time.completed），缺失退回消息更新时间。"""
+    path = home / '.local/share/opencode/opencode.db'
+    titles, projects = {}, {}
+    if not path.exists():
+        return [], titles, projects
+    results = []
+    connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
+    try:
+        for sid, title, directory, parent in connection.execute('SELECT id,title,directory,parent_id FROM session'):
+            if parent:
+                continue
+            titles[sid] = title or ''
+            projects[sid] = directory or ''
+        for sid, updated, data in connection.execute('SELECT session_id,time_updated,data FROM message'):
+            if sid not in titles:
+                continue
+            try:
+                record = json.loads(data)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(record, dict) or record.get('role') != 'assistant':
+                continue
+            usage = record.get('tokens') if isinstance(record.get('tokens'), dict) else {}
+            cache = usage.get('cache') if isinstance(usage.get('cache'), dict) else {}
+            when = record.get('time') if isinstance(record.get('time'), dict) else {}
+            stamp = seconds(when.get('completed') or updated)
+            if stamp <= 0 or stamp < window_start:
+                continue
+            input_cls = int(usage.get('input') or 0) + int(cache.get('write') or 0)
+            cache_cls = int(cache.get('read') or 0)
+            output_cls = int(usage.get('output') or 0) + int(usage.get('reasoning') or 0)
+            if input_cls + cache_cls + output_cls <= 0:
+                continue
+            results.append((sid, stamp, input_cls, cache_cls, output_cls))
+    except sqlite3.Error:
+        return [], titles, projects
+    finally:
+        connection.close()
+    return results, titles, projects
+
+
 def scan_buckets(store, home, first_day, last_day):
     """一次只读扫描；返回 {day: [task records]}。"""
     days = [first_day + timedelta(days=n) for n in range((last_day - first_day).days + 1)]
@@ -485,6 +531,12 @@ def scan_buckets(store, home, first_day, last_day):
         title, project, state = known('kimi', sid)
         buckets.point('kimi', sid, record_stamp, input=input_cls, cache=cache_cls, output=output_cls,
                       title=title, project=project, state=state)
+
+    events, titles, projects = _opencode_data(home, window_start)
+    for sid, record_stamp, input_cls, cache_cls, output_cls in events:
+        title, project, state = known('opencode', sid, titles.get(sid, ''), projects.get(sid, ''))
+        buckets.point('opencode', sid, record_stamp, input=input_cls, cache=cache_cls, output=output_cls,
+                      turn=True, title=title, project=project, state=state)
 
     reports = {}
     for day, tasks in buckets.tasks.items():

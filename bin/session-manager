@@ -29,7 +29,7 @@ fi
 action=${1:-help}
 if [ "$#" -gt 0 ]; then shift; fi
 case "$action" in
-    pi|kimi)
+    pi|kimi|opencode|agy)
         exec "$runtime" "$task_root/scripts/session_binding.py" run "$action" "$@"
         ;;
     list)
@@ -44,6 +44,9 @@ case "$action" in
         ;;
     setup-kimi)
         exec "$runtime" "$task_root/scripts/session_binding.py" install-kimi-hooks
+        ;;
+    setup-agy)
+        exec "$runtime" "$task_root/scripts/session_binding.py" install-agy-hooks
         ;;
     zcode-focus)
         exec "$runtime" "$task_root/scripts/zcode_focus.py" "$@"
@@ -64,10 +67,10 @@ case "$action" in
         echo "在系统设置「隐私与安全性 → 辅助功能」中，把 Finder 里的 Agent Notification.app 拖进右侧列表。"
         ;;
     help|--help|-h)
-        echo "Usage: session-manager pi|kimi [agent options]"
+        echo "Usage: session-manager pi|kimi|opencode|agy [agent options]"
         echo "       session-manager list"
         echo "       session-manager focus RUN_ID AGENT_SESSION_ID"
-        echo "       session-manager setup-kimi"
+        echo "       session-manager setup-kimi | setup-agy"
         echo "       session-manager zcode-focus TASK_ID [--describe]"
         echo "       session-manager inbox rows --all --refresh | sync | setup | open ID | ack ID --revision N"
     echo "       session-manager inbox daily-report [--date YYYY-MM-DD] | --overview [--days N] [--top N]"

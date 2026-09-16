@@ -19,10 +19,47 @@ DEFAULT_ROOT = Path.home() / '.local/state/session-manager'
 TOKEN = re.compile(r'[a-f0-9]{32}\Z')
 KIMI_EVENTS = ('SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure',
                'PermissionRequest', 'PermissionResult', 'Interrupt')
+# 受管理 provider 的会话登记/注销事件名（record_event 用）。
+START_EVENTS = {'pi': {'session_start'}, 'kimi': {'SessionStart'},
+                'opencode': {'SessionStart'}, 'agy': {'UserPromptSubmit'}}
+END_EVENTS = {'pi': {'session_shutdown'}, 'kimi': {'SessionEnd'},
+              'opencode': {'SessionEnd'}, 'agy': {'SessionEnd'}}
+OPENCODE_WELL_KNOWN = ('~/.opencode/bin/opencode', '/opt/homebrew/bin/opencode',
+                       '/usr/local/bin/opencode', '~/.local/bin/opencode')
+AGY_WELL_KNOWN = ('~/.local/bin/agy', '/opt/homebrew/bin/agy', '/usr/local/bin/agy')
+# agy 无 SessionStart/SessionEnd/权限事件（官方 hooks 仅五种，见 binary 内嵌文档）；
+# PreInvocation 映射为 UserPromptSubmit：既标记运行中，也按 Pi 模型把绑定指向当前会话
+# （TUI 内切换会话后下一个回合自动改绑）。进程退出由 managed_run 兜底 SessionEnd。
+AGY_HOOK_EVENTS = {'PreInvocation': 'UserPromptSubmit', 'Stop': 'Stop'}
 
 
 def kimi_command():
     return shlex.join([sys.executable, str(Path(__file__).resolve()), 'event', '--provider', 'kimi'])
+
+
+def agy_hook_command(event_name):
+    """agy hooks.json 的 handler：读 agy 载荷（conversationId）转译上报。"""
+    return shlex.join([sys.executable, str(Path(__file__).resolve()), 'agy-hook', '--event', event_name])
+
+
+def install_agy_hooks(plugin_root):
+    """生成 session-manager 捕获插件并经 `agy plugin install` 注册（幂等）。"""
+    plugin_root = Path(plugin_root)
+    plugin_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    (plugin_root / 'plugin.json').write_text(json.dumps({'name': 'session-manager', 'version': '1.0.0'}))
+    hooks = {'session-manager': {
+        event: [{'type': 'command', 'command': agy_hook_command(event), 'timeout': 5}]
+        for event in AGY_HOOK_EVENTS}}
+    (plugin_root / 'hooks.json').write_text(json.dumps(hooks, indent=2) + '\n')
+    listing = subprocess.run(['agy', 'plugin', 'list'], capture_output=True, text=True, timeout=30)
+    installed = '"name": "session-manager"' in listing.stdout or "'name': 'session-manager'" in listing.stdout \
+        or 'session-manager' in listing.stdout
+    if not installed:
+        result = subprocess.run(['agy', 'plugin', 'install', str(plugin_root)],
+                                capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            raise ValueError('agy plugin install failed: ' + (result.stderr.strip() or result.stdout.strip()))
+    return sorted(AGY_HOOK_EVENTS)
 
 
 def install_kimi_hooks(home):
@@ -122,8 +159,8 @@ def record_event(provider, payload, env=None):
         raise ValueError('missing session identity')
     if not alive(root, run_id):
         raise ValueError('run lease expired')
-    starts = {'pi': {'session_start'}, 'kimi': {'SessionStart'}}
-    ends = {'pi': {'session_shutdown'}, 'kimi': {'SessionEnd'}}
+    starts = START_EVENTS
+    ends = END_EVENTS
     with connect(root) as db:
         prior = db.execute('SELECT session_id FROM bindings WHERE run_id=? AND provider=?', (run_id, provider)).fetchone()
         if prior is None:
@@ -199,13 +236,16 @@ def main():
     parser.add_argument('--state-dir', type=Path, default=DEFAULT_ROOT)
     sub = parser.add_subparsers(dest='action', required=True)
     run = sub.add_parser('run')
-    run.add_argument('provider', choices=['pi', 'kimi'])
+    run.add_argument('provider', choices=['pi', 'kimi', 'opencode', 'agy'])
     run.add_argument('args', nargs=argparse.REMAINDER)
     sub.add_parser('list')
     event = sub.add_parser('event')
-    event.add_argument('--provider', choices=['pi', 'kimi'])
+    event.add_argument('--provider', choices=['pi', 'kimi', 'opencode'])
+    hook = sub.add_parser('agy-hook')
+    hook.add_argument('--event', choices=sorted(AGY_HOOK_EVENTS), required=True)
     sub.add_parser('kimi-hook-config')
     sub.add_parser('install-kimi-hooks')
+    sub.add_parser('install-agy-hooks')
     args = parser.parse_args()
     root = args.state_dir.expanduser().resolve()
     try:
@@ -217,6 +257,22 @@ def main():
             command = kimi_command()
             for event_name in KIMI_EVENTS:
                 print(f'[[hooks]]\nevent = "{event_name}"\ncommand = {json.dumps(command)}\ntimeout = 3\n')
+            return 0
+        if args.action == 'install-agy-hooks':
+            print(json.dumps({'hook_events': install_agy_hooks(
+                Path(os.environ.get('AGY_PLUGIN_ROOT', str(Path.home() / '.gemini/antigravity-cli/plugins/session-manager'))))}))
+            return 0
+        if args.action == 'agy-hook':
+            raw = sys.stdin.buffer.read(65537)
+            if len(raw) > 65536:
+                raise ValueError('event too large')
+            source = json.loads(raw)
+            sid = source.get('conversationId')
+            if not isinstance(sid, str) or not sid:
+                return 0  # 载荷不合预期时不阻塞 agent 循环。
+            workspaces = source.get('workspacePaths')
+            record_event('agy', {'event': AGY_HOOK_EVENTS[args.event], 'session_id': sid,
+                                 'cwd': workspaces[0] if isinstance(workspaces, list) and workspaces else None})
             return 0
         if args.action == 'event':
             raw = sys.stdin.buffer.read(65537)
@@ -236,10 +292,25 @@ def main():
             parser.error('Run this launcher inside iTerm2 (ITERM_SESSION_ID is missing)')
         executable = shutil.which(args.provider)
         if not executable:
+            # GUI PATH 可能缺用户安装目录；已知位置作第二通道（与 agent_launch 一致）。
+            well_known = {'opencode': OPENCODE_WELL_KNOWN, 'agy': AGY_WELL_KNOWN}.get(args.provider, ())
+            for candidate in well_known:
+                expanded = Path(candidate).expanduser()
+                if expanded.is_file():
+                    executable = str(expanded)
+                    break
+        if not executable:
             parser.error('Agent executable is missing')
         command = [executable]
         if args.provider == 'pi':
             command += ['-e', str(Path(__file__).with_name('pi_capture.ts'))]
+        elif args.provider == 'opencode':
+            # 事件通道：OPENCODE_CONFIG 叠加注入上报插件，不改用户全局配置；
+            # 非受管理会话不设该变量，插件根本不加载。
+            plugin_config = root / 'opencode-plugin.json'
+            plugin_config.write_text(json.dumps(
+                {'plugin': [str(Path(__file__).with_name('opencode_capture.js').resolve())]}))
+            os.environ['OPENCODE_CONFIG'] = str(plugin_config)
         else:
             home = Path(os.environ.get('KIMI_CODE_HOME', str(Path.home() / '.kimi-code')))
             config = home / 'config.toml'
