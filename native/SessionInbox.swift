@@ -1668,13 +1668,15 @@ private func agentIconSource(_ id: String) -> NSImage? {
     }
     // 官方标志收进 agent-icons 随本 App 打包：claude.svg 取自 Claude Code VS Code 扩展的 clawd.svg；
     // codex.png、agy.png 分别由 ChatGPT.app 的 icon-codex-dark-color.png 和 Antigravity.app 图标抠掉瓦片得到，
-    // 不直接用应用图标，避免出现白色方框；kimi.svg 按官方 favicon 几何重绘，避免 64px 位图放大发糊。
+    // 不直接用应用图标，避免出现白色方框；kimi.svg 按官方 favicon 几何重绘，避免 64px 位图放大发糊；
+    // opencode.png 取自 opencode GitHub 组织头像的官方六边形标志，亮度键控成黑 glyph 透明底（原黑底白标）。
     let official: [String: (ext: String, fallbackPath: String)] = [
         "pi": ("svg", "native/agent-icons/pi.svg"),
         "claude": ("svg", "native/agent-icons/claude.svg"),
         "kimi": ("svg", "native/agent-icons/kimi.svg"),
         "codex": ("png", "native/agent-icons/codex.png"),
         "agy": ("png", "native/agent-icons/agy.png"),
+        "opencode": ("png", "native/agent-icons/opencode.png"),
     ]
     guard let entry = official[id] else { return nil }
     var urls = [Bundle.main.url(forResource: id, withExtension: entry.ext)].compactMap { $0 }
@@ -1886,11 +1888,17 @@ final class ClosureButton: NSButton {
     override func mouseDown(with event: NSEvent) { handler?() }
 }
 
-// 「新建会话」行：已安装 agent 图标按钮平铺；放不下时行尾收敛为「+N」菜单，点击列出剩余 agent。
+// 「新建会话」行：已安装 agent 图标按钮平铺；放不下时行尾收敛为「+N」图标面板，点击列出剩余 agent。
 // GeometryReader 独占整行拿可用宽度，按预算常数折算容量——不做子视图测量，避免布局提案耦合
 // （裸 swiftc 构建没有 SwiftUIMacros，视图里用不了 @State）。
+// 「+N」不用 SwiftUI Menu：macOS 菜单项不渲染自定义图片，只剩文字；改为 popover 图标面板与主行视觉统一。
+final class OverflowPanelState: ObservableObject {
+    @Published var isPresented = false
+}
+
 struct NewSessionLauncherRow: View {
     @ObservedObject var model: InboxModel
+    @StateObject private var overflow = OverflowPanelState()
     // 标签「新建会话」自然宽度 ≤ 48pt，加一处 12pt 间距与 8pt 保险；宁可提前出「+N」也不裁切按钮。
     private let labelBudget: CGFloat = 68
 
@@ -1937,20 +1945,8 @@ struct NewSessionLauncherRow: View {
     }
 
     private func overflowMenu(hidden: [AgentEntry]) -> some View {
-        Menu {
-            ForEach(hidden) { agent in
-                Button {
-                    model.launch(agent)
-                } label: {
-                    Label {
-                        Text(agent.name)
-                    } icon: {
-                        Image(nsImage: agentIcon(agent.id, size: 16))
-                            .frame(width: 16, height: 16)
-                    }
-                }
-                .disabled(!agent.iterm)
-            }
+        Button {
+            overflow.isPresented = true
         } label: {
             Text("+\(hidden.count)")
                 .font(.system(size: 12, weight: .semibold)).monospacedDigit()
@@ -1958,9 +1954,27 @@ struct NewSessionLauncherRow: View {
                 .frame(width: 36, height: 36)
                 .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(.plain)
+        .popover(isPresented: $overflow.isPresented, arrowEdge: .bottom) {
+            HStack(spacing: 12) {
+                ForEach(hidden) { agent in
+                    Button {
+                        overflow.isPresented = false
+                        model.launch(agent)
+                    } label: {
+                        Image(nsImage: agentIcon(agent.id, size: 24))
+                            .frame(width: 24, height: 24)
+                            .frame(width: 36, height: 36)
+                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!agent.iterm)
+                    .accessibilityLabel("新建 \(agent.name) 会话")
+                    .help(agent.iterm ? "选择目录并在 iTerm2 新标签中启动 \(agent.name)" : "未检测到 iTerm2，无法在此启动")
+                }
+            }
+            .padding(10)
+        }
         .accessibilityLabel("其余 \(hidden.count) 个 agent")
         .help("其余 \(hidden.count) 个 agent：" + hidden.map { $0.name }.joined(separator: "、"))
     }
