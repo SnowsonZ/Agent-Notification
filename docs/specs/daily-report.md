@@ -1,6 +1,6 @@
-# 工作日报 v3（token 三类口径，报告 schema v5）
+# 工作日报 v3（token 三类口径，报告 schema v6）
 
-状态：v3 已实现并通过 84 项 Python 检查（含 13 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）。
+状态：v3 已实现并通过 102 项 Python 检查（含 15 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。OpenCode 来源于 2026-09-16 接入（schema v5→v6，旧固化报告自动重算）。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）；OpenCode 近 3 天独立重算与报告逐位一致（141,744）。
 
 ## 度量口径（v3 核心）
 
@@ -19,9 +19,10 @@
 | Claude | 逐条消息（2026-09-14 探针验证：5/5 桌面会话经 cliSessionId 命中 `~/.claude/projects/<hash>/<sessionId>.jsonl`，证据 scratch/2026-09-14-claude-transcript-token-probe.md） | `input_tokens + cache_creation_input_tokens` | `cache_read_input_tokens` | `output_tokens` | 消息时间戳 |
 | Pi | 逐条 assistant 消息 | `usage.input + cacheWrite` | `usage.cacheRead` | `output + reasoning` | 消息时间戳 |
 | Kimi | 逐轮（`~/.kimi-code/sessions/**/agents/*/wire.jsonl` 的 `usage.record`） | `inputOther + inputCacheCreation` | `inputCacheRead` | `output` | `time` 毫秒 |
+| OpenCode | 逐条 assistant 消息（本地 SQLite `~/.local/share/opencode/opencode.db`，2026-09-16 接入） | `input + cache.write` | `cache.read` | `output + reasoning` | 回合完成时刻（`time.completed`，缺失退回消息更新时间） |
 
 - 任务记录 `fidelity ∈ {exact, unavailable}`：`unavailable`（如 Zcode 老库无 token 列、桌面会话无转写）只列出、标〔无 token〕，不参与合计。
-- Zcode `sess_subagent_*` 子代理轮次的 token 经 `session.parent_id` **归属到父任务**（独立消耗不遗漏也不与父轮次重复），不计入父任务轮次数；无法归属的孤立子代理轮次宁可不计。
+- Zcode `sess_subagent_*` 子代理轮次的 token 经 `session.parent_id` **归属到父任务**（独立消耗不遗漏也不与父轮次重复），不计入父任务轮次数；无法归属的孤立子代理轮次宁可不计。OpenCode 子代理会话（`parent_id` 非空）的消息无法归属到父任务，按同一"宁可不计"规则跳过。
 - 任务记录字段：`provider/session_id/title/project/first_at/last_at/input_tokens/cache_tokens/output_tokens/total_tokens/turns/state/fidelity/segments`。无时长字段；一天节奏带只表达时间分布。
 - **`segments` = 真实活动段**（schema v5）：Zcode 取 `model_usage` 逐请求 `started_at→completed_at`（轮内等待用户批准/回答的空档不算活动；无该表退化为整轮区间），Codex/Claude/Pi/Kimi 取逐条时间戳；同任务相邻段间隔 ≤15 分钟合并，按天窗口截断。首末时间 `first_at/last_at` 仍是全天跨度，只用于文字展示。v4 前节奏带按首末时间画一根实心条，几个跨半天的会话叠起来就把 24 小时填满，与实际不符。
 
@@ -32,7 +33,7 @@
 ## 触发与固化
 
 - 无定时任务，报告按需生成：界面打开总览（窗口 onAppear）或点进某日详情时触发计算。
-- 过去日固化为 `~/.local/state/session-manager/reports/YYYY-MM-DD.{json,md}`（`version: 5`，0700 目录，原子写入）；版本不匹配或缺失自动重算（一次性补录 182 天约 4 秒）。
+- 过去日固化为 `~/.local/state/session-manager/reports/YYYY-MM-DD.{json,md}`（`version: 6`，0700 目录，原子写入）；版本不匹配或缺失自动重算（一次性补录 182 天约 4 秒；新增来源等 schema 变更 bump 版本即全量重算，2026-09-16 v5→v6 已验证）。
 - **过去日详情读定稿缓存**：版本匹配且生成时刻晚于该日结束即直接返回（约 30ms），缺失/未定稿才重扫来源并落盘；来源事后补录的历史数据需 `--refresh` 强制重算。
 - **今天始终实时计算、不固化**：现算并展示，详情汇总卡标「实时汇总 · 截至 HH:MM」；次日按未定稿规则补算一次后定稿。
 
@@ -56,7 +57,7 @@ bin/session-manager inbox daily-report --overview [--days 182] [--top 5]  # 热�
 
 ## 验证证据
 
-- 17 项日报单测：真实活动段（Zcode 逐请求 / 逐条时间戳聚类 / 跨零点截断）、今天不固化、各来源三类算术（缓存读剔除、取消轮计入、子代理归属父任务、缺列回退 unavailable）、Codex 增量按时间归日、Pi/Kimi/Claude 解析、跨零点分摊、旧版本报告自动失效重刷、热力阈值、Top5 近 7 天窗口、markdown。全量 84 项通过；Swift 策略检查含 `heatLevel(tokens:)` 与 `tokenText` 边界。
+- 19 项日报单测：真实活动段（Zcode 逐请求 / 逐条时间戳聚类 / 跨零点截断）、今天不固化、各来源三类算术（缓存读剔除、取消轮计入、子代理归属父任务、缺列回退 unavailable）、Codex 增量按时间归日、Pi/Kimi/Claude/OpenCode 解析、跨零点分摊、旧版本报告自动失效重刷、热力阈值、Top5 近 7 天窗口、markdown。全量 102 项通过；Swift 策略检查含 `heatLevel(tokens:)` 与 `tokenText` 边界。
 - 真实数据（2026-09-14）：当日三类合计 556M（输入 150M · 缓存 405M · 输出 1.4M）/ 27 任务；近 7 天来源占比 Codex 937M(41%)、Zcode 719M(32%)、Claude 608M(27%)——与各来源原始数据抽查一致（Codex 大盘来自单会话 416 次请求、每次重发约 70 万上下文，属口径内真实消耗）。
 - **准确性核对（2026-09-15）**：独立重算脚本与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致；Zcode 在跨零点分摊容差内 <2.2%（归日语义差）。证据 scratch/2026-09-15-token-accuracy-check.md。
 - 总览/详情截图核对通过（scratch/daily-report-v3-overview.png、daily-report-v3-day.png）。

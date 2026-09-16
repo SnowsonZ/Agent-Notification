@@ -1,6 +1,22 @@
 # CLI 会话与 iTerm2 pane 绑定
 
-状态：绑定代码已实现，32 项检查和真实跨会话伪终端测试通过。Pi/Kimi 的正常聚焦与退出后旧绑定拒绝已在真实 iTerm2 会话中验证；该验证不覆盖同名多会话、挂起恢复和标签页复用等全部场景。详见 [修复记录](../research/2026-09-14-cross-terminal-ownership.md)。
+状态：绑定代码已实现，32 项检查和真实跨会话伪终端测试通过。Pi/Kimi 的正常聚焦与退出后旧绑定拒绝已在真实 iTerm2 会话中验证；OpenCode 于 2026-09-16 加入受管理（插件事件通道，见下），Antigravity CLI（agy）同日加入（hooks 插件通道，见下），两者全链路（登记→回合事件→聚焦→退出 closed→旧绑定拒绝）已在真实 iTerm2 验证；该验证不覆盖同名多会话、挂起恢复和标签页复用等全部场景。详见 [修复记录](../research/2026-09-14-cross-terminal-ownership.md)。
+
+## OpenCode 受管理接入（2026-09-16）
+
+- 启动：`bin/session-manager opencode`（App「新建会话」与 CLI 同入口），managed_run 记录 pane/tty/pgid 并持锁。
+- 事件通道：包装器设置 `OPENCODE_CONFIG=<state>/opencode-plugin.json`（内容仅指向 `scripts/opencode_capture.js`），实测为**叠加**注入——用户全局配置零改动；非受管理会话不设该变量，插件不加载（比 Kimi 全局 hooks 更干净的边界）。
+- 插件映射 SDK 事件 → 既有 hook 名：session.created/updated→SessionStart、chat.message→UserPromptSubmit、session.idle→Stop、assistant error→StopFailure、permission.updated(type=ask)→PermissionRequest、permission.replied→PermissionResult；事件经同一 `event` 入口与 record_event 链路上报。退出由 managed_run 兜底 SessionEnd。
+- 边界：非受管理启动的 opencode 会话不再进入收件箱（与 Pi/Kimi 同覆盖模型，用户决定避免双套逻辑）；工作日报的 token 统计仍直读本地 SQLite，与采集管道分离。
+
+## agy（Antigravity CLI）受管理接入（2026-09-16）
+
+- 启动：`bin/session-manager agy`，managed_run 同一合同。
+- 事件通道：`setup-agy` 生成捕获插件（`plugin.json` + 命名钩子 `hooks.json`，官方 claude 风格插件格式）并经 `agy plugin install` 注册到 `~/.gemini/antigravity-cli/plugins/session-manager/`；handler 调 `session_binding.py agy-hook --event <E>` 读 stdin 载荷转译上报。
+- 跳转：绑定死亡时受管理恢复（新标签 `--conversation <conversationId>`，四家统一，见行为合同恢复降级）；标题来自 summaries 库（title 空时回退 preview）。
+- 事件映射（agy 官方 hooks 仅五种工具/调用事件，无 SessionStart/SessionEnd/权限/失败）：PreInvocation→UserPromptSubmit（标记运行中，并按 Pi 模型把绑定改指当前 conversationId，TUI 内切换会话自动跟随）；Stop→Stop；退出由 managed_run 兜底 SessionEnd。载荷为 camelCase protojson：conversationId→session_id、workspacePaths[0]→cwd。
+- 边界：无等待权限/失败/中断状态；回合事件可能在回合结束时才落地（运行中显示 best-effort）；agy 进程启动时缓存 hooks，setup-agy 后需重启会话生效；非受管理 agy 会话不进收件箱；工作日报暂不计 agy token（hooks 无 usage 数据）。
+- TUI 内切换会话由下一回合的 PreInvocation 自动改绑；旧会话收 SessionEnd（record_event 通用逻辑）。
 
 ## 真实会话验证记录
 
@@ -17,6 +33,7 @@
 - 校验时要求运行锁存活、会话 ID 一致、原进程组仍是对应 TTY 的前台进程组。挂起/转后台的旧任务不能认领 pane。
 - 跨会话校验通过系统 ps 的 pgid/tpgid 元数据完成；macOS 的 tcgetpgrp 仅用于启动器检查自己的控制终端，不能用于从另一标签页查询目标。
 - 跳转前查询 live pane，重新验证绑定；跳转后再检查绑定。失效或歧义报错，不恢复或新建会话，不向终端输入命令。
+- 恢复降级（2026-09-16，用户验收反馈；四家受管理 CLI 均实测支持按会话 ID 恢复——pi `--session`、kimi `--session`、opencode `--session`、agy `--conversation`）：绑定死亡时跳转降级为受管理恢复——新标签经包装器带会话 ID 重启（注册新绑定），并先查同会话的其它活绑定避免重复开窗；目录缺失仍拒绝。
 
 这是协作式受管理启动合同，不是针对恶意本机进程的安全隔离。未通过启动器运行的会话不自动归属。若 agent 在不发送 SessionStart 的情况下内部切换会话，须补该版本适配后才能保证覆盖。
 

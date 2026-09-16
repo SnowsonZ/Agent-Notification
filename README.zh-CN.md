@@ -75,7 +75,7 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 
 授权采用拖拽方式：点击 Zcode 事项的「前往会话」时若缺辅助功能权限，应用会自动打开「隐私与安全性 → 辅助功能」面板，并弹出一个可拖拽的应用悬浮窗，把它拖进列表即完成授权，授权后悬浮窗自动收起；`bin/session-manager permissions` 是等效的手动入口（Finder 显示应用 + 打开面板）。应用为 ad-hoc 签名，每次重建后需要重新拖入；列表里旧条目开关显示开启不代表新版已获授权。
 
-应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；其中 agy（Antigravity CLI，Gemini CLI 的官方继任者）、opencode 目前仅启动，会话暂不进入收件箱。首次从应用启动 CLI 会请求「会话通知 控制 iTerm2」授权。
+应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；pi/kimi/opencode/agy 为受管理启动（经 `bin/session-manager` 注册绑定，opencode/agy 的事件通道分别由 OPENCODE_CONFIG 注入插件与 setup-agy 安装插件提供，不改各家全局配置），跳转经运行锁+前台进程组校验后聚焦原标签；agy 无失败/等待类事件（官方 hooks 仅五种），其余状态齐全。工作日报计入 OpenCode token。能力边界见 docs/specs/unified-inbox.md 与 cli-session-binding.md。首次从应用启动 CLI 会请求「会话通知 控制 iTerm2」授权。
 
 ## 命令行参考
 
@@ -125,6 +125,7 @@ python3 -m unittest discover -s tests -v
 | [跨终端误判修复](docs/research/2026-09-14-cross-terminal-ownership.md) | 调研记录 | managed focus 误判的原因与回归 |
 | [Zcode 待处理遗漏修复](docs/research/2026-09-14-zcode-inbox-fix.md) | 调研记录 | 未读标记与独立待处理状态的界定 |
 | [Zcode 状态语义排查](docs/research/2026-09-14-zcode-state-semantics.md) | 调研记录 | 等待权限状态的可达性边界 |
+| [Codex 受管理可行性论证](docs/research/2026-09-16-codex-managed-feasibility.md) | 调研记录 | notify/插件/rollout 三通道实测与暂缓决策 |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 调研记录 | 现成工具比较与选型依据 |
 
 调研记录为带日期的历史档案，反映当时状态；现行行为以规范文档为准。
