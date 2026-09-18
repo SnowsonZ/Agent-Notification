@@ -9,7 +9,10 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from inbox import display_rows, open_session
+import os
+
+from inbox import (backfill_claude_tmp_origins, desktop_registry_hit, display_rows, effective_origin,
+                   open_session, spawn_origin_from_parent, spawn_origin_from_tty)
 from inbox_sources import collect_claude, collect_codex
 from inbox_store import Store, receive
 
@@ -45,6 +48,119 @@ class ClaudeCliVisibilityTests(unittest.TestCase):
         row = self.store.rows()[0]
         self.assertEqual(row['state'], 'idle')
         self.assertTrue(row['unread'])
+
+    def test_receive_records_spawn_origin(self):
+        receive(self.root, 'claude', 'cli-9', 'SessionStart', project='/work/cli', origin='agent')
+        self.assertEqual(self.store.rows()[0]['origin'], 'agent')
+        receive(self.root, 'claude', 'cli-9', 'Stop', project='/work/cli', origin='agent')
+        self.assertTrue(self.store.rows()[0]['unread'])
+        # 未带 origin 的事件不改动已记录的启动方式。
+        receive(self.root, 'claude', 'cli-9', 'Stop', project='/work/cli')
+        self.assertEqual(self.store.rows()[0]['origin'], 'agent')
+
+    def test_tty_spawn_origin_rule(self):
+        self.assertEqual(spawn_origin_from_tty('??'), 'agent')
+        self.assertEqual(spawn_origin_from_tty(' ttys001\n'), 'user')
+        self.assertEqual(spawn_origin_from_tty(''), 'user')
+
+    def test_parent_spawn_origin_rule(self):
+        # 终端会被子进程继承，tty 不够：直接父进程是终端 shell = 手敲，工具进程 = agent。
+        self.assertEqual(spawn_origin_from_parent('zsh'), 'user')
+        self.assertEqual(spawn_origin_from_parent('bash\n'), 'user')
+        self.assertEqual(spawn_origin_from_parent('python3'), 'agent')
+        self.assertEqual(spawn_origin_from_parent('node'), 'agent')
+        self.assertEqual(spawn_origin_from_parent(''), 'user')
+
+    def test_declared_env_overrides_heuristics(self):
+        # 声明优于推断：拉起方设置 SESSION_MANAGER_ORIGIN 即精确生效，不走启发式。
+        from inbox import DECLARED_ORIGIN_ENV, claude_spawn_origin
+        with patch.dict(os.environ, {DECLARED_ORIGIN_ENV: 'agent'}):
+            self.assertEqual(claude_spawn_origin('whatever'), 'agent')
+        with patch.dict(os.environ, {DECLARED_ORIGIN_ENV: 'user'}):
+            self.assertEqual(claude_spawn_origin('whatever'), 'user')
+        with patch.dict(os.environ, {DECLARED_ORIGIN_ENV: 'bogus'}, clear=False):
+            # 非法值忽略——落到启发式；进程 tty 不可控，仅验证不抛错且值合法。
+            self.assertIn(claude_spawn_origin('whatever'), ('agent', 'user'))
+
+    def test_origin_rule_overrides_read_side(self):
+        # 目录规则读时覆盖自动分类：行上 origin 不动，display/日报按规则算有效 origin。
+        receive(self.root, 'claude', 'auto-agent', 'Stop', project='/work/tool-dir', origin='agent')
+        receive(self.root, 'claude', 'auto-user', 'Stop', project='/work/other', origin='user')
+        self.store.set_origin_rule('/work/tool-dir', 'user')
+        self.assertEqual(self.store.origin_rules(), [{'project': '/work/tool-dir', 'origin': 'user'}])
+        row = next(r for r in self.store.rows() if r['session_id'] == 'auto-agent')
+        self.assertEqual(row['origin'], 'agent')  # 行上分类不动
+        rows = display_rows(self.store, all_rows=True)
+        self.assertEqual(sorted(r['session_id'] for r in rows), ['auto-agent', 'auto-user'])
+        # 反向规则：目录标 agent 后即使行是 user 也被过滤（tool-dir 的 user 规则仍在）。
+        self.store.set_origin_rule('/work/other', 'agent')
+        self.assertEqual(sorted(r['session_id'] for r in display_rows(self.store, all_rows=True)),
+                         ['auto-agent'])
+        # 删除规则恢复自动分类：agent 行回到默认隐藏。
+        self.store.set_origin_rule('/work/other', None)
+        self.store.set_origin_rule('/work/tool-dir', None)
+        self.assertEqual(self.store.origin_rules(), [])
+        self.assertEqual([r['session_id'] for r in display_rows(self.store, all_rows=True)],
+                         ['auto-user'])
+
+    def test_claude_tmp_project_backfill(self):
+        receive(self.root, 'claude', 'tmp-1', 'SessionStart', project='/var/folders/xx/T/wb-gate-claude-a')
+        receive(self.root, 'claude', 'real-1', 'SessionStart', project='/Users/snowson/work/real')
+        with self.store.db() as db:
+            # 模拟迁移前状态：origin 均为默认 user。
+            db.execute("UPDATE sessions SET origin='user'")
+        backfill_claude_tmp_origins(self.store)
+        origins = {r['session_id']: r['origin'] for r in self.store.rows()}
+        self.assertEqual(origins, {'tmp-1': 'agent', 'real-1': 'user'})
+        # 幂等：再次执行不改动。
+        self.store.patch('claude', 'real-1', origin='user')
+        backfill_claude_tmp_origins(self.store)
+        self.assertEqual({r['session_id']: r['origin'] for r in self.store.rows()}['tmp-1'], 'agent')
+
+    def test_desktop_registry_hit_requires_recent_match(self):
+        import os
+        registry = self.root / 'Library/Application Support/Claude/claude-code-sessions'
+        registry.mkdir(parents=True)
+        fresh = registry / 'local_fresh.json'
+        fresh.write_text(json.dumps({'cliSessionId': 'sid-fresh'}))
+        stale = registry / 'local_stale.json'
+        stale.write_text(json.dumps({'cliSessionId': 'sid-stale'}))
+        os.utime(stale, (time.time() - 3 * 86400, time.time() - 3 * 86400))
+        self.assertTrue(desktop_registry_hit(self.root, 'sid-fresh'))
+        self.assertFalse(desktop_registry_hit(self.root, 'sid-stale'))  # 过期登记不算
+        self.assertFalse(desktop_registry_hit(self.root, 'sid-other'))  # 未登记=无头 CLI
+
+
+class DesktopOriginOverrideTests(unittest.TestCase):
+    """Desktop 登记表成员是用户在 Desktop 界面驱动的：origin 权威为 user，
+    每次 collect_claude 刷新自愈 hook 无头判定的误伤（Electron 内嵌无终端）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self.store = Store(self.home / 'state')
+        self.registry = self.home / 'Library/Application Support/Claude/claude-code-sessions'
+        self.registry.mkdir(parents=True)
+
+    def desktop_entry(self, sid):
+        (self.registry / f'local_{sid}.json').write_text(json.dumps({
+            'cliSessionId': sid, 'sessionId': 'local_' + sid, 'title': '桌面会话',
+            'cwd': '/Users/snowson/work', 'lastActivityAt': round(time.time() * 1000)}))
+
+    def test_desktop_session_self_heals_to_user(self):
+        receive(self.home / 'state', 'claude', 'desk-1', 'SessionStart',
+                project='/Users/snowson/work', origin='agent')  # hook 无头误判
+        self.desktop_entry('desk-1')
+        collect_claude(self.store, self.home)
+        self.assertEqual(self.store.rows()[0]['origin'], 'user')
+        self.assertEqual(self.store.rows()[0]['locator']['kind'], 'url')
+
+    def test_headless_session_not_in_registry_stays_agent(self):
+        receive(self.home / 'state', 'claude', 'head-1', 'Stop',
+                project='/var/folders/x/T/wb-gate-claude-z', origin='agent')
+        collect_claude(self.store, self.home)
+        self.assertEqual(self.store.rows()[0]['origin'], 'agent')
 
 
 class ClaudeCliTitleTests(unittest.TestCase):
@@ -134,6 +250,31 @@ class CodexCliInclusionTests(unittest.TestCase):
         collect_codex(self.store, self.home)
         row = self.store.rows()[0]
         self.assertEqual(row['locator']['kind'], 'url')
+
+    def test_workbench_originator_marked_agent_and_hidden_from_display(self):
+        # 多 agent 工具拉起的会话仍走完整事件链（含待查看抬升），但默认不出现在收件箱。
+        self.rollout('wb-1', 'coding-agent-workbench', [('task_complete', time.time() - 60)])
+        collect_codex(self.store, self.home)
+        row = self.store.rows()[0]
+        self.assertEqual(row['origin'], 'agent')
+        self.assertTrue(row['unread'])
+        self.assertEqual(display_rows(self.store, all_rows=True), [])
+        self.assertEqual(len(display_rows(self.store, all_rows=True, include_agents=True)), 1)
+
+    def test_interactive_tui_originators_marked_user(self):
+        for index, originator in enumerate(('codex-tui', 'codex_cli_rs')):
+            self.rollout(f'tui-{index}', originator, [('task_complete', time.time() - 60)])
+        collect_codex(self.store, self.home)
+        origins = {row['session_id']: row['origin'] for row in self.store.rows()}
+        self.assertEqual(origins, {'tui-0': 'user', 'tui-1': 'user'})
+        self.assertTrue(self.store.meta('codex-origin:backfill-v1'))
+
+    def test_origin_backfill_tags_existing_rows(self):
+        # 一次性迁移：先有库后加白名单判定的场景，回填按 rollout 首行补 origin。
+        self.rollout('legacy-exec', 'codex_exec', [('task_complete', time.time() - 3600)])
+        collect_codex(self.store, self.home)
+        row = self.store.rows()[0]
+        self.assertEqual(row['origin'], 'agent')
 
 
 class CliOpenTests(unittest.TestCase):

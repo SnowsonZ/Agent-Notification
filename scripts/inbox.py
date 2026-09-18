@@ -54,11 +54,123 @@ def setup_claude(root):
     return count
 
 
-def display_rows(store, all_rows):
+def spawn_origin_from_tty(tty):
+    """macOS `ps -o tty=` 的判定规则：?? = 无控制终端 = 无头拉起（agent）。
+
+    空输出多半是查询失败，按人工保留（宁可漏过滤不误藏）。"""
+    return 'agent' if (tty or '').strip() == '??' else 'user'
+
+
+# 直接父进程为终端 shell = 用户手敲；为其它进程（node/python 等工具进程）= agent 拉起。
+SHELL_PARENTS = {'zsh', 'bash', 'sh', 'fish', 'dash', 'ksh', 'tcsh', 'csh', 'nu', 'pwsh',
+                 'powershell', 'login', 'sshd', 'tmux', 'screen'}
+
+
+def spawn_origin_from_parent(name):
+    name = (name or '').strip().lower()
+    if not name:
+        return 'user'
+    return 'user' if name in SHELL_PARENTS else 'agent'
+
+
+# 声明式来源标记：拉起 claude 的进程设置环境变量即可精确声明启动方式
+# （hook 继承 claude 进程环境，环境沿进程树继承），优先级高于全部启发式。
+DECLARED_ORIGIN_ENV = 'SESSION_MANAGER_ORIGIN'
+
+
+def declared_origin():
+    value = (os.environ.get(DECLARED_ORIGIN_ENV) or '').strip().lower()
+    return value if value in ('agent', 'user') else None
+
+
+def desktop_registry_hit(home, sid, *, max_age=172800):
+    """Claude Desktop 内嵌会话登记表（claude-code-sessions 的 cliSessionId）。
+
+    Desktop 会话的 claude 进程同样无终端（Electron 内嵌），但那是用户在
+    Desktop 界面驱动的：无头判为 agent 前必须先查登记表。只扫近期活跃的
+    登记文件（会话在跑，登记文件的 activity 更新就在几分钟内），控制开销。"""
+    root = Path(home) / 'Library/Application Support/Claude/claude-code-sessions'
+    if not root.exists():
+        return False
+    cutoff = time.time() - max_age
+    try:
+        for path in root.rglob('local_*.json'):
+            try:
+                stat = path.stat()
+                if stat.st_mtime < cutoff or stat.st_size > 4_000_000:
+                    continue
+                if json.loads(path.read_text()).get('cliSessionId') == sid:
+                    return True
+            except (OSError, ValueError, AttributeError):
+                continue
+    except OSError:
+        return False
+    return False
+
+
+def claude_spawn_origin(sid):
+    """注册时的启动方式信号。声明优于推断：
+    0) 环境变量 `SESSION_MANAGER_ORIGIN=agent|user`（拉起方显式声明，最高优先级；
+       未设置或非法值忽略）；以下为未声明时的启发式兜底：
+    1) claude 进程有控制终端时看直接父进程：终端 shell = 手敲（人工）；
+       node/python 等工具进程 = agent 拉起。
+    2) 无控制终端（无头）时先查 Desktop 登记表：命中 = Desktop 内嵌会话 = 人工
+       （控制终端被子进程继承，tty 单独判定会把"终端里跑的工具拉起的 claude"
+       误判成人工；同理 Electron 内嵌会被误判成 agent，故必须查表）。
+    3) 登记表未命中 = 无头 CLI = agent。
+    任一步查不到都不猜，按人工保留；agent 用 shell 包装或 pty 拉起交互形态无法
+    识别——这类场景请用声明变量，属信号上限。"""
+    declared = declared_origin()
+    if declared:
+        return declared
+    sid = str(sid or '')
+    pid = str(os.getppid())
+    try:
+        tty = subprocess.run(['ps', '-o', 'tty=', '-p', pid],
+                             capture_output=True, text=True, timeout=3).stdout
+        if spawn_origin_from_tty(tty) == 'agent':
+            if sid and desktop_registry_hit(Path.home(), sid):
+                return 'user'
+            return 'agent'
+        parent = subprocess.run(['ps', '-o', 'ucomm=', '-p', pid],
+                                capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return 'user'
+    return spawn_origin_from_parent(parent)
+
+
+# 项目目录在系统临时目录下的 claude 会话是工具拉起（如 wb-gate-claude-*），
+# 存量行注册当时无进程信号可考，按目录约定一次性回填。
+CLAUDE_TMP_PREFIXES = ('/var/folders/', '/private/var/folders/', '/tmp/', '/private/tmp/')
+
+
+def backfill_claude_tmp_origins(store):
+    if store.meta('claude-origin:tmp-backfill-v1'):
+        return
+    with store.db() as db:
+        rows = db.execute("SELECT id, project FROM sessions WHERE provider='claude' AND origin='user'").fetchall()
+        for key, project in rows:
+            if project and project.startswith(CLAUDE_TMP_PREFIXES):
+                db.execute("UPDATE sessions SET origin='agent' WHERE id=?", (key,))
+    store.set_meta('claude-origin:tmp-backfill-v1', True)
+
+
+def effective_origin(store, row, rules=None):
+    """行级有效启动方式：目录规则（用户改判沉淀）优先于自动分类。"""
+    if rules is None:
+        rules = {r.get('project'): r.get('origin') for r in store.origin_rules()}
+    return rules.get(row.get('project') or '') or row.get('origin') or 'user'
+
+
+def display_rows(store, all_rows, include_agents=False):
     from session_binding import alive, connect
     with connect(store.root) as db:
         bindings = {row['run_id']: dict(row) for row in db.execute('SELECT * FROM bindings')}
     result = store.rows(unread_only=not all_rows)
+    if not include_agents:
+        # agent 拉起的会话默认不出现在收件箱（不通知、不进待查看）；数据保留在库，
+        # rows --include-agents 或应用内开关可查看审计；目录规则（手动改判）读时覆盖。
+        result = [row for row in result if effective_origin(store, row) != 'agent']
     for row in result:
         locator = row['locator']
         available = locator.get('kind') in ('url', 'zcode', 'cli')
@@ -198,12 +310,22 @@ def main():
     rows = sub.add_parser('rows')
     rows.add_argument('--all', action='store_true')
     rows.add_argument('--refresh', action='store_true')
+    rows.add_argument('--include-agents', action='store_true',
+                      help='include agent-spawned sessions (hidden by default)')
     sub.add_parser('sync')
     watch = sub.add_parser('watch')
     watch.add_argument('--interval', type=float, default=3)
     ack = sub.add_parser('ack')
     ack.add_argument('id')
     ack.add_argument('--revision', type=int, required=True)
+    batch = sub.add_parser('ack-batch')
+    batch.add_argument('--items', required=True,
+                       help='JSON array of [id, revision] pairs from one list snapshot')
+    org = sub.add_parser('origin')
+    org.add_argument('--id', required=True)
+    org.add_argument('--set', dest='set_origin', required=True, choices=['agent', 'user'])
+    org.add_argument('--rule-project',
+                     help='同时沉淀为该目录的覆盖规则（读时优先于自动分类）')
     op = sub.add_parser('open')
     op.add_argument('id')
     op.add_argument('--revision', type=int)
@@ -226,6 +348,7 @@ def main():
     root = args.root.expanduser().resolve()
     try:
         store = Store(root)
+        backfill_claude_tmp_origins(store)
         if args.action == 'hook':
             raw = sys.stdin.buffer.read(1_048_577)
             if len(raw) > 1_048_576:
@@ -241,7 +364,7 @@ def main():
                 else:
                     return 0
             receive(root, 'claude', sid, event, project=payload.get('cwd'),
-                    transcript=payload.get('transcript_path'))
+                    transcript=payload.get('transcript_path'), origin=claude_spawn_origin(sid))
             return 0
         if args.action == 'setup':
             from session_binding import install_kimi_hooks
@@ -277,12 +400,29 @@ def main():
         if args.action == 'rows':
             if args.refresh:
                 refresh(store)
-            print(json.dumps({'sessions': display_rows(store, args.all), 'health': store.meta('health', {})}, ensure_ascii=False))
+            print(json.dumps({'sessions': display_rows(store, args.all, include_agents=args.include_agents),
+                              'health': store.meta('health', {})}, ensure_ascii=False))
             return 0
         if args.action == 'ack':
             if not store.acknowledge(args.id, args.revision):
                 raise ValueError('new activity arrived; refresh before acknowledging')
             print('{"acknowledged":true}')
+            return 0
+        if args.action == 'ack-batch':
+            items = json.loads(args.items)
+            if not isinstance(items, list):
+                raise ValueError('items must be a JSON array of [id, revision] pairs')
+            pairs = [(str(item[0]), int(item[1])) for item in items]
+            acked = store.acknowledge_batch(pairs)
+            # 跳过的项是确认瞬间已有新活动，保留未读是预期行为而非错误。
+            print(json.dumps({'acknowledged': len(acked), 'skipped': len(pairs) - len(acked)}))
+            return 0
+        if args.action == 'origin':
+            row = store.get(args.id)
+            store.patch(row['provider'], row['session_id'], origin=args.set_origin)
+            if args.rule_project:
+                store.set_origin_rule(args.rule_project, args.set_origin)
+            print(json.dumps({'id': args.id, 'origin': args.set_origin, 'rule_project': args.rule_project}))
             return 0
         return open_session(store, args.id, args.revision)
     except KeyboardInterrupt:

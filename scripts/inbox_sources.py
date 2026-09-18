@@ -11,6 +11,16 @@ from urllib.parse import quote
 from codex_rollout_events import RolloutReader
 from inbox_store import Store
 
+# 人工启动方式白名单（rollout session_meta.originator）：桌面应用与交互式 TUI
+# （codex-tui=新版 TUI，codex_cli_rs=旧版 CLI；两者都是终端手敲形态）。
+# 白名单之外（workbench/ACP/codex_exec 等程序化拉起）标记 agent：不通知、不进待查看、
+# 日报默认不计。新入口被误判时把 originator 加进这里即可（2026-09-17 近 7 天实测分布）。
+HUMAN_ORIGINATORS = {'Codex Desktop', 'codex-tui', 'codex_cli_rs'}
+
+
+def spawn_origin(originator):
+    return 'user' if originator in HUMAN_ORIGINATORS else 'agent'
+
 
 def seconds(value):
     if isinstance(value, (int, float)):
@@ -67,6 +77,25 @@ def collect_codex(store, home):
             with store.db() as db:
                 db.execute('UPDATE metadata SET value=? WHERE key=?', (json.dumps(value), row['key']))
         store.set_meta('codex-cli:error-cache-reset', True)
+    if not store.meta('codex-origin:backfill-v1'):
+        # 一次性回填存量行的启动方式：逐 rollout 读首行 originator（游标缓存的文件
+        # 不会在主循环重读首行）。sid 推导与主循环一致（文件名 UUID 优先）避免重复行。
+        for path in root.rglob('rollout-*.jsonl'):
+            try:
+                first = json.loads(path.open(errors='replace').readline())
+            except (OSError, ValueError):
+                continue
+            meta = first.get('payload', {})
+            if first.get('type') != 'session_meta':
+                continue
+            sid = str(meta.get('id') or '')
+            try:
+                sid = str(UUID(path.stem[-36:]))
+            except ValueError:
+                pass
+            if sid:
+                store.patch('codex', sid, origin=spawn_origin(str(meta.get('originator') or '')))
+        store.set_meta('codex-origin:backfill-v1', True)
     baseline = store.meta('started_at')
     for path in root.rglob('rollout-*.jsonl'):
         key, signature = None, None
@@ -117,7 +146,7 @@ def collect_codex(store, home):
                 locator = {'kind': 'cli', 'cwd': project or '', 'file': str(path)}
             attention_baseline = cli_baseline if cli_origin else baseline
             store.patch('codex', sid, title=titles.get(sid), project=project, activity_at=activity.get(sid),
-                        locator=locator)
+                        locator=locator, origin=spawn_origin(str(originator or '')))
             for event in batch:
                 stamp = seconds(event['timestamp'])
                 state = {'task_started': 'running', 'task_complete': 'idle', 'turn_aborted': 'interrupted'}[event['event']]
@@ -153,13 +182,17 @@ def collect_claude(store, home):
             errors += 1
     for sid, records in grouped.items():
         if len(records) != 1 or errors:
-            store.patch('claude', sid, locator={'kind': 'unavailable', 'reason': 'desktop identity ambiguous or incomplete'})
+            store.patch('claude', sid, origin='user',
+                        locator={'kind': 'unavailable', 'reason': 'desktop identity ambiguous or incomplete'})
             continue
         data = records[0]
         desktop = data.get('sessionId', '')
         if not desktop.startswith('local_'):
             continue
-        store.patch('claude', sid, title=str(data.get('title') or 'Claude · ' + sid[:12])[:300],
+        # Desktop 登记表成员 = 用户在 Desktop 界面驱动，origin 权威覆盖为 user
+        #（hook 侧无头判定可能误判 Electron 内嵌形态，此处每次刷新自愈）。
+        store.patch('claude', sid, origin='user',
+                    title=str(data.get('title') or 'Claude · ' + sid[:12])[:300],
                     project=data.get('cwd', ''), hidden=bool(data.get('isArchived')), activity_at=seconds(data.get('lastActivityAt')),
                     locator={'kind': 'url', 'url': 'claude://code/continue?session=' + quote(desktop, safe='')})
         if data.get('error'):

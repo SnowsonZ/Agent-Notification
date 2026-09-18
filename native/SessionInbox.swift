@@ -153,11 +153,16 @@ struct ReportTask: Decodable, Identifiable {
     let segments: [[Double]]?  // 真实活动区间（Zcode 轮区间 / 逐条消息聚类），节奏带只画这些
     var id: String { provider + "/" + sessionId }
 }
+struct AgentExcluded: Decodable {
+    let tasks: Int
+    let totalTokens: Int
+}
 struct DayReport: Decodable {
     let date: String
     let generatedAt: Double?
     let totals: ReportTotals
     let tasks: [ReportTask]
+    let agentExcluded: AgentExcluded?  // agent 拉起的会话不进合计，只在此披露（2026-09-17）
 }
 struct OverviewDay: Decodable, Identifiable {
     let date: String
@@ -1082,6 +1087,17 @@ struct DayDetailView: View {
                         // 各区块统一卡片内边距，比例条/节奏带左右边界对齐。
                         // 来源与项目并排成一行，和总览页的双栏节奏一致。
                         SummaryCardView(report: report)
+                        if let excluded = report.agentExcluded {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "person.2.slash").font(.caption).foregroundStyle(.secondary)
+                                Text("另有 \(excluded.tasks) 个 agent 会话（其它工具拉起）合计 "
+                                     + tokenText(excluded.totalTokens) + " tokens 未计入。")
+                                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                                Spacer()
+                            }
+                            .padding(10)
+                            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                        }
                         RhythmBandView(report: report).dailyReportCard()
                         HStack(alignment: .top, spacing: 14) {
                             SourceShareView(title: "来源占比", sources: report.totals.sources,
@@ -1413,6 +1429,11 @@ struct TaskListView: View {
 @MainActor final class InboxModel: ObservableObject {
     @Published var rows: [InboxRow] = []
     @Published var showAll = false { didSet { page = 0 } }
+    // 其它工具拉起的 agent 会话默认隐藏（不通知、不进待查看）；开关只为审计，
+    // 打开后列表可见但仍不产生通知。
+    @Published var showAgentSessions = UserDefaults.standard.bool(forKey: "showAgentSessions") {
+        didSet { UserDefaults.standard.set(showAgentSessions, forKey: "showAgentSessions") }
+    }
     @Published var query = "" { didSet { page = 0 } }
     @Published var searchExpanded = false
     func setSearchExpanded(_ expanded: Bool) {
@@ -1478,6 +1499,17 @@ struct TaskListView: View {
         notificationsEnabled.toggle()
         UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
         if notificationsEnabled { checkNotificationPermission() }
+    }
+    // agent 会话查看开关只影响列表可见性；通知层在 rows 默认过滤里已关闭，无需额外处理。
+    func toggleAgentSessions() {
+        showAgentSessions.toggle()
+        refresh()
+    }
+    // 手动改判 origin：自动分类的最终兜底；ruleProject 非空时沉淀为目录覆盖规则。
+    func setOrigin(_ row: InboxRow, origin: String, ruleProject: String?) {
+        var arguments = ["origin", "--id", row.id, "--set", origin]
+        if let dir = ruleProject { arguments += ["--rule-project", dir] }
+        action(arguments, isOpen: false)
     }
     func loadAgents() {
         guard !loadingAgents else { return }
@@ -1598,14 +1630,17 @@ struct TaskListView: View {
         guard !loading else { return }
         loading = true
         let directory = root
+        var arguments = ["rows", "--all", "--refresh"]
+        if showAgentSessions { arguments.append("--include-agents") }
         Task {
-            let result = await Task.detached { Self.call(root: directory, arguments: ["rows", "--all", "--refresh"]) }.value
+            let result = await Task.detached { Self.call(root: directory, arguments: arguments) }.value
             loading = false
             guard result.0 == 0 else { error = result.2; return }
             do {
                 let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
                 let payload = try decoder.decode(Envelope.self, from: result.1)
                 rows = payload.sessions
+                selected = selected.intersection(pendingIDs) // 已转已读/不再列出的项自动移出勾选。
                 page = max(0, min(page, totalPages - 1))
                 if agents.isEmpty { loadAgents() } // 启动时检测偶发失败会在后续刷新里自动补试。
                 notifyNewItems(rows)
@@ -1618,6 +1653,27 @@ struct TaskListView: View {
         }
     }
     func acknowledge(_ row: InboxRow) { action(["ack", row.id, "--revision", String(row.revision)], isOpen: false) }
+    // 批量已读：手动勾选任意子集后按点击时的整份 (id, revision) 快照逐项 CAS 确认。
+    // 已有新活动的项 revision 失配被跳过并保留未读，与单条已读同合同；默认不选，勾多少清多少。
+    @Published var selected: Set<String> = []
+    var pendingIDs: Set<String> {
+        Set(rows.filter { $0.unread && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.map(\.id))
+    }
+    var selectedCount: Int { selected.intersection(pendingIDs).count }
+    var allPendingSelected: Bool { !pendingIDs.isEmpty && selected.isSuperset(of: pendingIDs) }
+    func toggleSelected(_ id: String) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+    func toggleSelectAll() {
+        if allPendingSelected { selected.removeAll() } else { selected = pendingIDs }
+    }
+    func acknowledgeSelected() {
+        let pairs = rows.filter { $0.unread && selected.contains($0.id) }.map { [$0.id, $0.revision] }
+        guard !pairs.isEmpty, let data = try? JSONSerialization.data(withJSONObject: pairs),
+              let payload = String(data: data, encoding: .utf8) else { return }
+        selected.removeAll()
+        action(["ack-batch", "--items", payload], isOpen: false)
+    }
     func open(_ row: InboxRow) {
         // Zcode 跳转依赖辅助功能授权；缺失时走拖拽授权悬浮窗，不发起会失败的开销、不动未读状态。
         if row.provider == "zcode" && !AccessibilitySetupController.shared.isGranted {
@@ -2019,6 +2075,34 @@ struct InboxView: View {
                 if model.searchExpanded {
                     InboxSearchField(model: model)
                 }
+                // 批量已读栏：默认无勾选，勾选任意子集后逐项确认；全选覆盖当前全部待查看。
+                if !model.showAll && model.unreadCount > 0 {
+                    HStack(spacing: 6) {
+                        Button { model.toggleSelectAll() } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: model.allPendingSelected ? "checkmark.circle.fill" : "circle")
+                                Text("全选")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(model.allPendingSelected ? Color.accentColor : Color.secondary)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(model.allPendingSelected ? "取消全部勾选" : "勾选全部待查看事项")
+                        .accessibilityLabel(model.allPendingSelected ? "全不选" : "全选")
+                        Spacer()
+                        if model.selectedCount > 0 {
+                            Button { model.acknowledgeSelected() } label: {
+                                Label("标记已读（\(model.selectedCount)）", systemImage: "checkmark.circle")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                            .help("把勾选的事项标记为已读；确认瞬间有新活动的项保留未读")
+                            .accessibilityLabel("批量标记已读")
+                        }
+                    }
+                }
             }
             .padding(.top, 8)
             if model.visible.isEmpty {
@@ -2091,6 +2175,11 @@ struct InboxView: View {
                 }
                 .id(notificationSymbol)
                 .help(model.notificationsEnabled ? model.notificationStatus + "（点击关闭）" : "点击开启消息通知")
+                Button { model.toggleAgentSessions() } label: {
+                    Label("显示 agent 会话", systemImage: model.showAgentSessions ? "eye" : "eye.slash")
+                }
+                .id(model.showAgentSessions ? "agents-shown" : "agents-hidden")
+                .help(model.showAgentSessions ? "隐藏其它工具拉起的 agent 会话" : "显示其它工具拉起的 agent 会话（默认不通知、不进待查看）")
                 Button { model.refresh() } label: {
                     Label("刷新", systemImage: "arrow.clockwise")
                 }
@@ -2147,6 +2236,18 @@ struct InboxRowView: View {
     let row: InboxRow
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
+            // 待查看页行首勾选框：批量已读以手动选择的子集为准，不做默认全选。
+            if !model.showAll {
+                Button { model.toggleSelected(row.id) } label: {
+                    Image(systemName: model.selected.contains(row.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(model.selected.contains(row.id) ? Color.accentColor : Color.secondary.opacity(0.55))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("选择该会话")
+                .accessibilityLabel("选择 " + row.title)
+            }
             // 主内容为 agent 图标；待处理时右上角橙色圆点，描边取窗口背景色，
             // 亮色/暗色模式自动适配。
             // 已退出与已结束对用户含义一致（都可重开查看），外观保持一致，不做置灰。
@@ -2206,6 +2307,25 @@ struct InboxRowView: View {
         }
         .padding(.horizontal, 4).padding(.vertical, 12)
         .background(row.unread ? Color.attention.opacity(0.045) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        // 右键改判 origin：自动分类的最终兜底，用户说了算。目录规则读时覆盖、即时生效。
+        .contextMenu {
+            Button("标记为 agent 会话（隐藏，仅此条）") {
+                model.setOrigin(row, origin: "agent", ruleProject: nil)
+            }
+            Button("恢复人工（仅此条）") {
+                model.setOrigin(row, origin: "user", ruleProject: nil)
+            }
+            if !row.project.isEmpty {
+                let dir = (row.project as NSString).lastPathComponent
+                Divider()
+                Button("「\(dir)」目录的会话都按 agent 过滤") {
+                    model.setOrigin(row, origin: "agent", ruleProject: row.project)
+                }
+                Button("「\(dir)」目录的会话恢复人工") {
+                    model.setOrigin(row, origin: "user", ruleProject: row.project)
+                }
+            }
+        }
         .onAppear { model.loadMoreIfNeeded(for: row) }
     }
 }

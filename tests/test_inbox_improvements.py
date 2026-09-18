@@ -10,6 +10,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from inbox_store import Store
+import inbox
 from inbox import open_session
 from pi_titles import read_title
 
@@ -81,6 +82,60 @@ class ImprovementsTests(unittest.TestCase):
         row = self.store.get(key)
         self.assertEqual(row['acknowledged_at'], 0)
         self.assertTrue(row['unread'])
+
+    def attention_for(self, provider, sid):
+        key = self.store.patch(provider, sid, title='task', locator={'kind': 'zcode', 'task_id': sid})
+        self.store.event(provider, sid, event_id='done-' + sid, timestamp=1, state='idle', attention=True)
+        return key
+
+    def test_batch_acknowledges_matching_revisions(self):
+        self.attention_for('zcode', 'sess_a')
+        self.attention_for('kimi', 'sess_b')
+        snapshot = [(row['id'], row['revision']) for row in self.store.rows(unread_only=True)]
+        self.assertEqual(len(self.store.acknowledge_batch(snapshot)), 2)
+        self.assertEqual(self.store.rows(unread_only=True), [])
+
+    def test_batch_ack_preserves_items_with_new_activity(self):
+        self.attention_for('zcode', 'sess_a')
+        self.attention_for('kimi', 'sess_b')
+        snapshot = {row['session_id']: (row['id'], row['revision']) for row in self.store.rows(unread_only=True)}
+        # 确认前 sess_a 到达新事件：旧快照的 revision 失配，该跳过的必须保留未读。
+        self.store.event('zcode', 'sess_a', event_id='new', timestamp=2, state='idle', attention=True)
+        acked = self.store.acknowledge_batch([snapshot['sess_a'], snapshot['sess_b']])
+        self.assertEqual(acked, [snapshot['sess_b'][0]])
+        self.assertTrue(self.store.get(snapshot['sess_a'][0])['unread'])
+        self.assertFalse(self.store.get(snapshot['sess_b'][0])['unread'])
+
+    def test_batch_ack_ignores_missing_rows(self):
+        self.attention_for('zcode', 'sess_a')
+        self.assertEqual(self.store.acknowledge_batch([('gone', 3)]), [])
+
+    def test_ack_batch_cli_reports_counts(self):
+        self.attention_for('zcode', 'sess_a')
+        self.attention_for('kimi', 'sess_b')
+        snapshot = [[row['id'], row['revision']] for row in self.store.rows(unread_only=True)]
+        argv = ['inbox.py', '--root', str(self.root / 'state'), 'ack-batch', '--items', json.dumps(snapshot)]
+        with patch('sys.argv', argv), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(inbox.main(), 0)
+        self.assertEqual(json.loads(out.getvalue()), {'acknowledged': 2, 'skipped': 0})
+        self.assertEqual(self.store.rows(unread_only=True), [])
+
+    def test_ack_batch_cli_rejects_non_array_items(self):
+        argv = ['inbox.py', '--root', str(self.root / 'state'), 'ack-batch', '--items', '{"id": 1}']
+        with patch('sys.argv', argv), redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(inbox.main(), 1)
+        self.assertEqual(json.loads(err.getvalue())['status'], 'error')
+
+    def test_origin_cli_sets_row_and_rule(self):
+        key = self.attention()
+        argv = ['inbox.py', '--root', str(self.root / 'state'), 'origin', '--id', key,
+                '--set', 'agent', '--rule-project', '/work/x']
+        with patch('sys.argv', argv), redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(inbox.main(), 0)
+        self.assertEqual(json.loads(out.getvalue()), {'id': key, 'origin': 'agent',
+                                                      'rule_project': '/work/x'})
+        self.assertEqual(self.store.get(key)['origin'], 'agent')
+        self.assertEqual(self.store.origin_rules(), [{'project': '/work/x', 'origin': 'agent'}])
 
     def test_all_rows_sort_by_activity_not_unread_or_error(self):
         self.store.event('pi', 'old', event_id='old', timestamp=1, state='failed', attention=True)
