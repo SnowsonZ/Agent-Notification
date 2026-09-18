@@ -14,6 +14,7 @@
 
 - 长期调研进 `docs/research/YYYY-MM-DD-topic.md`；方案进 `docs/plans/`；现役合同及验收进 `docs/specs/`；重大已采纳决策按需放 `docs/decisions/`。
 - 新增、迁移或替代文档时更新 README 索引；历史排错记录不能覆盖最新验收状态。
+- 发布版本号必须先与用户确认后再打 tag，不自行指定 minor/patch 档位；tag 推送即触发远端发布。
 - `scratch/` 放临时实验与运行证据；`build/` 放产物。两者、虚拟环境、数据库、凭据及完整用户会话正文不提交。
 - 不把用户本机的 Claude/Kimi 配置复制进仓库。安装观察 hooks 应保留既有配置并保持幂等。
 
