@@ -73,12 +73,12 @@ class DailyReportTests(unittest.TestCase):
             for sid, parent in mapping.items():
                 db.execute('INSERT OR REPLACE INTO session VALUES (?,?)', (sid, parent))
 
-    def codex_rollout(self, sid, lines):
+    def codex_rollout(self, sid, lines, originator='Codex Desktop'):
         directory = self.home / '.codex/sessions/2026/09'
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f'rollout-{sid}.jsonl'
         body = [json.dumps({'type': 'session_meta',
-                            'payload': {'id': sid, 'originator': 'Codex Desktop', 'cwd': '/work/codex'}})]
+                            'payload': {'id': sid, 'originator': originator, 'cwd': '/work/codex'}})]
         for kind, moment, usage in lines:
             payload = {'type': kind}
             if usage is not None:
@@ -94,12 +94,13 @@ class DailyReportTests(unittest.TestCase):
         path.write_text(json.dumps({'id': sid, 'thread_name': name, 'updated_at': iso(self.day, 12)}) + '\n')
 
     def claude_session(self, sid, created, last, title='claude 会话', cwd='/work/claude', transcript=True,
-                       usage_lines=()):
-        root = self.home / 'Library/Application Support/Claude/claude-code-sessions/d'
-        root.mkdir(parents=True, exist_ok=True)
-        (root / f'local_{sid}.json').write_text(json.dumps({
-            'cliSessionId': sid, 'sessionId': 'local_' + sid, 'title': title, 'cwd': cwd,
-            'createdAt': round(created * 1000), 'lastActivityAt': round(last * 1000)}))
+                       usage_lines=(), desktop=True):
+        if desktop:
+            root = self.home / 'Library/Application Support/Claude/claude-code-sessions/d'
+            root.mkdir(parents=True, exist_ok=True)
+            (root / f'local_{sid}.json').write_text(json.dumps({
+                'cliSessionId': sid, 'sessionId': 'local_' + sid, 'title': title, 'cwd': cwd,
+                'createdAt': round(created * 1000), 'lastActivityAt': round(last * 1000)}))
         if transcript:
             path = self.home / '.claude/projects/proj' / f'{sid}.jsonl'
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,6 +195,26 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual((record['title'], record['project'], record['fidelity']),
                          ('codex 评审', '/work/codex', 'exact'))
 
+    def test_codex_cli_originator_rollouts_counted(self):
+        # 收件箱 2026-09-16 起纳入 CLI/exec/workbench 来源，日报同口径；
+        # 缺失该口径时当日 codex 会话在日报整体缺源（2026-09-17 实测回归）。
+        self.codex_rollout('wb-1', [
+            ('token_count', (self.day, 10), {'input_tokens': 100, 'cached_input_tokens': 30,
+                                             'cache_write_input_tokens': 0, 'output_tokens': 20,
+                                             'reasoning_output_tokens': 0}),
+        ], originator='coding-agent-workbench')
+        self.codex_rollout('exec-1', [
+            ('task_started', (self.day, 11), None),
+        ], originator='codex_exec')
+        records = [r for r in scan_buckets(self.store, self.home, self.day, self.day)[self.day]
+                   if r['provider'] == 'codex']
+        self.assertEqual(len(records), 2, records)
+        by_sid = {r['session_id']: r for r in records}
+        self.assertEqual((by_sid['wb-1']['input_tokens'], by_sid['wb-1']['cache_tokens'],
+                          by_sid['wb-1']['output_tokens'], by_sid['wb-1']['fidelity']), (100, 30, 20, 'exact'))
+        self.assertEqual(by_sid['exec-1']['turns'], 1)
+        self.assertEqual(by_sid['exec-1']['total_tokens'], 0)
+
     def test_pi_assistant_usage_parsed(self):
         self.pi_session('pi-1', [
             ((self.day, 9), {'input': 100, 'cacheWrite': 10, 'output': 30, 'reasoning': 5, 'cacheRead': 900}),
@@ -214,7 +235,10 @@ class DailyReportTests(unittest.TestCase):
                          (320, 1200, 80))
         self.assertEqual((record['total_tokens'], record['title']), (1600, 'Kimi · kimi-1'))
 
-    def opencode_messages(self, sid, entries, *, title='OC 会话', directory='/work/oc', parent=None):
+    def opencode_messages(self, sid, entries, *, title='OC 会话', directory='/work/oc', parent=None,
+                          managed=True):
+        if managed:
+            self.store.ensure('opencode', sid)  # 受管理口径：登记过的会话才计入日报。
         database = self.home / '.local/share/opencode/opencode.db'
         database.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(database) as db:
@@ -235,6 +259,10 @@ class DailyReportTests(unittest.TestCase):
             ((10, 0), {'input': 100, 'output': 30, 'reasoning': 5, 'cache': {'read': 900, 'write': 10}}),
             ((10, 30), {'input': 50, 'output': 20, 'reasoning': 0, 'cache': {'read': 100, 'write': 0}}),
         ])
+        # 同库但未经包装器登记的会话（如其它工具经 server 拉起）：不计入日报。
+        self.opencode_messages('ses_ghost', [
+            ((11, 0), {'input': 999, 'output': 999, 'cache': {'read': 999, 'write': 999}}),
+        ], managed=False)
         record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
         # 输入 = 100+10 + 50；缓存 = 900+100；输出 = 30+5 + 20；合计 1215
         self.assertEqual((record['input_tokens'], record['cache_tokens'], record['output_tokens']),
@@ -265,6 +293,79 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual((by_sid['cli-2']['total_tokens'], by_sid['cli-2']['fidelity']), (0, 'unavailable'))
         self.assertEqual(by_sid['cli-2']['project'], '/work/other')
 
+    def test_claude_cli_only_transcript_counted_once(self):
+        # 未被桌面登记表登记的 CLI 直启转写：usage 照计；store 有已知行时补标题/项目。
+        self.store.ensure('claude', 'cli-only')
+        self.store.patch('claude', 'cli-only', title='CLI 会话', project='/work/cli')
+        self.claude_session('cli-only', stamp(self.day, 8), stamp(self.day, 12), transcript=True,
+                            usage_lines=[((self.day, 9), {'input_tokens': 100, 'cache_creation_input_tokens': 0,
+                                                          'cache_read_input_tokens': 50, 'output_tokens': 25})],
+                            desktop=False)
+        # 桌面登记停留在窗口前（lastActivityAt 过期）但转写仍在活跃：经补采计一次。
+        self.claude_session('stale-desktop', stamp(self.prev, 8), stamp(self.prev, 9), transcript=True,
+                            usage_lines=[((self.day, 10), {'input_tokens': 10, 'cache_creation_input_tokens': 0,
+                                                           'cache_read_input_tokens': 0, 'output_tokens': 5})],
+                            desktop=True)
+        # 未登记且窗口内无 assistant usage 的 CLI 转写：不产生任务。
+        path = self.home / '.claude/projects/proj' / 'no-usage.jsonl'
+        path.write_text(json.dumps({'type': 'user', 'timestamp': iso(self.day, 9)}) + '\n')
+        records = scan_buckets(self.store, self.home, self.day, self.day)[self.day]
+        self.assertEqual(sorted(r['session_id'] for r in records), ['cli-only', 'stale-desktop'])
+        by_sid = {r['session_id']: r for r in records}
+        self.assertEqual((by_sid['cli-only']['input_tokens'], by_sid['cli-only']['cache_tokens'],
+                          by_sid['cli-only']['output_tokens'], by_sid['cli-only']['fidelity']),
+                         (100, 50, 25, 'exact'))
+        self.assertEqual((by_sid['cli-only']['title'], by_sid['cli-only']['project']), ('CLI 会话', '/work/cli'))
+        self.assertEqual(by_sid['stale-desktop']['total_tokens'], 15)
+
+    def test_agent_sessions_excluded_and_counted_in_footnote(self):
+        # store 标记 agent 的会话不进日报（分类在收件箱注册侧完成，日报信任 store），
+        # 其会话数与消耗进 agent_excluded 注脚，成本不失明。
+        self.store.ensure('codex', 'ag-1')
+        self.store.patch('codex', 'ag-1', origin='agent')
+        self.codex_rollout('ag-1', [
+            ('token_count', (self.day, 10), {'input_tokens': 500, 'cached_input_tokens': 0,
+                                             'cache_write_input_tokens': 0, 'output_tokens': 100,
+                                             'reasoning_output_tokens': 0}),
+        ])
+        self.zcode_index('sess_u', '用户任务', '/work/u')
+        self.zcode_turn('sess_u', 't1', stamp(self.day, 10), stamp(self.day, 11), fresh=1000)
+        stats = {}
+        records = scan_buckets(self.store, self.home, self.day, self.day, agent_stats=stats)[self.day]
+        self.assertEqual([r['session_id'] for r in records], ['sess_u'])
+        self.assertEqual(stats[self.day]['tasks'], {'ag-1'})
+        self.assertEqual(stats[self.day]['total_tokens'], 600)
+        report = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
+        self.assertEqual(report['version'], 7)
+        self.assertEqual(report['agent_excluded'], {'tasks': 1, 'total_tokens': 600})
+        self.assertEqual([t['session_id'] for t in report['tasks']], ['sess_u'])
+        self.assertIn('1 个 agent 会话', render_markdown(report))
+        # 无 agent 会话的日子不带该字段（干净 schema）。
+        self.assertNotIn('agent_excluded', build_report(self.day, [], 0.0))
+
+    def test_origin_rule_overrides_report_scope(self):
+        # 目录规则读时覆盖：行标 agent + 规则 user → 计入；行 user + 规则 agent → 排除。
+        self.store.ensure('codex', 'rule-user')
+        self.store.patch('codex', 'rule-user', origin='agent', project='/work/rule-u')
+        self.codex_rollout('rule-user', [
+            ('token_count', (self.day, 10), {'input_tokens': 10, 'cached_input_tokens': 0,
+                                             'cache_write_input_tokens': 0, 'output_tokens': 5,
+                                             'reasoning_output_tokens': 0}),
+        ])
+        self.store.ensure('codex', 'rule-agent')
+        self.store.patch('codex', 'rule-agent', origin='user', project='/work/rule-a')
+        self.codex_rollout('rule-agent', [
+            ('token_count', (self.day, 11), {'input_tokens': 20, 'cached_input_tokens': 0,
+                                             'cache_write_input_tokens': 0, 'output_tokens': 0,
+                                             'reasoning_output_tokens': 0}),
+        ])
+        self.store.set_origin_rule('/work/rule-u', 'user')
+        self.store.set_origin_rule('/work/rule-a', 'agent')
+        stats = {}
+        records = scan_buckets(self.store, self.home, self.day, self.day, agent_stats=stats)[self.day]
+        self.assertEqual([r['session_id'] for r in records], ['rule-user'])
+        self.assertEqual(sorted(stats[self.day]['tasks']), ['rule-agent'])
+
     def test_heat_level_total_token_thresholds(self):
         values = (0, 19_999_999, 20_000_000, 99_999_999, 100_000_000, 399_999_999, 400_000_000)
         self.assertEqual([heat_level(value) for value in values], [0, 1, 2, 2, 3, 3, 4])
@@ -275,12 +376,12 @@ class DailyReportTests(unittest.TestCase):
                                                   553_010_996, 1_000_000_000)],
                          ['0', '895', '6.6k', '457k', '614k', '1M', '55.7M', '143M', '553M', '1B'])
 
-    def test_generate_day_writes_v6_and_markdown(self):
+    def test_generate_day_writes_v7_and_markdown(self):
         self.zcode_index('sess_a', '收件箱日报', '/work/session-manager')
         self.zcode_turn('sess_a', 't1', stamp(self.day, 10), stamp(self.day, 12),
                         fresh=40_000, cached=900_000, output=10_000)
         report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report['version'], 6)
+        self.assertEqual(report['version'], 7)
         self.assertEqual((report['totals']['input_tokens'], report['totals']['cache_tokens'],
                           report['totals']['output_tokens'], report['totals']['total_tokens']),
                          (40_000, 900_000, 10_000, 950_000))
@@ -292,7 +393,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn('合计 950k', markdown)
         self.assertIn('900k', markdown)
         self.assertIn('收件箱日报', markdown)
-        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 6)
+        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 7)
         # 过去日已定稿：再次查看直接读缓存，不重扫来源（新增轮次不会出现）。
         self.zcode_turn('sess_a', 't2', stamp(self.day, 13), stamp(self.day, 14), fresh=1)
         again = generate_day(self.store, self.home, self.day.isoformat())
@@ -376,7 +477,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIsNone(load_report(self.store.root, self.day.isoformat()))
         refreshed = generate_overview(self.store, self.home, days=30, top=5)
         self.assertEqual({row['date']: row for row in refreshed['days']}[self.day.isoformat()]['total_tokens'], 600)
-        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 6)
+        self.assertEqual(load_report(self.store.root, self.day.isoformat())['version'], 7)
         # 过去日读缓存：新增历史轮次不改变固化结果，总览与详情一致；只有 refresh 才重扫来源。
         self.zcode_turn('sess_a', 't3', stamp(self.day, 15), stamp(self.day, 16), fresh=500)
         cached = {row['date']: row for row in generate_overview(self.store, self.home, days=30, top=5)['days']}

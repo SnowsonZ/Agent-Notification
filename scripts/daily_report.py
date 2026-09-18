@@ -3,7 +3,7 @@
 token 三类口径：输入（新鲜输入+缓存写入）、缓存（缓存读取）、输出（含 reasoning）；
 三类之和 = 合计，参与一切比较与计算（热力分级/排名/占比/趋势），三类在界面全部展示。
 取消与出错轮次的消耗照计。只读取时间戳、标题、项目与数值字段，从不读取或存储
-消息正文。过去日以报告文件固化（version=6），当日始终实时计算。
+消息正文。过去日以报告文件固化（version=7），当日始终实时计算。
 """
 from datetime import date, datetime, timedelta
 import json
@@ -21,7 +21,7 @@ PROVIDER_NAMES = {'zcode': 'Zcode', 'codex': 'Codex', 'claude': 'Claude', 'pi': 
 FIDELITY_NAMES = {'exact': '精确', 'unavailable': '无 token'}
 ZCODE_STATES = {'completed': 'idle', 'error': 'failed', 'running': 'running', 'waiting': 'waiting'}
 NO_PROJECT = '(无项目)'
-REPORT_VERSION = 6
+REPORT_VERSION = 7
 SEGMENT_GAP = 15 * 60  # 逐条时间戳来源：相邻消息间隔不超过 15 分钟视为同一段活动
 CLASSES = ('input_tokens', 'cache_tokens', 'output_tokens')
 
@@ -233,7 +233,12 @@ def _zcode_data(home):
 
 
 def _codex_data(home, window_start):
-    """token_count 增量按请求时刻归日：(events, turn_starts, titles, projects)。"""
+    """token_count 增量按请求时刻归日：(events, turn_starts, titles, projects)。
+
+    来源与收件箱同口径：session_meta + 任意非空 originator（Desktop 与 CLI/exec/
+    workbench 变体），2026-09-17 起不再限 Desktop——收件箱已纳入 CLI 会话而日报
+    漏计，当日会话数对不上。
+    """
     titles, projects = {}, {}
     index = home / '.codex/session_index.jsonl'
     if index.exists():
@@ -254,7 +259,7 @@ def _codex_data(home, window_start):
             with path.open() as file:
                 first = json.loads(file.readline())
             meta = first.get('payload', {})
-            if first.get('type') != 'session_meta' or meta.get('originator') != 'Codex Desktop':
+            if first.get('type') != 'session_meta' or not str(meta.get('originator') or ''):
                 continue
             sid = str(meta.get('id') or '')
             projects.setdefault(sid, str(meta.get('cwd') or ''))
@@ -296,11 +301,41 @@ def _claude_data(home, window_start):
 
     exact=(sid, [(stamp, 输入, 缓存, 输出)], title, project)
     missing=(sid, start, end, title, project)  # 无转写或无窗口内消耗
+    桌面登记的会话按 cliSessionId 配转写；不在登记表的 CLI 直启会话转写
+    （2026-09-17 起补采，与收件箱 claude CLI 接入同口径）按文件 mtime 预筛后
+    直接解析，标题/项目由 store 已知行补齐，读不到就留空。
     """
     root = home / 'Library/Application Support/Claude/claude-code-sessions'
     projects_root = home / '.claude/projects'
     if not root.exists() or not projects_root.exists():
         return [], []
+
+    def transcript_usage(path):
+        records = []
+        try:
+            with path.open(errors='replace') as file:
+                for line in file:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    if record.get('type') != 'assistant':
+                        continue
+                    usage = (record.get('message') or {}).get('usage')
+                    if not isinstance(usage, dict):
+                        continue
+                    stamp = seconds(record.get('timestamp'))
+                    if stamp <= 0 or stamp < window_start:
+                        continue
+                    input_cls = (int(usage.get('input_tokens') or 0)
+                                 + int(usage.get('cache_creation_input_tokens') or 0))
+                    cache_cls = int(usage.get('cache_read_input_tokens') or 0)
+                    output_cls = int(usage.get('output_tokens') or 0)
+                    records.append((stamp, input_cls, cache_cls, output_cls))
+        except OSError:
+            return []
+        return records
+
     transcripts = {path.stem: path for path in projects_root.rglob('*.jsonl')}
     sessions = {}
     for path in root.rglob('local_*.json'):
@@ -328,34 +363,22 @@ def _claude_data(home, window_start):
         title = str(data.get('title') or '')
         project = str(data.get('cwd') or '')
         transcript = transcripts.get(sid)
-        records = []
-        if transcript is not None:
-            try:
-                with transcript.open(errors='replace') as file:
-                    for line in file:
-                        try:
-                            record = json.loads(line)
-                        except ValueError:
-                            continue
-                        if record.get('type') != 'assistant':
-                            continue
-                        usage = (record.get('message') or {}).get('usage')
-                        if not isinstance(usage, dict):
-                            continue
-                        stamp = seconds(record.get('timestamp'))
-                        if stamp <= 0 or stamp < window_start:
-                            continue
-                        input_cls = (int(usage.get('input_tokens') or 0)
-                                     + int(usage.get('cache_creation_input_tokens') or 0))
-                        cache_cls = int(usage.get('cache_read_input_tokens') or 0)
-                        output_cls = int(usage.get('output_tokens') or 0)
-                        records.append((stamp, input_cls, cache_cls, output_cls))
-            except OSError:
-                records = []
+        records = transcript_usage(transcript) if transcript is not None else []
         if records:
             exact.append((sid, records, title, project))
         else:
             missing.append((sid, min(created, last), last, title, project))
+    for path in projects_root.rglob('*.jsonl'):
+        if path.stem in sessions:
+            continue
+        try:
+            if path.stat().st_mtime < window_start - 60:
+                continue
+        except OSError:
+            continue
+        records = transcript_usage(path)
+        if records:
+            exact.append((path.stem, records, '', ''))
     return exact, missing
 
 
@@ -430,20 +453,24 @@ def _kimi_data(home, window_start):
     return results
 
 
-def _opencode_data(home, window_start):
+def _opencode_data(store, home, window_start):
     """opencode 逐条 assistant 消息 usage：(sid, stamp, 输入, 缓存, 输出)；附标题/项目。
 
-    子代理会话（parent_id 非空）的消息无法归属到父任务，按"宁可不计"跳过；
-    消费时刻优先取回合完成时间（data.time.completed），缺失退回消息更新时间。"""
+    口径=受管理（2026-09-17 起，与 pi/kimi 同构、与收件箱对账）：只统计经包装器
+    注册到收件箱的会话；workbench 等其它工具经 server 拉起的会话既不进收件箱也
+    不计入日报（库内无创建者身份字段，实测 agent/workspace/metadata/delivery 均
+    无信号）。子代理会话（parent_id 非空）的消息无法归属到父任务，按"宁可不计"
+    跳过；消费时刻优先取回合完成时间（data.time.completed），缺失退回消息更新时间。"""
+    managed = {row['session_id'] for row in store.rows() if row['provider'] == 'opencode'}
     path = home / '.local/share/opencode/opencode.db'
     titles, projects = {}, {}
-    if not path.exists():
+    if not managed or not path.exists():
         return [], titles, projects
     results = []
     connection = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
     try:
         for sid, title, directory, parent in connection.execute('SELECT id,title,directory,parent_id FROM session'):
-            if parent:
+            if parent or sid not in managed:
                 continue
             titles[sid] = title or ''
             projects[sid] = directory or ''
@@ -475,12 +502,17 @@ def _opencode_data(home, window_start):
     return results, titles, projects
 
 
-def scan_buckets(store, home, first_day, last_day):
-    """一次只读扫描；返回 {day: [task records]}。"""
+def scan_buckets(store, home, first_day, last_day, agent_stats=None):
+    """一次只读扫描；返回 {day: [task records]}。
+
+    agent 拉起的会话（store origin=agent，见 inbox_sources.HUMAN_ORIGINATORS 与
+    inbox.claude_spawn_origin）不进日报；其会话数与 token 消耗累计进 agent_stats
+    （{day: {'tasks': set, 'total_tokens': float}}，可选参数）供注脚展示，成本不失明。"""
     days = [first_day + timedelta(days=n) for n in range((last_day - first_day).days + 1)]
     buckets = _Buckets(days)
     window_start = buckets.windows[first_day][0]
     store_rows = {(row['provider'], row['session_id']): row for row in store.rows()}
+    origin_rules = {r.get('project'): r.get('origin') for r in store.origin_rules()}
 
     def known(provider, sid, title='', project=''):
         row = store_rows.get((provider, sid))
@@ -490,6 +522,24 @@ def scan_buckets(store, home, first_day, last_day):
         if not project and row:
             project = row['project'] or ''
         return title, project, state
+
+    def excluded(provider, sid, stamp, tokens):
+        """agent 会话返回 True 并把消耗记入注脚；无 store 行或有效 origin=user 放行。
+        有效 origin：目录规则（用户改判沉淀）优先于自动分类。"""
+        row = store_rows.get((provider, sid))
+        origin = 'user'
+        if row:
+            origin = origin_rules.get(row.get('project') or '') or row.get('origin') or 'user'
+        if origin != 'agent':
+            return False
+        if agent_stats is not None and tokens > 0:
+            for day, (low, high) in buckets.windows.items():
+                if low <= stamp < high:
+                    entry = agent_stats.setdefault(day, {'tasks': set(), 'total_tokens': 0.0})
+                    entry['tasks'].add(sid)
+                    entry['total_tokens'] += tokens
+                    break
+        return True
 
     turns, titles, tokenized = _zcode_data(home)
     for sid, start, end, input_cls, cache_cls, output_cls, count_turn, activity in turns:
@@ -504,36 +554,50 @@ def scan_buckets(store, home, first_day, last_day):
 
     events, turn_starts, titles, projects = _codex_data(home, window_start)
     for sid, stamp, input_cls, cache_cls, output_cls in events:
+        if excluded('codex', sid, stamp, input_cls + cache_cls + output_cls):
+            continue
         title, project, state = known('codex', sid, titles.get(sid, ''), projects.get(sid, ''))
         buckets.point('codex', sid, stamp, input=input_cls, cache=cache_cls, output=output_cls,
                       title=title, project=project, state=state)
     for sid, stamp in turn_starts:
+        if excluded('codex', sid, stamp, 0):
+            continue
         title, project, state = known('codex', sid, titles.get(sid, ''), projects.get(sid, ''))
         buckets.point('codex', sid, stamp, turn=True, title=title, project=project, state=state)
 
     exact, missing = _claude_data(home, window_start)
     for sid, records, title, project in exact:
         for record_stamp, input_cls, cache_cls, output_cls in records:
+            if excluded('claude', sid, record_stamp, input_cls + cache_cls + output_cls):
+                continue
             known_title, known_project, state = known('claude', sid, title, project)
             buckets.point('claude', sid, record_stamp, input=input_cls, cache=cache_cls,
                           output=output_cls, title=known_title, project=known_project, state=state)
     for sid, start, end, title, project in missing:
+        if excluded('claude', sid, start, 0):
+            continue
         title, project, state = known('claude', sid, title, project)
         buckets.spread('claude', sid, start, end, input=0, cache=0, output=0, title=title,
                        project=project, fidelity='unavailable', state=state)
 
     for sid, record_stamp, input_cls, cache_cls, output_cls in _pi_data(store, window_start):
+        if excluded('pi', sid, record_stamp, input_cls + cache_cls + output_cls):
+            continue
         title, project, state = known('pi', sid)
         buckets.point('pi', sid, record_stamp, input=input_cls, cache=cache_cls, output=output_cls,
                       title=title, project=project, state=state)
 
     for sid, record_stamp, input_cls, cache_cls, output_cls in _kimi_data(home, window_start):
+        if excluded('kimi', sid, record_stamp, input_cls + cache_cls + output_cls):
+            continue
         title, project, state = known('kimi', sid)
         buckets.point('kimi', sid, record_stamp, input=input_cls, cache=cache_cls, output=output_cls,
                       title=title, project=project, state=state)
 
-    events, titles, projects = _opencode_data(home, window_start)
+    events, titles, projects = _opencode_data(store, home, window_start)
     for sid, record_stamp, input_cls, cache_cls, output_cls in events:
+        if excluded('opencode', sid, record_stamp, input_cls + cache_cls + output_cls):
+            continue
         title, project, state = known('opencode', sid, titles.get(sid, ''), projects.get(sid, ''))
         buckets.point('opencode', sid, record_stamp, input=input_cls, cache=cache_cls, output=output_cls,
                       turn=True, title=title, project=project, state=state)
@@ -576,7 +640,7 @@ def _add_usage(bucket, key, record):
     entry['total_tokens'] += record['total_tokens']
 
 
-def build_report(day, records, generated_at):
+def build_report(day, records, generated_at, agent_excluded=None):
     sources, projects = {}, {}
     totals = _empty_usage()
     for record in records:
@@ -588,8 +652,12 @@ def build_report(day, records, generated_at):
     totals['turns'] = sum(record['turns'] for record in records)
     totals['sources'] = sources
     totals['projects'] = projects
-    return {'version': REPORT_VERSION, 'date': day.isoformat(), 'generated_at': round(generated_at),
-            'totals': totals, 'tasks': records}
+    report = {'version': REPORT_VERSION, 'date': day.isoformat(), 'generated_at': round(generated_at),
+              'totals': totals, 'tasks': records}
+    if agent_excluded and (agent_excluded.get('tasks') or agent_excluded.get('total_tokens')):
+        report['agent_excluded'] = {'tasks': len(agent_excluded.get('tasks', ())),
+                                    'total_tokens': int(agent_excluded.get('total_tokens') or 0)}
+    return report
 
 
 def render_markdown(report):
@@ -599,6 +667,10 @@ def render_markdown(report):
     lines += [f"合计 {token_text(totals['total_tokens'])} tokens（输入 {token_text(totals['input_tokens'])} · "
               f"缓存 {token_text(totals['cache_tokens'])} · 输出 {token_text(totals['output_tokens'])}）"
               f" · {totals['tasks']} 个任务 · {totals['turns']} 轮", '']
+    excluded = report.get('agent_excluded')
+    if excluded:
+        lines += [f"> 另有 {excluded['tasks']} 个 agent 会话（其它工具拉起）合计 "
+                  f"{token_text(excluded['total_tokens'])} tokens 未计入。", '']
     if not report['tasks']:
         lines += ['这一天没有会话记录。', '']
     else:
@@ -665,8 +737,9 @@ def generate_day(store, home, date_text=None, *, refresh=False):
         if _finalized(cached, day):
             cached['path_md'] = path_md
             return cached
-    records = scan_buckets(store, home, day, day).get(day, [])
-    report = build_report(day, records, time.time())
+    agent_stats = {}
+    records = scan_buckets(store, home, day, day, agent_stats=agent_stats).get(day, [])
+    report = build_report(day, records, time.time(), agent_excluded=agent_stats.get(day))
     if day < date.today():
         _write_report(store.root, report)
         report['path_md'] = path_md
@@ -693,15 +766,18 @@ def generate_overview(store, home, *, days=182, top=5):
             cached[day] = report
         else:
             pending.append(day)
-    buckets = scan_buckets(store, home, min(pending), today)
-    live_today = build_report(today, buckets.get(today, []), time.time())
+    agent_stats = {}
+    buckets = scan_buckets(store, home, min(pending), today, agent_stats=agent_stats)
+    live_today = build_report(today, buckets.get(today, []), time.time(),
+                              agent_excluded=agent_stats.get(today))
     day_rows = []
     for offset in range(days):
         day = first_day + timedelta(days=offset)
         text = day.isoformat()
         report = live_today if day == today else cached.get(day)
         if report is None:
-            report = build_report(day, buckets.get(day, []), time.time())
+            report = build_report(day, buckets.get(day, []), time.time(),
+                                  agent_excluded=agent_stats.get(day))
             _write_report(store.root, report)
         totals = report.get('totals', {})
         day_rows.append({key: int(totals.get(key) or 0) for key in CLASSES}
