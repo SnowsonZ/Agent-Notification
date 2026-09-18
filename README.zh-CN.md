@@ -21,10 +21,11 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 核心能力：
 
 - 聚合五类来源的会话状态（运行中、等待输入、本轮已结束、发生错误、已中断、已退出），按最近活动排序，懒加载分页。
+- 其它工具（多 agent 协作等）拉起的会话默认过滤：不通知、不进待查看、不计入日报合计；工具栏可开关查看审计，日报注脚披露其 token 消耗。判定采用声明优于推断：工具拉起时设置 `SESSION_MANAGER_ORIGIN=agent|user` 即精确声明（最高优先级），未声明走各来源启发式；行内右键可手动改判并沉淀为目录规则。
 - 工作日报：按 token 消耗（输入/缓存/输出三类）统计每天会话任务，GitHub 式热力图回看近半年，附近 7 天 Top 项目与来源占比；当天实时计算，过去日在查看时定稿固化。
 - Pi/Kimi 经受管理启动器运行，登记 run_id 与 session_id 绑定；跳转前复核运行锁、会话 ID 与前台进程组，进程退出后旧绑定一律拒绝。
 - Zcode 通过辅助功能接口打开任务搜索并预填标题，停在结果页，由使用者自行选择目标。
-- 从应用成功打开会话后自动标记已处理（携带 revision 校验，不吞并打开期间到达的新事件）；打开失败保留未读。
+- 从应用成功打开会话后自动标记已处理（携带 revision 校验，不吞并打开期间到达的新事件）；打开失败保留未读。待查看列表可勾选任意子集后批量标记已读（含「全选」），逐项按 revision 校验，确认瞬间已有新活动的项保留未读。
 - 仅保存管理所需元数据（会话标识、标题摘要、项目、状态、时间与定位信息），不保存对话正文、输入内容或凭据。
 
 ## 来源与定位方式
@@ -75,7 +76,7 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 
 授权采用拖拽方式：点击 Zcode 事项的「前往会话」时若缺辅助功能权限，应用会自动打开「隐私与安全性 → 辅助功能」面板，并弹出一个可拖拽的应用悬浮窗，把它拖进列表即完成授权，授权后悬浮窗自动收起；`bin/session-manager permissions` 是等效的手动入口（Finder 显示应用 + 打开面板）。应用为 ad-hoc 签名，每次重建后需要重新拖入；列表里旧条目开关显示开启不代表新版已获授权。
 
-应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；pi/kimi/opencode/agy 为受管理启动（经 `bin/session-manager` 注册绑定，opencode/agy 的事件通道分别由 OPENCODE_CONFIG 注入插件与 setup-agy 安装插件提供，不改各家全局配置），跳转经运行锁+前台进程组校验后聚焦原标签；agy 无失败/等待类事件（官方 hooks 仅五种），其余状态齐全。工作日报计入 OpenCode token。能力边界见 docs/specs/unified-inbox.md 与 cli-session-binding.md。首次从应用启动 CLI 会请求「会话通知 控制 iTerm2」授权。
+应用启动时检测本机安装的 CLI（claude、codex、pi、kimi、agy、opencode），在「新建会话」行平铺已安装项一键目录启动（iTerm2 新标签），放不下时行尾「+N」菜单收纳其余项；pi/kimi/opencode/agy 为受管理启动（经 `bin/session-manager` 注册绑定，opencode/agy 的事件通道分别由 OPENCODE_CONFIG 注入插件与 setup-agy 安装插件提供，不改各家全局配置），跳转经运行锁+前台进程组校验后聚焦原标签；agy 无失败/等待类事件（官方 hooks 仅五种），其余状态齐全。工作日报计入 OpenCode token（受管理口径：仅统计经受管理入口启动的会话）。能力边界见 docs/specs/unified-inbox.md 与 cli-session-binding.md。首次从应用启动 CLI 会请求「会话通知 控制 iTerm2」授权。
 
 ## 命令行参考
 
@@ -86,7 +87,7 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 | `bin/session-manager focus RUN_ID SESSION_ID` | 校验绑定并聚焦原 iTerm2 标签页 |
 | `bin/session-manager zcode-focus TASK_ID` | 打开指定 Zcode 任务；`--describe` 仅解析任务元数据 |
 | `bin/session-manager inbox setup` | 安装或更新观察 hooks（幂等，不覆盖既有配置） |
-| `bin/session-manager inbox rows \| sync \| open \| ack` | 收件箱数据查询与维护 |
+| `bin/session-manager inbox rows \| sync \| open \| ack \| ack-batch` | 收件箱数据查询与维护 |
 | `bin/session-manager inbox daily-report [--date YYYY-MM-DD] \| --overview` | 生成单日报告或热力图总览（自动补录缺失日期） |
 | `bin/session-manager app` | 打开「会话通知」 |
 

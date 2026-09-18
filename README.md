@@ -23,9 +23,10 @@ Agent Notification is a local session inbox for macOS: it aggregates Codex, Clau
 Key capabilities:
 
 - Aggregates session state across five sources (running, waiting for input, turn finished, failed, interrupted, exited), sorted by recent activity with lazy pagination.
+- Sessions spawned by other tools (multi-agent runs) are filtered by default: no notifications, excluded from the pending view and the daily report; a toolbar toggle exposes them for audit, and the report footnote discloses their token usage. Classification prefers declaration: spawning tools set `SESSION_MANAGER_ORIGIN=agent|user` (highest priority); undeclared spawns fall back to per-source heuristics; right-click any row to override manually or pin a per-directory rule.
 - Pi/Kimi run through a managed launcher that registers a run_id/session_id binding; focusing re-verifies the run lock, session ID, and foreground process group, and stale bindings are rejected once the process exits.
 - Zcode sessions are opened via the accessibility API by prefilled task search; the app stops at the results page and you pick the target.
-- Opening a session from the app acknowledges it automatically (with a revision check so newly arrived events are never swallowed); failed opens keep the unread state.
+- Opening a session from the app acknowledges it automatically (with a revision check so newly arrived events are never swallowed); failed opens keep the unread state. Pending items can be multi-selected (with a select-all toggle) and batch-marked read with the same per-item revision check.
 - Only management metadata is stored (session identifiers, title summaries, project, status, timestamps, and location hints) — never conversation bodies, typed input, or credentials.
 
 ## Sources and how they are opened
@@ -87,7 +88,7 @@ The app detects locally installed CLIs (claude, codex, pi, kimi, agy, opencode) 
 | `bin/session-manager focus RUN_ID SESSION_ID` | Verify a binding and focus the original iTerm2 tab |
 | `bin/session-manager zcode-focus TASK_ID` | Open a Zcode task; `--describe` only parses task metadata |
 | `bin/session-manager inbox setup` | Install or update observer hooks (idempotent) |
-| `bin/session-manager inbox rows \| sync \| open \| ack` | Inbox data queries and maintenance |
+| `bin/session-manager inbox rows \| sync \| open \| ack \| ack-batch` | Inbox data queries and maintenance |
 | `bin/session-manager app` | Open the "Agent Notification" app |
 
 Run the test suite:
