@@ -9,3 +9,4 @@ build/
 *.sqlite-shm
 .zcode/
 .agents/
+.pytest_cache/

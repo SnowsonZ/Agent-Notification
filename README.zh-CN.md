@@ -15,7 +15,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 | 组件 | 说明 |
 |---|---|
 | `bin/session-manager` | 统一命令行入口：受管理启动、绑定查询、会话聚焦、收件箱维护 |
-| Agent Notification（`build/Agent Notification.app`，界面显示名「会话通知」） | 原生 macOS 应用：待处理列表、系统通知、菜单栏与 Dock 角标计数、CLI 快捷启动 |
+| Agent Notification（`build/Agent Notification.app`，界面显示名「会话通知」） | 原生 macOS 应用：待处理/进行中列表、系统通知、菜单栏与 Dock 角标计数、CLI 快捷启动 |
 | `build/zcode-focus` | Zcode 原生导航辅助工具（由 `native/ZcodeFocus.swift` 编译） |
 
 核心能力：

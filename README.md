@@ -8,9 +8,9 @@ Agent Notification is a local session inbox for macOS: it aggregates Codex, Clau
 
 ## Interface preview
 
-| Pending | All sessions | Daily report | Day detail |
-|---|---|---|---|
-| ![Pending list](docs/images/inbox-pending.png) | ![All sessions](docs/images/inbox-all.png) | ![Daily report](docs/images/daily-report.png) | ![Day detail](docs/images/daily-report-day.png) |
+| Pending | In progress | All sessions | Daily report | Day detail |
+|---|---|---|---|---|
+| ![Pending list](docs/images/inbox-pending.png) | ![In-progress list](docs/images/inbox-active.png) | ![All sessions](docs/images/inbox-all.png) | ![Daily report](docs/images/daily-report.png) | ![Day detail](docs/images/daily-report-day.png) |
 
 ## Components
 
@@ -23,6 +23,7 @@ Agent Notification is a local session inbox for macOS: it aggregates Codex, Clau
 Key capabilities:
 
 - Aggregates session state across five sources (running, waiting for input, turn finished, failed, interrupted, exited), sorted by recent activity with lazy pagination.
+- The "In Progress" segment lists sessions currently waiting on a model reply (running turns only; waiting-for-permission and idle sessions are excluded) and drops them automatically when the turn ends, polled every 3 seconds.
 - Sessions spawned by other tools (multi-agent runs) are filtered by default: no notifications, excluded from the pending view and the daily report; a toolbar toggle exposes them for audit, and the report footnote discloses their token usage. Classification prefers declaration: spawning tools set `SESSION_MANAGER_ORIGIN=agent|user` (highest priority); undeclared spawns fall back to per-source heuristics; right-click any row to override manually or pin a per-directory rule.
 - Pi/Kimi run through a managed launcher that registers a run_id/session_id binding; focusing re-verifies the run lock, session ID, and foreground process group, and stale bindings are rejected once the process exits.
 - Zcode sessions are opened via the accessibility API by prefilled task search; the app stops at the results page and you pick the target.
