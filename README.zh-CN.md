@@ -61,7 +61,7 @@ python3 scripts/build_inbox_app.py
 说明：
 
 - 虚拟环境固定位于 `scratch/iterm-probe-venv`：`bin/session-manager` 按该路径定位 Python 解释器，请勿更改位置。
-- `scratch/` 与 `build/` 不纳入版本控制，由上述步骤生成。
+- `scratch/` 与 `build/` 不纳入版本控制，由上述步骤生成。虚拟环境是开发包 App 的运行时依赖而非一次性产物，清理 `scratch/`（含 `git clean`）时必须保留 `scratch/iterm-probe-venv`：被删后应用页面报 “The file ‘python’ doesn’t exist.”、CLI 报 “Missing runtime”，重跑上面两条 venv 命令即恢复（数据在 `~/.local/state/session-manager`，不受影响）。
 - 构建脚本拒绝覆盖正在运行的应用，重建前请先退出「会话通知」。
 - 构建产物使用本地 ad-hoc 签名并通过 bundle 校验，不是分发公证；重新构建后如遇权限失效，需在系统设置中重新授权。
 - 应用图标有两套来源：`native/GenerateAppIcon.swift` 生成 icns（所有系统可用）；`native/AppIcon.icon` 是 macOS 26+ 的 Liquid Glass 分层图标，构建脚本在检测到 Xcode 26 的 `actool` 时把它编成 `Assets.car`，只有命令行工具时跳过并回退 icns。Release 由 CI（macos-26）构建，因此带分层图标。

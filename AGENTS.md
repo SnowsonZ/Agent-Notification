@@ -16,6 +16,7 @@
 - 新增、迁移或替代文档时更新 README 索引；历史排错记录不能覆盖最新验收状态。
 - 发布版本号必须先与用户确认后再打 tag，不自行指定 minor/patch 档位；tag 推送即触发远端发布。打 tag 前同步 `scripts/build_inbox_app.py` 的 `CFBundleShortVersionString` 与 `CFBundleVersion`，两处不能只改其一。
 - `scratch/` 放临时实验与运行证据；`build/` 放产物。两者、虚拟环境、数据库、凭据及完整用户会话正文不提交。
+- 清理 `scratch/`（含 `git clean`）必须保留 `scratch/iterm-probe-venv`：它是开发包 App 与 CLI 的运行时解释器，不是可丢弃的实验产物。被删后收件箱页面报 "The file “python” doesn’t exist."、CLI 报 "Missing runtime"；重建命令见 README「快速上手」，数据在 `~/.local/state/session-manager` 不受影响。
 - 不把用户本机的 Claude/Kimi 配置复制进仓库。安装观察 hooks 应保留既有配置并保持幂等。
 
 ## 身份与状态边界
