@@ -39,7 +39,7 @@ jobs:
 
       - name: Lint Python
         run: |
-          python3 -m pip install --quiet ruff
+          python3 -m pip install --quiet ruff==0.15.15
           ruff check scripts tests
 
       - name: Build Agent Notification.app
