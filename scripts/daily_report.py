@@ -398,10 +398,12 @@ def _claude_data(home, window_start):
     （2026-09-17 起补采，与收件箱 claude CLI 接入同口径）按文件 mtime 预筛后
     直接解析，标题/项目由 store 已知行补齐，读不到就留空。
     """
-    root = home / "Library/Application Support/Claude/claude-code-sessions"
     projects_root = home / ".claude/projects"
-    if not root.exists() or not projects_root.exists():
+    if not projects_root.exists():
         return [], []
+    # Desktop 登记目录是可选数据源：纯 CLI 用户只有转写（2026-09-21 评审 R6），
+    # 登记目录缺失时跳过登记匹配，CLI 直启转写扫描照常执行。
+    root = home / "Library/Application Support/Claude/claude-code-sessions"
 
     def transcript_usage(path):
         records = []
@@ -432,23 +434,24 @@ def _claude_data(home, window_start):
 
     transcripts = {path.stem: path for path in projects_root.rglob("*.jsonl")}
     sessions = {}
-    for path in root.rglob("local_*.json"):
-        try:
-            if path.stat().st_size > 4_000_000:
+    if root.exists():
+        for path in root.rglob("local_*.json"):
+            try:
+                if path.stat().st_size > 4_000_000:
+                    continue
+                data = json.loads(path.read_text())
+            except (OSError, ValueError):
                 continue
-            data = json.loads(path.read_text())
-        except (OSError, ValueError):
-            continue
-        sid = data.get("cliSessionId")
-        if not isinstance(sid, str) or not sid:
-            continue
-        last = seconds(data.get("lastActivityAt"))
-        if last <= 0 or last < window_start:
-            continue
-        created = seconds(data.get("createdAt")) or last
-        prior = sessions.get(sid)
-        if prior is None or last > prior[2]:
-            sessions[sid] = (data, created, last)
+            sid = data.get("cliSessionId")
+            if not isinstance(sid, str) or not sid:
+                continue
+            last = seconds(data.get("lastActivityAt"))
+            if last <= 0 or last < window_start:
+                continue
+            created = seconds(data.get("createdAt")) or last
+            prior = sessions.get(sid)
+            if prior is None or last > prior[2]:
+                sessions[sid] = (data, created, last)
     exact, missing = [], []
     for sid, (data, created, last) in sessions.items():
         desktop = data.get("sessionId", "")
@@ -645,6 +648,7 @@ def scan_buckets(store, home, first_day, last_day, agent_stats=None):
     window_start = buckets.windows[first_day][0]
     store_rows = {(row["provider"], row["session_id"]): row for row in store.rows()}
     origin_rules = store.origin_rule_index()
+    origin_overrides = store.origin_overrides()
 
     def known(provider, sid, title="", project=""):
         row = store_rows.get((provider, sid))
@@ -657,9 +661,9 @@ def scan_buckets(store, home, first_day, last_day, agent_stats=None):
 
     def excluded(provider, sid, stamp, tokens):
         """agent 会话返回 True 并把消耗记入注脚；无 store 行或有效 origin=user 放行。
-        有效 origin：目录规则（用户改判沉淀）优先于自动分类。"""
+        有效 origin：单条改判 > 目录规则（用户改判沉淀）优先于自动分类（评审 R5）。"""
         row = store_rows.get((provider, sid))
-        if effective_origin(origin_rules, row) != "agent":
+        if effective_origin(origin_rules, row, origin_overrides) != "agent":
             return False
         if agent_stats is not None and tokens > 0:
             for day, (low, high) in buckets.windows.items():

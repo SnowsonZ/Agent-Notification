@@ -60,6 +60,16 @@ jobs:
           "$CLI" --help
           HOME="$(mktemp -d)" "$CLI" inbox rows --all
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Smoke bundled deps on minimum Python (3.11)
+        # 启动器会选更新的解释器，最低支持版本用直接组合验证（评审 R1）。
+        run: |
+          RES="build/Agent Notification.app/Contents/Resources"
+          HOME="$(mktemp -d)" PYTHONPATH="$RES/pylib" python3.11 "$RES/scripts/inbox.py" rows --all
+
       - name: Package
         run: |
           mkdir -p build/pkg

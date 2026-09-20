@@ -55,7 +55,7 @@ if args.standalone:
             check=True,
         )
     shutil.copy2(helper, resources / "build/zcode-focus")
-    # 纯 Python wheel，按系统 python3（3.9）解析；--target 不碰当前环境。
+    # 纯 Python wheel，按最低支持 3.11 解析；--target 不碰当前环境。
     subprocess.run(
         [
             sys.executable,
@@ -70,7 +70,7 @@ if args.standalone:
             "--platform",
             "any",
             "--python-version",
-            "3.9",
+            "3.11",
             "--implementation",
             "py",
             "-r",

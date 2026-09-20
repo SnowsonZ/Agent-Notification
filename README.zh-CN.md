@@ -65,7 +65,7 @@ python3 scripts/build_inbox_app.py
 - 构建脚本拒绝覆盖正在运行的应用，重建前请先退出「会话通知」。
 - 构建产物使用本地 ad-hoc 签名并通过 bundle 校验，不是分发公证；重新构建后如遇权限失效，需在系统设置中重新授权。
 - 应用图标有两套来源：`native/GenerateAppIcon.swift` 生成 icns（所有系统可用）；`native/AppIcon.icon` 是 macOS 26+ 的 Liquid Glass 分层图标，构建脚本在检测到 Xcode 26 的 `actool` 时把它编成 `Assets.car`，只有命令行工具时跳过并回退 icns。Release 由 CI（macos-26）构建，因此带分层图标。
-- 以上是开发包：应用运行仓库内的脚本和 venv，改脚本无需重建。Release 里的 dmg 由 `python3 scripts/build_inbox_app.py --standalone` 构建，脚本、`bin/session-manager`、`zcode-focus` 和纯 Python 依赖（`requirements-standalone.txt`）随包放在 `Contents/Resources`，不依赖仓库；运行需要本机有 python3 3.9+（Homebrew 或 Xcode Command Line Tools 自带的均可）。两种包用同一套代码，按 `Resources/pylib` 是否存在自动切换。
+- 以上是开发包：应用运行仓库内的脚本和 venv，改脚本无需重建。Release 里的 dmg 由 `python3 scripts/build_inbox_app.py --standalone` 构建，脚本、`bin/session-manager`、`zcode-focus` 和纯 Python 依赖（`requirements-standalone.txt`）随包放在 `Contents/Resources`，不依赖仓库；运行需要本机有 python3 3.11+（Homebrew 安装即可；macOS 系统自带的 3.9 不满足，2026-09-21 起最低版本升到 3.11）。两种包用同一套代码，按 `Resources/pylib` 是否存在自动切换。
 
 初始化观察 hooks 并启动应用：
 
@@ -129,7 +129,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [Zcode 状态语义排查](docs/research/2026-09-14-zcode-state-semantics.md) | 调研记录 | 等待权限状态的可达性边界 |
 | [Codex 受管理可行性论证](docs/research/2026-09-16-codex-managed-feasibility.md) | 调研记录 | notify/插件/rollout 三通道实测与暂缓决策 |
 | [各来源推送通道盘点](docs/research/2026-09-20-push-channels-per-source.md) | 调研记录 | 七家消息通道现状；codex hooks.json 全生命周期实测（含信任门禁）与 zcode 文件事件方案 |
-| [项目整体评估](docs/review/2026-09-21-project-assessment.md) | 评审记录 | 正确性、架构、安全、性能与发布验证的全库体检及优先级建议 |
+| [项目整体评估](docs/review/2026-09-21-project-assessment.md) | 评审记录 | v0.7.4 全库复评、七项缺陷与验证边界；附 v0.7.3 历史评估 |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 调研记录 | 现成工具比较与选型依据 |
 
 调研记录为带日期的历史档案，反映当时状态；现行行为以规范文档为准。

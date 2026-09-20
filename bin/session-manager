@@ -3,16 +3,17 @@ set -eu
 task_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ -d "$task_root/pylib" ]; then
     # 发布包：task_root 是 .app/Contents/Resources，依赖随包，解释器用本机 python3。
-    # /usr/bin/python3 需要 Command Line Tools，未安装时只是个会弹窗的桩，放到最后并先验证。
+    # 2026-09-21 起最低 3.11（tomllib/websockets 17）；系统自带的 3.9 过不了版本门，
+    # /usr/bin/python3 未装 CLT 时只是个会弹窗的桩，故放最后并先验证。
     runtime=""
     for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
-        if [ -x "$candidate" ] && "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+        if [ -x "$candidate" ] && "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
             runtime="$candidate"
             break
         fi
     done
     if [ -z "$runtime" ]; then
-        echo "Missing runtime: python3 (3.9+) not found; install Xcode Command Line Tools or Homebrew python" >&2
+        echo "Missing runtime: python3 (3.11+) not found; install Homebrew python or another python3 >= 3.11" >&2
         exit 1
     fi
     export PYTHONPATH="$task_root/pylib${PYTHONPATH:+:$PYTHONPATH}"

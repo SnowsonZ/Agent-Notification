@@ -1,4 +1,5 @@
 import json
+import shutil
 import sys
 import tempfile
 import time
@@ -17,7 +18,7 @@ from inbox import (
     spawn_origin_from_tty,
 )
 from inbox_sources import collect_claude, collect_codex
-from inbox_store import Store, receive
+from inbox_store import Store, effective_origin, receive
 from migrations import (
     backfill_claude_tmp_origins,
     codex_dangling_turn_repair,
@@ -296,6 +297,53 @@ class ClaudeDesktopIdentityPollutionTests(unittest.TestCase):
         self.assertIn("ambiguous", locator["reason"])
 
 
+class ManualOriginOverrideTests(unittest.TestCase):
+    """评审 R5：单条手动改判独立存储，采集器重写 origin 字段不冲掉人工意图；
+    display_rows 回填有效来源供下游（Swift 通知过滤）使用。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self.store = Store(self.home / "state")
+        self.registry = (
+            self.home / "Library/Application Support/Claude/claude-code-sessions"
+        )
+        self.registry.mkdir(parents=True)
+        (self.registry / "local_desk-1.json").write_text(
+            json.dumps(
+                {
+                    "cliSessionId": "desk-1",
+                    "sessionId": "local_desk-1",
+                    "title": "桌面会话",
+                    "cwd": "/Users/snowson/work",
+                    "lastActivityAt": round(time.time() * 1000),
+                }
+            )
+        )
+
+    def test_manual_override_survives_desktop_refresh(self):
+        collect_claude(self.store, self.home)  # 自动分类 → user
+        row = self.store.rows()[0]
+        self.store.set_origin_override(row["id"], "agent")
+        collect_claude(self.store, self.home)  # 下一轮：origin 字段被权威覆盖回 user
+        row = self.store.rows()[0]
+        self.assertEqual(row["origin"], "user")
+        self.assertEqual(
+            effective_origin(
+                self.store.origin_rule_index(), row, self.store.origin_overrides()
+            ),
+            "agent",
+        )
+
+    def test_display_rows_stamps_effective_origin(self):
+        collect_claude(self.store, self.home)
+        row = self.store.rows()[0]
+        self.store.set_origin_override(row["id"], "agent")
+        listed = display_rows(self.store, True, include_agents=True)
+        self.assertEqual(listed[0]["origin"], "agent")
+
+
 class ClaudeCliTitleTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -355,6 +403,30 @@ class ClaudeCliTitleTests(unittest.TestCase):
         health = collect_claude(self.store, self.home)
         self.assertEqual(health["cli_titled"], 0)
         self.assertTrue(self.store.meta("claude-cli-title-missing:" + sid))
+
+    def test_titles_collected_when_desktop_registry_missing(self):
+        # 评审 R6：纯 CLI 安装（Desktop 登记目录不存在）时，collect_claude 曾以
+        # unavailable 整段早返回，CLI 行的标题补全被跳过；现在登记目录只是可选源。
+        sid = "33333333-2222-3333-4444-555555555555"
+        shutil.rmtree(self.home / "Library/Application Support/Claude")
+        transcript = self.home / ".claude/projects/proj" / f"{sid}.jsonl"
+        transcript.parent.mkdir(parents=True)
+        transcript.write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"content": "纯 CLI 会话标题"},
+                    "sessionId": sid,
+                }
+            )
+            + "\n"
+        )
+        self.store.patch("claude", sid, locator={"kind": "cli", "cwd": "/work/cli"})
+        self.store.patch("claude", sid, title=None)
+        health = collect_claude(self.store, self.home)
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(health["cli_titled"], 1)
+        self.assertEqual(self.store.rows()[0]["title"], "纯 CLI 会话标题")
 
     def test_backfilled_unknown_row_cached_negative(self):
         # unknown 是无 hooks 时代回填的历史死行（行由回填分支建立、无事件），转写不会再

@@ -155,7 +155,10 @@ class Store:
                     + " WHERE id=?",
                     [*fields.values(), key],
                 )
-            if isinstance(activity_at, (int, float)) and activity_at > row["activity_at"]:
+            if (
+                isinstance(activity_at, (int, float))
+                and activity_at > row["activity_at"]
+            ):
                 db.execute(
                     "UPDATE sessions SET activity_at=MAX(activity_at,?) WHERE id=?",
                     (activity_at, key),
@@ -167,18 +170,22 @@ class Store:
     ):
         """先查 events 账本再写：确定性 event_id 命中去重的重复事件（采集器每轮重放的
         大头）只读不写，也不再为它碰 sessions 行（含已被清理的行——重复事件不复活空行，
-        与旧版 ensure 先行的行为差异仅此一处）。"""
+        与旧版 ensure 先行的行为差异仅此一处）。时间戳检查先于账本登记：被判过期的
+        事件不烧毁确定性 event_id，来源数据补齐后重放仍可自愈（2026-09-21 评审 R2）。"""
         key = identity(provider, sid)
         with self.db() as db:
             if db.execute("SELECT 1 FROM events WHERE id=?", (event_id,)).fetchone():
                 return False
             self._insert_default_row(db, provider, sid)
+            row = db.execute("SELECT * FROM sessions WHERE id=?", (key,)).fetchone()
+            if timestamp < row["event_at"]:
+                # 过期事件不登记账本：确定性 event_id 一旦烧毁，真实事件即使随后
+                # 以更高时间戳重放也永远无法自愈（2026-09-21 评审 R2）。代价只是
+                # 过期重放多一次廉价比较。
+                return False
             if not db.execute(
                 "INSERT OR IGNORE INTO events VALUES (?)", (event_id,)
             ).rowcount:
-                return False
-            row = db.execute("SELECT * FROM sessions WHERE id=?", (key,)).fetchone()
-            if timestamp < row["event_at"]:
                 return False
             unread = row["unread"]
             attention_token = row["attention_token"]
@@ -207,6 +214,21 @@ class Store:
         if origin is not None:
             rules.append({"project": project, "origin": origin})
         self.set_meta("origin-rules", rules)
+
+    def origin_overrides(self):
+        """单条手动改判（评审 R5）：{row_id: origin}，与自动 origin 字段分列存储——
+        采集器每轮重写 origin（如 Desktop 权威覆盖 user）不冲掉人工意图；
+        经 effective_origin 以最高优先级生效。"""
+        return self.meta("origin-overrides", {}) or {}
+
+    def set_origin_override(self, key, origin):
+        """origin=None 表示清除该行的单条改判。"""
+        overrides = self.origin_overrides()
+        if origin is None:
+            overrides.pop(key, None)
+        else:
+            overrides[key] = origin
+        self.set_meta("origin-overrides", overrides)
 
     def origin_rule_index(self):
         """{project: origin}：origin_rules 的读取侧形态（收件箱 display 与日报共用）。"""
@@ -267,12 +289,16 @@ class Store:
         return {**dict(row), "locator": json.loads(row["locator"])}
 
 
-def effective_origin(rules, row):
-    """行级有效启动方式：目录规则（用户改判沉淀）优先于行内自动分类，缺省人工。
-    收件箱 display 与日报 excluded 共用本实现，两处口径不会漂移；
-    无行（来源未入箱）按人工保留。"""
+def effective_origin(rules, row, overrides=None):
+    """行级有效启动方式：单条手动改判 > 目录规则 > 行内自动分类，缺省人工。
+    单条改判独立存储（origin-overrides，评审 R5）——采集器改写 origin 字段不得
+    覆盖人工意图（如 Desktop 每轮权威覆盖 user）。收件箱 display 与日报 excluded
+    共用本实现，两处口径不会漂移；无行（来源未入箱）按人工保留。"""
     if row is None:
         return "user"
+    key = row.get("id")
+    if overrides and key is not None and key in overrides:
+        return overrides[key]
     return rules.get(row.get("project") or "") or row.get("origin") or "user"
 
 

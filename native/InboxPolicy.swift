@@ -5,6 +5,12 @@ func inboxPageCount(total: Int, size: Int) -> Int { max(1, (total + size - 1) / 
 func inboxRowListed(state: String, openAvailable: Bool) -> Bool {
     state != "closed" || openAvailable
 }
+// agent 会话只审计不提醒：审计开关打开后后端会返回 agent 行的真实 unread/attention，
+// 通知、待查看与角标必须按有效来源过滤，不能依赖列表默认隐藏代替通知策略
+// （2026-09-21 评审 R4）。origin 缺失（旧后端）视为可提醒，保持兼容。
+func inboxNotifyEligible(origin: String?, unread: Bool) -> Bool {
+    unread && origin != "agent"
+}
 // 进行中分段：正在等待模型回复的回合（state==running）才算。waiting 等的是用户确认
 // 权限、idle 是开着空闲，都不算；口径见 docs/specs/unified-inbox.md「进行中视图」。
 func inboxActiveListed(state: String, openAvailable: Bool) -> Bool {

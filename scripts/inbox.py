@@ -222,13 +222,18 @@ def display_rows(store, all_rows, include_agents=False):
             row["run_id"]: dict(row) for row in db.execute("SELECT * FROM bindings")
         }
     result = store.rows(unread_only=not all_rows)
+    rules = store.origin_rule_index()
+    overrides = store.origin_overrides()
     if not include_agents:
         # agent 拉起的会话默认不出现在收件箱（不通知、不进待查看）；数据保留在库，
         # rows --include-agents 或应用内开关可查看审计；目录规则（手动改判）读时覆盖。
-        rules = store.origin_rule_index()
-        result = [row for row in result if effective_origin(rules, row) != "agent"]
+        result = [
+            row for row in result if effective_origin(rules, row, overrides) != "agent"
+        ]
     for row in result:
         locator = row["locator"]
+        # 回填有效来源供下游（Swift 通知过滤，评审 R4）使用：单条改判 > 目录规则 > 自动。
+        row["origin"] = effective_origin(rules, row, overrides)
         available = locator.get("kind") in ("url", "zcode", "cli")
         if locator.get("kind") == "managed":
             binding = bindings.get(locator.get("run_id"))
@@ -313,6 +318,22 @@ def open_session(store, key, revision=None):
 
         result = probe(locator["run_id"])
         if result.returncode != 0:
+            # probe 非零 ≠ 绑定死亡：validate 在前台进程组变化、元数据不可得时同样
+            # 拒绝。先看运行锁是否仍被持有——活着就必须拒绝，否则 launch 会复制出
+            # 第二个会话并把未读错误地自动确认（2026-09-21 评审 R3）；确认死亡才走
+            # 替身绑定 / 受管理恢复。
+            from session_binding import alive
+
+            if alive(store.root, locator["run_id"]):
+                reason = (
+                    result.stderr or result.stdout or "focus verification failed"
+                ).strip()
+                print(
+                    "binding is alive but focus verification failed; "
+                    f"refusing to resume: {reason}",
+                    file=sys.stderr,
+                )
+                return result.returncode
             # 绑定死亡：先找同会话的其它活绑定（改绑/恢复后行定位滞后的情形）。
             try:
                 alternate = _live_binding_for(
@@ -326,6 +347,14 @@ def open_session(store, key, revision=None):
                 return 1
             if alternate:
                 result = probe(alternate)
+                if result.returncode != 0 and alive(store.root, alternate):
+                    # 替身绑定活着而校验失败：与原绑定同理，拒绝恢复保留未读。
+                    print(
+                        "alternate binding is alive but focus verification failed; "
+                        "refusing to resume",
+                        file=sys.stderr,
+                    )
+                    return result.returncode
         if result.returncode != 0 and row["provider"] in RESUMABLE_PROVIDERS:
             # 仍无活绑定：经包装器在新标签受管理恢复目标会话（注册新绑定，
             # 下一回合事件把条目改挂新绑定）；恢复前不自动确认。
@@ -576,7 +605,9 @@ def main():
             return 0
         if args.action == "origin":
             row = store.get(args.id)
-            store.patch(row["provider"], row["session_id"], origin=args.set_origin)
+            # 单条改判写入独立 override（评审 R5）：直接改 origin 字段会被下一轮
+            # 自动采集冲掉（如 Desktop 权威覆盖 user）；目录规则另存、并行生效。
+            store.set_origin_override(row["id"], args.set_origin)
             if args.rule_project:
                 store.set_origin_rule(args.rule_project, args.set_origin)
             print(

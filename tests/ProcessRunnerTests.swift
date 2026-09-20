@@ -31,6 +31,22 @@ import Foundation
         precondition(hung.0 != 0, "挂死进程应被终止: exit=\(hung.0)")
         precondition(hungElapsed < 15, "超时兜底耗时 \(hungElapsed)s")
 
+        // 后代进程持有管道写端：直接子进程正常退出，EOF 不会到（评审 R7）。
+        // 超时必须有界返回并显式报错，不得以子进程 exit=0 掩盖。
+        let descendantStart = Date()
+        let descendant = ProcessRunner.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "sleep 30 & exit 0"],
+            timeout: 1
+        )
+        let descendantElapsed = Date().timeIntervalSince(descendantStart)
+        precondition(descendant.0 != 0, "后代持有管道应显式超时: exit=\(descendant.0)")
+        precondition(
+            descendant.2.contains("timeout"),
+            "超时诊断缺失: \(descendant.2.prefix(120))"
+        )
+        precondition(descendantElapsed < 20, "有界返回耗时 \(descendantElapsed)s")
+
         // 启动失败：诊断进 stderr，不抛异常。
         let missing = ProcessRunner.run(
             executable: "/nonexistent/binary",

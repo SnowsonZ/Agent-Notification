@@ -16,6 +16,8 @@ struct InboxRow: Decodable, Identifiable, Sendable {
     // 可选：App 新于脚本时旧 JSON 缺这两键，非可选会让整行解码失败。
     let attentionAt: Double?
     let openAvailable: Bool
+    // 可选：有效来源（评审 R4）。agent 行仅审计可见，通知/待查看/角标按它过滤。
+    let origin: String?
 }
 struct SourceHealth: Decodable { let status: String; let errors: Int? }
 struct Health: Decodable { let sources: [String: SourceHealth]? }
@@ -90,7 +92,9 @@ enum InboxScope {
         checkNotificationPermission()
         loadAgents()
     }
-    var unreadCount: Int { rows.filter { $0.unread && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.count }
+    var unreadCount: Int {
+        rows.filter { inboxNotifyEligible(origin: $0.origin, unread: $0.unread) && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.count
+    }
     var activeCount: Int { rows.filter { inboxActiveListed(state: $0.state, openAvailable: $0.openAvailable) }.count }
     var filtered: [InboxRow] {
         rows.filter { row in
@@ -126,7 +130,8 @@ enum InboxScope {
         UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
         if notificationsEnabled { checkNotificationPermission() }
     }
-    // agent 会话查看开关只影响列表可见性；通知层在 rows 默认过滤里已关闭，无需额外处理。
+    // agent 会话查看开关只影响列表可见性；通知/待查看/角标由 inboxNotifyEligible
+    // 按有效来源过滤（评审 R4：审计可见性 ≠ 通知资格，后端返回 agent 行的真实 unread）。
     func toggleAgentSessions() {
         showAgentSessions.toggle()
         refresh(full: false)  // 只影响列表可见性，读 store 即可
@@ -194,7 +199,8 @@ enum InboxScope {
                 notificationSeen[row.id] = token
                 continue
             }
-            guard needsNotification(unread: row.unread, token: token, seen: notificationSeen[row.id],
+            guard inboxNotifyEligible(origin: row.origin, unread: row.unread),
+                  needsNotification(unread: row.unread, token: token, seen: notificationSeen[row.id],
                                     initialSnapshot: false, enabled: enabled), !notificationInFlight.contains(row.id),
                   (notificationRetry[row.id] ?? .distantPast) <= Date() else { continue }
             notificationInFlight.insert(row.id)
@@ -274,7 +280,7 @@ enum InboxScope {
     // 已有新活动的项 revision 失配被跳过并保留未读，与单条已读同合同；默认不选，勾多少清多少。
     @Published var selected: Set<String> = []
     var pendingIDs: Set<String> {
-        Set(rows.filter { $0.unread && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.map(\.id))
+        Set(rows.filter { inboxNotifyEligible(origin: $0.origin, unread: $0.unread) && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.map(\.id))
     }
     var selectedCount: Int { selected.intersection(pendingIDs).count }
     var allPendingSelected: Bool { !pendingIDs.isEmpty && selected.isSuperset(of: pendingIDs) }

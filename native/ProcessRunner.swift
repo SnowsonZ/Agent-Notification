@@ -65,22 +65,38 @@ enum ProcessRunner {
             lock.lock(); stderrData = data; lock.unlock()
             group.leave()
         }
+        var timedOut = false
         if group.wait(timeout: .now() + timeout) == .timedOut {
+            timedOut = true
             if process.isRunning { process.terminate() }
-            if group.wait(timeout: .now() + 5) == .timedOut, process.isRunning {
-                _ = kill(process.processIdentifier, SIGKILL)
+            if group.wait(timeout: .now() + 5) == .timedOut {
+                if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
+                // 直接子进程终止不保证管道 EOF：后代进程可能仍持有写端
+                // （如 sh -c 'sleep 30 & exit 0'）。读取改为有界等待，超时后带
+                // 部分输出显式失败，绝不以子进程 exit=0 掩盖超时（评审 R7）。
+                if group.wait(timeout: .now() + 5) == .timedOut {
+                    lock.lock()
+                    let partialOut = stdoutData
+                    let partialErr = stderrData
+                    lock.unlock()
+                    let note = "ProcessRunner: timeout after \(Int(timeout))s; "
+                        + "descendant processes may still hold output pipes"
+                    let text = String(data: partialErr, encoding: .utf8) ?? ""
+                    return (124, partialOut, text.isEmpty ? note : text + "\n" + note)
+                }
             }
         }
-        group.wait()  // 进程终止使管道 EOF，读取必然返回
+        group.wait()  // 直接子进程已终止，读取必然返回
         if exited.wait(timeout: .now() + 10) == .timedOut {
             if process.isRunning { _ = kill(process.processIdentifier, SIGKILL) }
             _ = exited.wait(timeout: .now() + 10)
         }
         lock.lock(); defer { lock.unlock() }
-        return (
-            process.terminationStatus,
-            stdoutData,
-            String(data: stderrData, encoding: .utf8) ?? ""
-        )
+        var stderrText = String(data: stderrData, encoding: .utf8) ?? ""
+        if timedOut {
+            stderrText += (stderrText.isEmpty ? "" : "\n")
+                + "ProcessRunner: terminated after \(Int(timeout))s timeout"
+        }
+        return (process.terminationStatus, stdoutData, stderrText)
     }
 }

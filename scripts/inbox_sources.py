@@ -256,20 +256,21 @@ def collect_codex(store, home):
 
 def collect_claude(store, home):
     root = home / "Library/Application Support/Claude/claude-code-sessions"
-    if not root.exists():
-        return {"status": "unavailable", "reason": "desktop metadata missing"}
+    # Desktop 登记目录缺失不是来源故障：纯 CLI 用户没有登记表（2026-09-21 评审
+    # R6），但 hook 行的可见性与转写标题补全必须照常执行，不能整段早退。
     grouped = defaultdict(list)
     errors = 0
-    for path in root.rglob("local_*.json"):
-        try:
-            if path.stat().st_size > 4_000_000:
+    if root.exists():
+        for path in root.rglob("local_*.json"):
+            try:
+                if path.stat().st_size > 4_000_000:
+                    errors += 1
+                    continue
+                data = json.loads(path.read_text())
+                if isinstance(data.get("cliSessionId"), str):
+                    grouped[data["cliSessionId"]].append(data)
+            except (OSError, ValueError, AttributeError):
                 errors += 1
-                continue
-            data = json.loads(path.read_text())
-            if isinstance(data.get("cliSessionId"), str):
-                grouped[data["cliSessionId"]].append(data)
-        except (OSError, ValueError, AttributeError):
-            errors += 1
     for sid, records in grouped.items():
         # 单会话歧义只看该 sid 的候选数；目录里无关损坏/超大文件只进 health degraded，
         # 不得让全部正常会话失去定位（2026-09-21 评审 P1：or errors 曾全局污染）。
@@ -576,10 +577,11 @@ def collect_zcode(store, home):
         # completed（实测整轮 40 分钟未翻转），仅靠索引的 live-running 推断抓不到
         # 进行中的回合。两分钟窗口内 part 有过更新的会话视为回合进行中：事件只负责
         # 把状态推成 running，真实回合结束事件（turn_usage 落行）时间戳更晚会正常
-        # 覆盖；为防流式事件的墙钟时间晚于实际完成时间反而挡住结束事件，仅当部件
-        # 更新晚于最近已记录回合完成时才发。事件 ID 挂最新消息 ID——下个回合消息
-        # ID 变化即可再次触发，不会被去重账本挡住；attention=False 与回合开始事件
-        # 同语义（新一轮运行清除过期待处理）。
+        # 覆盖。时间戳用来源钟（部件更新时刻）而非墙钟——结束行可能晚于扫描才落库，
+        # completed_at 早于扫描墙钟时墙钟戳会把真实结束事件判过期永久卡死 running
+        # （2026-09-21 评审 R2）；仅当部件更新晚于最近已记录回合完成时才发的门保留。
+        # 事件 ID 挂最新消息 ID——下个回合消息 ID 变化即可再次触发，不会被去重账本
+        # 挡住；attention=False 与回合开始事件同语义（新一轮运行清除过期待处理）。
         if sid in stream_sessions:
             message_id, part_ms = stream_sessions[sid]
             latest = latest_turns.get(sid)
@@ -588,7 +590,7 @@ def collect_zcode(store, home):
                     "zcode",
                     sid,
                     event_id=f"zcode-stream-running:{sid}:{message_id}",
-                    timestamp=time.time(),
+                    timestamp=seconds(part_ms),
                     state="running",
                     attention=False,
                 )

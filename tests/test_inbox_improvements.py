@@ -127,7 +127,9 @@ class ImprovementsTests(unittest.TestCase):
             self.assertEqual(inbox.main(), 1)
         self.assertEqual(json.loads(err.getvalue())['status'], 'error')
 
-    def test_origin_cli_sets_row_and_rule(self):
+    def test_origin_cli_sets_override_and_rule(self):
+        # 评审 R5：--set 写独立 override（采集器重写 origin 字段不冲掉人工意图），
+        # 不再直接改 origin 列；目录规则另存、并行生效。
         key = self.attention()
         argv = ['inbox.py', '--root', str(self.root / 'state'), 'origin', '--id', key,
                 '--set', 'agent', '--rule-project', '/work/x']
@@ -135,7 +137,7 @@ class ImprovementsTests(unittest.TestCase):
             self.assertEqual(inbox.main(), 0)
         self.assertEqual(json.loads(out.getvalue()), {'id': key, 'origin': 'agent',
                                                       'rule_project': '/work/x'})
-        self.assertEqual(self.store.get(key)['origin'], 'agent')
+        self.assertEqual(self.store.origin_overrides(), {key: 'agent'})
         self.assertEqual(self.store.origin_rules(), [{'project': '/work/x', 'origin': 'agent'}])
 
     def test_all_rows_sort_by_activity_not_unread_or_error(self):

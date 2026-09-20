@@ -17,6 +17,12 @@ import Foundation
         precondition(inboxRowListed(state: "closed", openAvailable: true))
         precondition(inboxRowListed(state: "idle", openAvailable: false))
         precondition(inboxRowListed(state: "waiting", openAvailable: false))
+        // agent 会话只审计不提醒（评审 R4）：通知/待查看/角标按有效来源过滤；
+        // origin 缺失（旧后端）视为可提醒。
+        precondition(!inboxNotifyEligible(origin: "agent", unread: true))
+        precondition(inboxNotifyEligible(origin: "user", unread: true))
+        precondition(inboxNotifyEligible(origin: nil, unread: true))
+        precondition(!inboxNotifyEligible(origin: "user", unread: false))
         // 进行中分段只收「等待模型回复」的回合：waiting（等用户确认权限）、开着空闲、
         // 出错/中断/已结束都不算（2026-09-20 用户确认口径）。
         precondition(inboxActiveListed(state: "running", openAvailable: false))
