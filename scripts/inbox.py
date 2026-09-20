@@ -4,22 +4,25 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import shlex
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
-from inbox_store import DEFAULT_ROOT, Store, effective_origin, receive
-from inbox_sources import refresh
-from providers import RESUME_ARGS, RESUMABLE_PROVIDERS
+from pathlib import Path
+
 from agent_launch import (
     iterm_select_tty,
-    launch as launch_agent,
     ttys_for_command,
     ttys_for_open_file,
 )
+from agent_launch import (
+    launch as launch_agent,
+)
+from inbox_sources import refresh
+from inbox_store import DEFAULT_ROOT, Store, effective_origin, receive
+from providers import RESUMABLE_PROVIDERS, RESUME_ARGS
 
 
 def setup_claude(root):
@@ -166,14 +169,14 @@ def claude_spawn_origin(sid):
     try:
         tty = subprocess.run(
             ["ps", "-o", "tty=", "-p", pid], capture_output=True, text=True, timeout=3
-        ).stdout
+        , check=False).stdout
         if spawn_origin_from_tty(tty) == "agent":
             if sid and desktop_registry_hit(Path.home(), sid):
                 return "user"
             return "agent"
         parent = subprocess.run(
             ["ps", "-o", "ucomm=", "-p", pid], capture_output=True, text=True, timeout=3
-        ).stdout
+        , check=False).stdout
     except (OSError, subprocess.TimeoutExpired):
         return "user"
     return spawn_origin_from_parent(parent)
@@ -276,7 +279,7 @@ def open_session(store, key, revision=None):
                 capture_output=True,
                 text=True,
                 timeout=100,
-            )
+            check=False)
 
         result = probe(locator["run_id"])
         if result.returncode != 0:
@@ -364,7 +367,7 @@ def open_session(store, key, revision=None):
         command = ["/usr/bin/open", url]
     else:
         raise ValueError("no verified opener for this session")
-    result = subprocess.run(command, capture_output=True, text=True, timeout=100)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=100, check=False)
     if result.returncode != 0:
         print(
             result.stderr or result.stdout or "Open failed", file=sys.stderr, end="\n"

@@ -5,12 +5,12 @@ token 三类口径：输入（新鲜输入+缓存写入）、缓存（缓存读�
 取消与出错轮次的消耗照计。只读取时间戳、标题、项目与数值字段，从不读取或存储
 消息正文。过去日以报告文件固化（version=7），当日始终实时计算。
 """
-from datetime import date, datetime, timedelta
 import json
 import os
-from pathlib import Path
 import sqlite3
 import time
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from inbox_sources import seconds
 from inbox_store import effective_origin
@@ -660,13 +660,13 @@ def render_markdown(report):
     day = parse_day(report['date'])
     totals = report['totals']
     lines = [f"# 工作日报 · {report['date']} {WEEKDAYS[day.weekday()]}", '']
-    lines += [f"合计 {token_text(totals['total_tokens'])} tokens（输入 {token_text(totals['input_tokens'])} · "
-              f"缓存 {token_text(totals['cache_tokens'])} · 输出 {token_text(totals['output_tokens'])}）"
-              f" · {totals['tasks']} 个任务 · {totals['turns']} 轮", '']
+    lines += [(f"合计 {token_text(totals['total_tokens'])} tokens（输入 {token_text(totals['input_tokens'])} · "
+               f"缓存 {token_text(totals['cache_tokens'])} · 输出 {token_text(totals['output_tokens'])}）"
+               f" · {totals['tasks']} 个任务 · {totals['turns']} 轮"), '']
     excluded = report.get('agent_excluded')
     if excluded:
-        lines += [f"> 另有 {excluded['tasks']} 个 agent 会话（其它工具拉起）合计 "
-                  f"{token_text(excluded['total_tokens'])} tokens 未计入。", '']
+        lines += [(f"> 另有 {excluded['tasks']} 个 agent 会话（其它工具拉起）合计 "
+                   f"{token_text(excluded['total_tokens'])} tokens 未计入。"), '']
     if not report['tasks']:
         lines += ['这一天没有会话记录。', '']
     else:
@@ -692,8 +692,8 @@ def render_markdown(report):
                 out=token_text(record['output_tokens']), total=token_text(record['total_tokens']),
                 turns=record['turns'] or '—', fidelity=FIDELITY_NAMES[record['fidelity']]))
         lines += ['']
-    lines += ['> 三类之和参与全部统计：输入=新鲜输入+缓存写入，缓存=缓存读取，输出=含 reasoning；'
-              '取消/出错轮次照计。数据仅来自本地会话元数据，不读取会话正文。', '']
+    lines += [('> 三类之和参与全部统计：输入=新鲜输入+缓存写入，缓存=缓存读取，输出=含 reasoning；'
+               '取消/出错轮次照计。数据仅来自本地会话元数据，不读取会话正文。'), '']
     return '\n'.join(lines)
 
 

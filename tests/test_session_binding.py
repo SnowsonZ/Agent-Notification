@@ -1,13 +1,20 @@
 import fcntl
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from session_binding import register, record_event, validate, alive, install_kimi_hooks, KIMI_EVENTS
+from session_binding import (
+    KIMI_EVENTS,
+    alive,
+    install_kimi_hooks,
+    record_event,
+    register,
+    validate,
+)
 
 
 class BindingTests(unittest.TestCase):

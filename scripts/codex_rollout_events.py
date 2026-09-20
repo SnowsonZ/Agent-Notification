@@ -7,9 +7,9 @@ Never emits message bodies. Watch mode tails complete lines only.
 
 import argparse
 import json
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 
 class RolloutReader:

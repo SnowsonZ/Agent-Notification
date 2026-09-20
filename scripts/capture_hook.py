@@ -5,13 +5,14 @@ Stores only selected metadata, never complete input, prompts, or tool arguments.
 Always leaves the parent agent's hook decision unchanged (empty stdout, exit 0).
 """
 import argparse
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
-import sys
 import sqlite3
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
+
 from session_binding import record_event
 
 FIELDS = {
@@ -23,7 +24,7 @@ FIELDS = {
 
 def metadata(provider, payload):
     if not isinstance(payload, dict):
-        raise ValueError('expected object')
+        raise TypeError('expected object')
     result = {'provider': provider}
     for target, aliases in FIELDS.items():
         value = next((payload[key] for key in aliases if key in payload), None)
@@ -37,7 +38,7 @@ def metadata(provider, payload):
 
 def save(directory, event):
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    event = {**event, 'received_at': datetime.now(timezone.utc).isoformat()}
+    event = {**event, 'received_at': datetime.now(UTC).isoformat()}
     # One file per callback avoids concurrent append interleaving.
     name = uuid4().hex
     temporary = directory / (name + '.tmp')
@@ -60,7 +61,7 @@ def main():
         event = metadata(args.provider, json.loads(raw))
         record_event(args.provider, event)
         save(args.output_dir, event)
-    except (ValueError, OSError, KeyError, sqlite3.Error) as error:
+    except (ValueError, TypeError, OSError, KeyError, sqlite3.Error) as error:
         # Never print the payload or exception text: either can contain secrets.
         print('session-manager capture failed: ' + type(error).__name__, file=sys.stderr)
     return 0

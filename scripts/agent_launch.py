@@ -12,7 +12,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from providers import AGENTS as AGENT_SPECS, LAUNCH_ORDER, WELL_KNOWN
+from providers import AGENTS as AGENT_SPECS
+from providers import LAUNCH_ORDER, WELL_KNOWN
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -67,14 +68,14 @@ def iterm_applescript(directory, command):
         '    activate\n'
         '    if (count of windows) = 0 then\n'
         '        create window with default profile\n'
-        '        tell current session of current window to write text "%s"\n'
+        f'        tell current session of current window to write text "{escaped}"\n'
         '    else\n'
         '        tell current window\n'
         '            create tab with default profile\n'
-        '            tell current session to write text "%s"\n'
+        f'            tell current session to write text "{escaped}"\n'
         '        end tell\n'
         '    end if\n'
-        'end tell' % (escaped, escaped)
+        'end tell'
     )
 
 
@@ -88,7 +89,7 @@ def normalize_tty(tty):
 
 def ttys_for_command(tokens):
     """命令行同时包含全部 token 的进程的控制 TTY（归一化 ttysNNN，去重保序）。"""
-    result = subprocess.run(['ps', '-axo', 'tt=,command='], capture_output=True, text=True, timeout=10)
+    result = subprocess.run(['ps', '-axo', 'tt=,command='], capture_output=True, text=True, timeout=10, check=False)
     if result.returncode != 0:
         raise OSError('ps failed')
     ttys = []
@@ -107,14 +108,14 @@ def ttys_for_command(tokens):
 def ttys_for_open_file(path):
     """当前持有指定会话文件的进程的 TTY 列表。claude/codex 运行中会持续持有
     转写/rollout 的 fd，即使命令行里没有会话 ID（用户自行启动的会话）也能定位。"""
-    result = subprocess.run(['lsof', '-F', 'p', str(path)], capture_output=True, text=True, timeout=10)
+    result = subprocess.run(['lsof', '-F', 'p', str(path)], capture_output=True, text=True, timeout=10, check=False)
     if result.returncode != 0:
         return []
     ttys = []
     for line in result.stdout.splitlines():
         if not line.startswith('p'):
             continue
-        probe = subprocess.run(['ps', '-o', 'tt=', '-p', line[1:]], capture_output=True, text=True, timeout=5)
+        probe = subprocess.run(['ps', '-o', 'tt=', '-p', line[1:]], capture_output=True, text=True, timeout=5, check=False)
         tty = probe.stdout.strip()
         if not tty or tty in ('??', '-'):
             continue
@@ -146,7 +147,7 @@ def iterm_select_tty(tty):
         '    return "missing"\n'
         'end tell'
     ).replace('\n', chr(10))
-    result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=15)
+    result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=15, check=False)
     if result.returncode != 0:
         reason = result.stderr.strip() or 'unknown AppleScript failure'
         raise ValueError('iTerm focus failed: ' + reason)
@@ -167,7 +168,7 @@ def launch(agent_id, directory, repo=REPO, args=()):
     if args:
         command += ' ' + ' '.join(shlex.quote(str(arg)) for arg in args)
     script = iterm_applescript(str(directory), command)
-    result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=15)
+    result = subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=15, check=False)
     if result.returncode != 0:
         reason = result.stderr.strip() or 'unknown AppleScript failure'
         raise ValueError('iTerm launch failed: ' + reason)

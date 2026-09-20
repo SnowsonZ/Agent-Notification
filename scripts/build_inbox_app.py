@@ -6,12 +6,12 @@ repository's scripts and venv in place. --standalone: release bundle — scripts
 zcode-focus and pure-Python deps are copied into Contents/Resources so the app runs
 without a checkout (needs a python3 on the machine; see bin/session-manager).
 """
-from pathlib import Path
 import argparse
 import plistlib
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--standalone', action='store_true', help='bundle scripts and deps into the app')
@@ -60,7 +60,7 @@ def compile_liquid_glass_icon() -> bool:
 
     actool 只随 Xcode 26 提供（命令行工具没有），缺失时静默跳过，系统回退到 icns。
     """
-    probe = subprocess.run(['xcrun', '--find', 'actool'], capture_output=True, text=True)
+    probe = subprocess.run(['xcrun', '--find', 'actool'], capture_output=True, text=True, check=False)
     if probe.returncode != 0:
         print('actool unavailable (needs Xcode 26); Liquid Glass icon skipped, icns fallback only')
         return False

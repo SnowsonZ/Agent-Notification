@@ -1,12 +1,12 @@
 import fcntl
 import json
 import os
-from pathlib import Path
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -49,7 +49,7 @@ class AgyManagedTests(unittest.TestCase):
         # TUI 内切换会话：下一个回合把绑定改指向新会话（Pi 模型），旧会话收到 SessionEnd。
         self.record('UserPromptSubmit', sid='bbbbbbbb-13a0-4e46-af69-3b2200ac03db')
         self.assertEqual(self.store.rows()[0]['session_id'], 'bbbbbbbb-13a0-4e46-af69-3b2200ac03db')
-        old = [r for r in self.store.rows() if r['session_id'] == '9302aa80-13a0-4e46-af69-3b2200ac03db'][0]
+        old = next(r for r in self.store.rows() if r['session_id'] == '9302aa80-13a0-4e46-af69-3b2200ac03db')
         self.assertEqual(old['state'], 'closed')
 
     def test_unmanaged_hook_payload_ignored(self):
@@ -91,7 +91,7 @@ class AgyHookAdapterTests(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(self.script), '--state-dir', str(self.store.root),
              'agy-hook', '--event', event],
-            input=json.dumps(payload), capture_output=True, text=True, timeout=30, env=self.env)
+            input=json.dumps(payload), capture_output=True, text=True, timeout=30, env=self.env, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_preinvocation_maps_to_running_with_workspace(self):

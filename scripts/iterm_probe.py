@@ -9,6 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
 from session_binding import DEFAULT_ROOT, validate
 
 

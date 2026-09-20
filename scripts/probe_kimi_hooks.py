@@ -5,16 +5,16 @@ Exercises the real hook runtime without using or copying account credentials.
 The response is a protocol fixture, NOT a real Kimi model quality test.
 """
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 
 def main():
@@ -82,7 +82,7 @@ max_output_size = 128
     try:
         process = subprocess.run([shutil.which('kimi') or 'kimi', '--skills-dir',
                                   str(run / 'empty-skills'), '-p', 'Reply only OK.'],
-                                 cwd=run, env=env, capture_output=True, text=True, timeout=45)
+                                 cwd=run, env=env, capture_output=True, text=True, timeout=45, check=False)
         exit_code = process.returncode
         (run / 'process.log').write_text(process.stdout + '\n' + process.stderr)
     except subprocess.TimeoutExpired:

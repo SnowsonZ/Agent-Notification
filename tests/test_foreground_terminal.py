@@ -1,13 +1,13 @@
 """Real PTY regression: the checker is outside the target terminal session."""
 import json
 import os
-from pathlib import Path
 import pty
 import select
 import signal
 import sys
-import unittest
 import tempfile
+import unittest
+from pathlib import Path
 from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))

@@ -6,10 +6,10 @@ not read searchable_text, prompts, credentials, or alter the source database.
 """
 import argparse
 import json
-from pathlib import Path
+import re
 import sqlite3
 import sys
-import re
+from pathlib import Path
 from urllib.parse import quote
 
 

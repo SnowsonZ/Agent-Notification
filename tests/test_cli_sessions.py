@@ -1,9 +1,9 @@
 import json
-from pathlib import Path
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -16,13 +16,13 @@ from inbox import (
     spawn_origin_from_parent,
     spawn_origin_from_tty,
 )
+from inbox_sources import collect_claude, collect_codex
+from inbox_store import Store, receive
 from migrations import (
     backfill_claude_tmp_origins,
     codex_dangling_turn_repair,
     codex_origin_backfill,
 )
-from inbox_sources import collect_claude, collect_codex
-from inbox_store import Store, receive
 
 
 class ClaudeCliVisibilityTests(unittest.TestCase):
@@ -600,10 +600,9 @@ class CliOpenTests(unittest.TestCase):
         with (
             patch("inbox.ttys_for_command", return_value=["ttys011"]) as ttys,
             patch("inbox.iterm_select_tty", return_value=True) as focus,
-            patch("inbox.launch_agent") as launch,
+            patch("inbox.launch_agent") as launch,patch("sys.stdout")
         ):
-            with patch("sys.stdout"):
-                code = open_session(self.store, row["id"], row["revision"])
+            code = open_session(self.store, row["id"], row["revision"])
         self.assertEqual(code, 0)
         ttys.assert_called_once_with(("--resume", "sess-cli"))
         focus.assert_called_once_with("ttys011")
@@ -626,10 +625,9 @@ class CliOpenTests(unittest.TestCase):
             patch("inbox.ttys_for_command", return_value=[]),
             patch("inbox.ttys_for_open_file", return_value=["ttys009"]) as filettys,
             patch("inbox.iterm_select_tty", return_value=True) as focus,
-            patch("inbox.launch_agent") as launch,
+            patch("inbox.launch_agent") as launch,patch("sys.stdout")
         ):
-            with patch("sys.stdout"):
-                code = open_session(self.store, row["id"], row["revision"])
+            code = open_session(self.store, row["id"], row["revision"])
         self.assertEqual(code, 0)
         filettys.assert_called_once_with("/sessions/rollout-x.jsonl")
         focus.assert_called_once_with("ttys009")
@@ -637,18 +635,16 @@ class CliOpenTests(unittest.TestCase):
 
     def test_claude_resume_dispatch(self):
         row = self.cli_row("claude")
-        with patch("inbox.launch_agent") as launch:
-            with patch("sys.stdout"):
-                code = open_session(self.store, row["id"], row["revision"])
+        with patch("inbox.launch_agent") as launch, patch("sys.stdout"):
+            code = open_session(self.store, row["id"], row["revision"])
         self.assertEqual(code, 0)
         self.assertEqual(launch.call_args[0], ("claude", str(self.demo)))
         self.assertEqual(launch.call_args[1], {"args": ("--resume", "sess-cli")})
 
     def test_codex_resume_dispatch(self):
         row = self.cli_row("codex")
-        with patch("inbox.launch_agent") as launch:
-            with patch("sys.stdout"):
-                code = open_session(self.store, row["id"], row["revision"])
+        with patch("inbox.launch_agent") as launch, patch("sys.stdout"):
+            code = open_session(self.store, row["id"], row["revision"])
         self.assertEqual(code, 0)
         self.assertEqual(launch.call_args[0], ("codex", str(self.demo)))
         self.assertEqual(launch.call_args[1], {"args": ("resume", "sess-cli")})

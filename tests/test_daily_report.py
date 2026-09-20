@@ -1,14 +1,22 @@
-from datetime import date, datetime, timedelta
-from pathlib import Path
 import json
 import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from daily_report import (build_report, generate_day, generate_overview, heat_level,
-                          load_report, render_markdown, scan_buckets, token_text)
+from daily_report import (
+    build_report,
+    generate_day,
+    generate_overview,
+    heat_level,
+    load_report,
+    render_markdown,
+    scan_buckets,
+    token_text,
+)
 from inbox_store import Store
 
 

@@ -1,10 +1,10 @@
 import fcntl
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
@@ -94,11 +94,10 @@ class OpenCodeManagedTests(unittest.TestCase):
         self.event('Stop')
         row = self.store.rows(unread_only=True)[0]
         self.store.root.joinpath(self.run_id + '.lock').unlink()  # 释放锁 → 绑定死亡
-        with patch('inbox.subprocess.run') as run:
+        with patch('inbox.subprocess.run') as run, \
+             patch('inbox.launch_agent') as launch, patch('sys.stdout') as output:
             run.return_value = subprocess.CompletedProcess([], 1, '', 'refused')
-            with patch('inbox.launch_agent') as launch:
-                with patch('sys.stdout') as output:
-                    code = open_session(self.store, row['id'], row['revision'])
+            code = open_session(self.store, row['id'], row['revision'])
         self.assertEqual(code, 0)
         self.assertEqual(launch.call_args[0], ('opencode', str(self.demo)))
         self.assertEqual(launch.call_args[1], {'args': ('--session', 'ses_a')})
@@ -171,11 +170,10 @@ class OpenCodeManagedTests(unittest.TestCase):
             record_event(provider, {'event': end_event, 'session_id': sid}, env=provider_env)
             row = self.store.rows()[0]
             Path(self.store.root / (run_id + '.lock')).unlink()
-            with patch('inbox.subprocess.run') as run:
+            with patch('inbox.subprocess.run') as run, \
+                 patch('inbox.launch_agent') as launch, patch('sys.stdout'):
                 run.return_value = subprocess.CompletedProcess([], 1, '', 'refused')
-                with patch('inbox.launch_agent') as launch:
-                    with patch('sys.stdout'):
-                        code = open_session(self.store, row['id'], row['revision'])
+                code = open_session(self.store, row['id'], row['revision'])
             self.assertEqual(code, 0, provider)
             self.assertEqual(launch.call_args[0], (provider, str(self.demo)))
             self.assertEqual(launch.call_args[1], {'args': ('--session', sid)})
@@ -195,9 +193,8 @@ class OpenCodeManagedTests(unittest.TestCase):
         Path(self.store.root / (run_id + '.lock')).unlink()
         with patch('inbox.subprocess.run') as run:
             run.return_value = subprocess.CompletedProcess([], 1, '', 'refused')
-            with patch('inbox.launch_agent') as launch:
-                with patch('sys.stdout'):
-                    open_session(self.store, row['id'], row['revision'])
+            with patch('inbox.launch_agent') as launch, patch('sys.stdout'):
+                open_session(self.store, row['id'], row['revision'])
         self.assertEqual(launch.call_args[0], ('agy', str(self.demo)))
         self.assertEqual(launch.call_args[1], {'args': ('--conversation', 'conv-1')})
 
@@ -228,7 +225,7 @@ class OpenCodePluginTests(unittest.TestCase):
         import os
         payload = [json.dumps(event) for event in events]
         result = subprocess.run(['node', str(self.harness), *payload], capture_output=True, text=True,
-                                timeout=30, env={**os.environ, **self.env})
+                                timeout=30, env={**os.environ, **self.env}, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         return [json.loads(line) for line in self.out.read_text().splitlines() if line.strip()]
 
@@ -257,11 +254,11 @@ class OpenCodePluginTests(unittest.TestCase):
     def test_unmanaged_plugin_returns_no_hooks(self):
         import os
         result = subprocess.run(['node', '-e',
-                                 f'const m = await import({json.dumps("file:" + str(REPO / "scripts/opencode_capture.js"))});'
-                                 ' const h = await m.default(); console.log(JSON.stringify(h));'],
+                                 (f'const m = await import({json.dumps("file:" + str(REPO / "scripts/opencode_capture.js"))});'
+                                  ' const h = await m.default(); console.log(JSON.stringify(h));')],
                                 capture_output=True, text=True, timeout=30,
                                 env={k: v for k, v in os.environ.items()
-                                     if not k.startswith('SESSION_MANAGER_')})
+                                     if not k.startswith('SESSION_MANAGER_')}, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), {})
 

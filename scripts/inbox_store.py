@@ -4,12 +4,12 @@
 events 表按它去重，防止游标重置后重扫双计。hook 事件传入的是随机 uuid，
 只作流水记录、没有去重作用（hooks 本身不重投）。"""
 
-from contextlib import contextmanager
 import hashlib
 import json
-from pathlib import Path
 import sqlite3
 import time
+from contextlib import contextmanager
+from pathlib import Path
 
 DEFAULT_ROOT = Path.home() / ".local/state/session-manager"
 

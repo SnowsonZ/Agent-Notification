@@ -5,15 +5,15 @@ import argparse
 import fcntl
 import json
 import os
-from pathlib import Path
 import re
-import shutil
 import shlex
+import shutil
 import sqlite3
 import subprocess
 import sys
-import tomllib
 import tempfile
+import tomllib
+from pathlib import Path
 from uuid import uuid4
 
 from providers import END_EVENTS, START_EVENTS, WELL_KNOWN
@@ -73,7 +73,7 @@ def install_agy_hooks(plugin_root):
     (plugin_root / "hooks.json").write_text(json.dumps(hooks, indent=2) + "\n")
     listing = subprocess.run(
         ["agy", "plugin", "list"], capture_output=True, text=True, timeout=30
-    )
+    , check=False)
     installed = (
         '"name": "session-manager"' in listing.stdout
         or "'name': 'session-manager'" in listing.stdout
@@ -85,7 +85,7 @@ def install_agy_hooks(plugin_root):
             capture_output=True,
             text=True,
             timeout=60,
-        )
+        check=False)
         if result.returncode != 0:
             raise ValueError(
                 "agy plugin install failed: "
@@ -183,7 +183,7 @@ def foreground_matches(tty, pgid):
             capture_output=True,
             text=True,
             timeout=2,
-        )
+        check=False)
         if result.returncode:
             return False
         groups = [

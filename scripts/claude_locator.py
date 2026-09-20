@@ -6,9 +6,9 @@ vendor API; ambiguous matches are deliberately not resolved automatically.
 """
 import argparse
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from urllib.parse import quote
 
 DESKTOP_ID = re.compile(r'local_[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z')

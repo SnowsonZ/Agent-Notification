@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """Resolve a task descriptor and invoke the user-run native AX helper."""
 import argparse
+import hashlib
 import json
-from pathlib import Path
+import os
 import sqlite3
 import subprocess
 import sys
-import hashlib
-import os
 import tempfile
-from datetime import datetime, timezone
-from zcode_task_state import lookup
+from datetime import UTC, datetime
+from pathlib import Path
 
+from zcode_task_state import lookup
 
 TRANSIENT_MARKS = ('timeout', 'focus_changed', 'lost focus')
 
 
 def run_helper(helper, data, diagnose, log_path):
     command = [str(helper)] + (['--diagnose-search'] if diagnose else [])
-    report = {'started_at': datetime.now(timezone.utc).isoformat(), 'task_id': data['task_id'],
+    report = {'started_at': datetime.now(UTC).isoformat(), 'task_id': data['task_id'],
               'helper_sha256': hashlib.sha256(helper.read_bytes()).hexdigest()}
     for attempt in (1, 2):
         try:
-            result = subprocess.run(command, input=json.dumps(data), text=True, timeout=90, capture_output=True)
+            result = subprocess.run(command, input=json.dumps(data), text=True, timeout=90, capture_output=True, check=False)
             report.update(exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
         except subprocess.TimeoutExpired as error:
             def decoded(value):

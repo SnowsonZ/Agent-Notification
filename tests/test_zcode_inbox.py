@@ -1,13 +1,13 @@
 import sqlite3
-import threading
-from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from inbox_store import Store
 from inbox_sources import collect_zcode
+from inbox_store import Store
 
 
 class ZcodeInboxTests(unittest.TestCase):

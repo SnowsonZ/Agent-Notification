@@ -1,14 +1,14 @@
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from inbox_store import Store
-from inbox_sources import collect_codex
 from inbox import setup_claude
+from inbox_sources import collect_codex
+from inbox_store import Store
 
 
 class InboxTests(unittest.TestCase):

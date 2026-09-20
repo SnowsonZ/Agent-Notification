@@ -1,11 +1,18 @@
 import subprocess
 import sys
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from agent_launch import AGENTS, cli_installed, command_for, installed_agents, iterm_applescript, launch
+from agent_launch import (
+    AGENTS,
+    cli_installed,
+    command_for,
+    installed_agents,
+    iterm_applescript,
+    launch,
+)
 
 
 def which_only(*names):
@@ -68,19 +75,19 @@ class AgentLaunchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             launch('zcode', '/tmp')
         with patch('agent_launch.shutil.which', return_value=None), \
-             patch('agent_launch.iterm_available', return_value=False):
-            with self.assertRaises(ValueError):
+             patch('agent_launch.iterm_available', return_value=False), \
+             self.assertRaises(ValueError):
                 launch('claude', '/tmp')
         with patch('agent_launch.shutil.which', return_value=None), \
              patch('agent_launch.iterm_available', return_value=True), \
-             patch('agent_launch.cli_installed', return_value=True):
-            with self.assertRaises(ValueError):
+             patch('agent_launch.cli_installed', return_value=True), \
+             self.assertRaises(ValueError):
                 launch('claude', '/nonexistent-directory-xyz')
 
     def test_launch_runs_osascript_with_built_script(self):
         seen = {}
 
-        def fake_run(command, capture_output, text, timeout):
+        def fake_run(command, capture_output, text, timeout, check=None):
             seen['command'] = command
             seen['timeout'] = timeout
             return subprocess.CompletedProcess([], 0, '', '')
@@ -96,8 +103,8 @@ class AgentLaunchTests(unittest.TestCase):
         with patch('agent_launch.shutil.which', which_only('claude')), \
              patch('agent_launch.iterm_available', return_value=True), \
              patch('agent_launch.subprocess.run',
-                   return_value=subprocess.CompletedProcess([], 1, '', 'user declined')):
-            with self.assertRaisesRegex(ValueError, 'user declined'):
+                   return_value=subprocess.CompletedProcess([], 1, '', 'user declined')), \
+             self.assertRaisesRegex(ValueError, 'user declined'):
                 launch('claude', '/tmp')
 
 

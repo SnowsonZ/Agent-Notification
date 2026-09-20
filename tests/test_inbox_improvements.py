@@ -1,18 +1,18 @@
 import io
 import json
-from pathlib import Path
 import subprocess
-import threading
 import sys
 import tempfile
+import threading
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
-from contextlib import redirect_stdout, redirect_stderr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from inbox_store import Store
 import inbox
 from inbox import open_session
+from inbox_store import Store
 from pi_titles import read_title
 
 
@@ -169,20 +169,19 @@ class StoreConnectionAndPatchTests(unittest.TestCase):
         self.store = Store(self.root)
 
     def test_toplevel_blocks_share_connection_nested_get_fresh(self):
-        with self.store.db() as outer:
-            with self.store.db() as inner:
-                self.assertIsNot(outer, inner)  # 嵌套回退一次性连接，防内外层事务互相提交
+        with self.store.db() as outer, self.store.db() as inner:
+            self.assertIsNot(outer, inner)  # 嵌套回退一次性连接，防内外层事务互相提交
         with self.store.db() as again:
             self.assertIs(again, outer)  # 顶层顺序调用复用缓存连接
 
     def test_unchanged_patch_writes_nothing(self):
-        args = dict(
-            title="任务",
-            project="/work/p",
-            locator={"kind": "zcode", "task_id": "s1"},
-            hidden=False,
-            activity_at=100,
-        )
+        args = {
+            "title": "任务",
+            "project": "/work/p",
+            "locator": {"kind": "zcode", "task_id": "s1"},
+            "hidden": False,
+            "activity_at": 100,
+        }
         self.store.patch("zcode", "s1", **args)
         observer = Store(self.root)
 

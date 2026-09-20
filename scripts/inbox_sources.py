@@ -1,14 +1,15 @@
 """Read-only collectors for the locally verified desktop formats."""
 
-from collections import defaultdict
-from datetime import datetime
 import hashlib
 import json
-from pathlib import Path
 import sqlite3
 import time
-from uuid import UUID
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
+from uuid import UUID
+
 from codex_rollout_events import RolloutReader
 
 # 人工启动方式白名单（rollout session_meta.originator）：桌面应用与交互式 TUI
@@ -33,7 +34,7 @@ def seconds(value):
         return value / 1000 if value > 100_000_000_000 else value
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+            return datetime.fromisoformat(value).timestamp()
         except ValueError:
             pass
     return 0

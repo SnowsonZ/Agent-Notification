@@ -99,7 +99,7 @@ def probe():
             'hook_payload_runtime_verified': False,
         })
     setting = subprocess.run(['defaults', 'read', 'com.googlecode.iterm2',
-                              'EnableAPIServer'], capture_output=True, text=True)
+                              'EnableAPIServer'], capture_output=True, text=True, check=False)
     result['iTerm']['api_preference'] = (
         setting.stdout.strip() if setting.returncode == 0 else 'not-explicitly-set')
     return result
