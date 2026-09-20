@@ -13,11 +13,10 @@ import sqlite3
 import time
 
 from inbox_sources import seconds
-from inbox_store import Store
+from inbox_store import effective_origin
+from providers import DISPLAY_NAMES as PROVIDER_NAMES
 
 WEEKDAYS = ('周一', '周二', '周三', '周四', '周五', '周六', '周日')
-PROVIDER_NAMES = {'zcode': 'Zcode', 'codex': 'Codex', 'claude': 'Claude', 'pi': 'Pi', 'kimi': 'Kimi',
-                  'opencode': 'OpenCode'}
 FIDELITY_NAMES = {'exact': '精确', 'unavailable': '无 token'}
 ZCODE_STATES = {'completed': 'idle', 'error': 'failed', 'running': 'running', 'waiting': 'waiting'}
 NO_PROJECT = '(无项目)'
@@ -512,7 +511,7 @@ def scan_buckets(store, home, first_day, last_day, agent_stats=None):
     buckets = _Buckets(days)
     window_start = buckets.windows[first_day][0]
     store_rows = {(row['provider'], row['session_id']): row for row in store.rows()}
-    origin_rules = {r.get('project'): r.get('origin') for r in store.origin_rules()}
+    origin_rules = store.origin_rule_index()
 
     def known(provider, sid, title='', project=''):
         row = store_rows.get((provider, sid))
@@ -527,10 +526,7 @@ def scan_buckets(store, home, first_day, last_day, agent_stats=None):
         """agent 会话返回 True 并把消耗记入注脚；无 store 行或有效 origin=user 放行。
         有效 origin：目录规则（用户改判沉淀）优先于自动分类。"""
         row = store_rows.get((provider, sid))
-        origin = 'user'
-        if row:
-            origin = origin_rules.get(row.get('project') or '') or row.get('origin') or 'user'
-        if origin != 'agent':
+        if effective_origin(origin_rules, row) != 'agent':
             return False
         if agent_stats is not None and tokens > 0:
             for day, (low, high) in buckets.windows.items():

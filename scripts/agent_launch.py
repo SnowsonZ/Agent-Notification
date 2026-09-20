@@ -12,29 +12,15 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from providers import AGENTS as AGENT_SPECS, LAUNCH_ORDER, WELL_KNOWN
+
 REPO = Path(__file__).resolve().parents[1]
 
+# 启动行展示数据来自 providers 注册表（顺序 = LAUNCH_ORDER）；注册表注释里有各家口径。
 AGENTS = [
-    {'id': 'claude', 'name': 'Claude', 'managed': False},
-    {'id': 'codex', 'name': 'Codex', 'managed': False},
-    {'id': 'pi', 'name': 'Pi', 'managed': True},
-    {'id': 'kimi', 'name': 'Kimi', 'managed': True},
-    # Gemini CLI 已于 2026-06-18 对消费级用户停服，Google 官方继任者是 Antigravity CLI（命令 agy）。
-    {'id': 'agy', 'name': 'Antigravity CLI', 'managed': True},
-    {'id': 'opencode', 'name': 'OpenCode', 'managed': True},
+    {"id": key, "name": AGENT_SPECS[key]["name"], "managed": AGENT_SPECS[key]["managed"]}
+    for key in LAUNCH_ORDER
 ]
-
-# GUI App 的 PATH 不含用户 shell 的安装目录（/opt/homebrew/bin 等），
-# which 找不到不等于没安装；已知安装位置作为第二通道。
-WELL_KNOWN = {
-    'claude': ('~/.local/bin/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude'),
-    'codex': ('/opt/homebrew/bin/codex', '/usr/local/bin/codex', '~/.local/bin/codex'),
-    'pi': ('/opt/homebrew/bin/pi', '/usr/local/bin/pi'),
-    'kimi': ('~/.kimi-code/bin/kimi', '/opt/homebrew/bin/kimi', '/usr/local/bin/kimi'),
-    'agy': ('~/.local/bin/agy', '/opt/homebrew/bin/agy', '/usr/local/bin/agy'),
-    'opencode': ('/opt/homebrew/bin/opencode', '/usr/local/bin/opencode',
-                 '~/.opencode/bin/opencode', '~/.local/bin/opencode'),
-}
 
 
 def iterm_available():

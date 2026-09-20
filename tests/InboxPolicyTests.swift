@@ -11,11 +11,21 @@ import Foundation
         precondition(!needsNotification(unread: false, token: "b", seen: "a", initialSnapshot: false, enabled: true))
         precondition(!needsNotification(unread: true, token: "b", seen: "a", initialSnapshot: false, enabled: false))
         precondition(needsNotification(unread: true, token: "b", seen: "a", initialSnapshot: false, enabled: true))
+        precondition([pendingRank("waiting"), pendingRank("failed"), pendingRank("running"), pendingRank("idle")] == [0, 1, 2, 2])
         // closed 且入口不可用的行（如 /clear 后被替换的受管理会话）不展示也不计入待查看。
         precondition(!inboxRowListed(state: "closed", openAvailable: false))
         precondition(inboxRowListed(state: "closed", openAvailable: true))
         precondition(inboxRowListed(state: "idle", openAvailable: false))
         precondition(inboxRowListed(state: "waiting", openAvailable: false))
+        // 进行中分段只收「等待模型回复」的回合：waiting（等用户确认权限）、开着空闲、
+        // 出错/中断/已结束都不算（2026-09-20 用户确认口径）。
+        precondition(inboxActiveListed(state: "running", openAvailable: false))
+        precondition(inboxActiveListed(state: "running", openAvailable: true))
+        precondition(!inboxActiveListed(state: "waiting", openAvailable: true))
+        precondition(!inboxActiveListed(state: "idle", openAvailable: true))
+        precondition(!inboxActiveListed(state: "failed", openAvailable: true))
+        precondition(!inboxActiveListed(state: "interrupted", openAvailable: true))
+        precondition(!inboxActiveListed(state: "closed", openAvailable: true))
         precondition(inboxDurationText(from: 0, to: 59) == "59秒")
         precondition(inboxDurationText(from: 100, to: 200) == "1分40秒")
         precondition(inboxDurationText(from: 0, to: 3700) == "1小时1分")
@@ -33,9 +43,6 @@ import Foundation
         precondition(tokenText(1_000_000_000) == "1B")
         precondition(tokenText(1_230_000_000) == "1.23B")
         precondition(dailyReportDayKey(Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 14))!) == "2026-09-14")
-        precondition([0, 999_999, 1_000_000, 9_999_999, 10_000_000, 49_999_999, 50_000_000].map { heatLevel(tokens: $0) } == [0, 1, 2, 2, 3, 3, 4])
-        precondition(heatLevel(tokens: -5) == 0)
-        precondition(heatLevel(activeSeconds: 100) == 1)  // 兼容旧调用名
         // 节奏带：跨零点末次时间（次日 00:00）算 24 而不是 0；范围取偶数刻度；无段回退 8–24。
         let dayStart = 1_000_000.0
         precondition(rhythmHour(dayStart + 24 * 3600, dayStart: dayStart) == 24)

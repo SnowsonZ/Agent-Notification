@@ -4,6 +4,7 @@
 Compatibility adapter for the observed 0.154.0-alpha.6.2 format, not a public API.
 Never emits message bodies. Watch mode tails complete lines only.
 """
+
 import argparse
 import json
 from pathlib import Path
@@ -23,11 +24,27 @@ class RolloutReader:
         # originator 做精确匹配。Desktop 路径的校验完全不变。
         self.originator = originator
         self.metadata = None
+        # 当前悬置回合（最后一条 task_started 尚无终态事件）。进程被硬杀的回合在
+        # rollout 里永远等不到 task_complete/turn_aborted；重开标记或新回合出现即证明
+        # 它已死，此时合成 turn_aborted 收口。该状态随采集游标一起持久化。
+        self.open_turn = None
+
+    def _synthetic_abort(self, turn, timestamp):
+        return {
+            "provider": "codex",
+            "session_id": self.session,
+            "event": "turn_aborted",
+            "turn_id": turn,
+            "event_id": f"{self.session}:{turn}:turn_aborted",
+            "source": "rollout-compatibility",
+            "timestamp": timestamp,
+        }
 
     def poll(self):
         output = []
-        with self.path.open('rb') as source:
+        with self.path.open("rb") as source:
             import os
+
             stat = os.fstat(source.fileno())
             identity = (stat.st_dev, stat.st_ino)
             if identity != self.identity or stat.st_size < self.offset:
@@ -38,52 +55,93 @@ class RolloutReader:
             while True:
                 position = source.tell()
                 line = source.readline()
-                if not line or not line.endswith(b'\n'):
+                if not line or not line.endswith(b"\n"):
                     # A partially written line is retried next poll.
                     self.offset = position
                     break
                 try:
                     record = json.loads(line)
-                    payload = record.get('payload', {})
-                    if record.get('type') == 'session_meta':
-                        if self.allow_ancestry and self.session is None and payload.get('id') != self.expected_session:
+                    payload = record.get("payload", {})
+                    if record.get("type") == "session_meta":
+                        if (
+                            self.allow_ancestry
+                            and self.session is None
+                            and payload.get("id") != self.expected_session
+                        ):
                             continue
-                        required_originator = self.originator or 'Codex Desktop'
-                        if (payload.get('id') != self.expected_session
-                                or payload.get('originator') != required_originator):
-                            raise ValueError('rollout identity or originator mismatch')
-                        self.session = payload['id']
+                        required_originator = self.originator or "Codex Desktop"
+                        if (
+                            payload.get("id") != self.expected_session
+                            or payload.get("originator") != required_originator
+                        ):
+                            raise ValueError("rollout identity or originator mismatch")
+                        self.session = payload["id"]
                         self.metadata = payload
-                    elif record.get('type') == 'event_msg':
-                        kind = payload.get('type')
-                        if kind not in ('task_started', 'task_complete', 'turn_aborted'):
+                    elif record.get("type") == "event_msg":
+                        kind = payload.get("type")
+                        if kind == "thread_settings_applied":
+                            # 重开标记：会话被重新打开而悬置回合没有终态事件（旧进程
+                            # 被杀），该回合必然已死，合成 turn_aborted 收口。
+                            if self.session and self.open_turn:
+                                output.append(
+                                    self._synthetic_abort(
+                                        self.open_turn, record.get("timestamp")
+                                    )
+                                )
+                                self.open_turn = None
+                            continue
+                        if kind not in (
+                            "task_started",
+                            "task_complete",
+                            "turn_aborted",
+                        ):
                             continue
                         if not self.session:
                             if self.allow_ancestry:
                                 continue
-                            raise ValueError('lifecycle record before verified session metadata')
-                        turn = payload.get('turn_id')
+                            raise ValueError(
+                                "lifecycle record before verified session metadata"
+                            )
+                        turn = payload.get("turn_id")
                         if not isinstance(turn, str) or not turn:
                             # Desktop 模式保持报错（格式漂移哨兵）；显式传入
                             # originator 的调用方（CLI/exec 变体）允许缺 turn_id，跳过该条。
                             if self.originator is None:
-                                raise ValueError('lifecycle record lacks turn_id')
+                                raise ValueError("lifecycle record lacks turn_id")
                             continue
-                        output.append({'provider': 'codex', 'session_id': self.session,
-                                       'event': kind, 'turn_id': turn,
-                                       'event_id': f'{self.session}:{turn}:{kind}',
-                                       'source': 'rollout-compatibility',
-                                       'timestamp': record.get('timestamp')})
+                        if kind == "task_started":
+                            if self.open_turn and self.open_turn != turn:
+                                # 新回合开始而旧回合无终态（同线程不会并发两回合）：
+                                # 旧回合已死，收口后再开始新回合。
+                                output.append(
+                                    self._synthetic_abort(
+                                        self.open_turn, record.get("timestamp")
+                                    )
+                                )
+                            self.open_turn = turn
+                        elif self.open_turn == turn:
+                            self.open_turn = None
+                        output.append(
+                            {
+                                "provider": "codex",
+                                "session_id": self.session,
+                                "event": kind,
+                                "turn_id": turn,
+                                "event_id": f"{self.session}:{turn}:{kind}",
+                                "source": "rollout-compatibility",
+                                "timestamp": record.get("timestamp"),
+                            }
+                        )
                 except (json.JSONDecodeError, AttributeError) as error:
-                    raise ValueError('unsupported or corrupt rollout record') from error
+                    raise ValueError("unsupported or corrupt rollout record") from error
             return output
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('path', type=Path)
-    parser.add_argument('--session-id', required=True)
-    parser.add_argument('--watch', action='store_true')
+    parser.add_argument("path", type=Path)
+    parser.add_argument("--session-id", required=True)
+    parser.add_argument("--watch", action="store_true")
     args = parser.parse_args()
     reader = RolloutReader(args.path, args.session_id)
     try:
@@ -96,10 +154,10 @@ def main():
     except KeyboardInterrupt:
         return 0
     except (OSError, ValueError) as error:
-        print(f'rollout adapter unavailable: {type(error).__name__}', file=sys.stderr)
+        print(f"rollout adapter unavailable: {type(error).__name__}", file=sys.stderr)
         return 1
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

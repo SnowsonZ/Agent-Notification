@@ -77,8 +77,13 @@ def compile_liquid_glass_icon() -> bool:
 
 
 liquid_glass_icon = compile_liquid_glass_icon()
+# native/ 下除两个独立工具外全部编进主程序；新增 Swift 文件自动纳入，无需改这里。
+app_sources = sorted(
+    str(path) for path in (root / 'native').glob('*.swift')
+    if path.name not in ('GenerateAppIcon.swift', 'ZcodeFocus.swift')
+)
 subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-target', 'arm64-apple-macosx14.0',
-                str(root / 'native/InboxPolicy.swift'), str(root / 'native/SessionInbox.swift'), '-o', str(contents / 'MacOS/Agent Notification')], check=True)
+                *app_sources, '-o', str(contents / 'MacOS/Agent Notification')], check=True)
 info = {
     'CFBundleExecutable': 'Agent Notification', 'CFBundleIdentifier': 'local.session-manager.inbox',
     # 可执行文件与 bundle 目录名保留英文（路径稳定），用户可见名称为中文。

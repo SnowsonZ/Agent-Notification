@@ -32,6 +32,16 @@ jobs:
           mkdir -p build
           xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus
 
+      - name: Swift policy tests
+        run: |
+          xcrun swiftc -parse-as-library native/InboxPolicy.swift tests/InboxPolicyTests.swift -o build/policy-tests
+          ./build/policy-tests
+
+      - name: Lint Python
+        run: |
+          python3 -m pip install --quiet ruff
+          ruff check scripts tests
+
       - name: Build Agent Notification.app
         run: python3 scripts/build_inbox_app.py --standalone
 

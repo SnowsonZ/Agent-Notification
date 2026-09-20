@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Managed CLI lifetime and session-to-pane bindings; no terminal UI control."""
+
 import argparse
 import fcntl
 import json
@@ -15,76 +16,111 @@ import tomllib
 import tempfile
 from uuid import uuid4
 
-DEFAULT_ROOT = Path.home() / '.local/state/session-manager'
-TOKEN = re.compile(r'[a-f0-9]{32}\Z')
-KIMI_EVENTS = ('SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure',
-               'PermissionRequest', 'PermissionResult', 'Interrupt')
-# 受管理 provider 的会话登记/注销事件名（record_event 用）。
-START_EVENTS = {'pi': {'session_start'}, 'kimi': {'SessionStart'},
-                'opencode': {'SessionStart'}, 'agy': {'UserPromptSubmit'}}
-END_EVENTS = {'pi': {'session_shutdown'}, 'kimi': {'SessionEnd'},
-              'opencode': {'SessionEnd'}, 'agy': {'SessionEnd'}}
-OPENCODE_WELL_KNOWN = ('~/.opencode/bin/opencode', '/opt/homebrew/bin/opencode',
-                       '/usr/local/bin/opencode', '~/.local/bin/opencode')
-AGY_WELL_KNOWN = ('~/.local/bin/agy', '/opt/homebrew/bin/agy', '/usr/local/bin/agy')
+from providers import END_EVENTS, START_EVENTS, WELL_KNOWN
+
+DEFAULT_ROOT = Path.home() / ".local/state/session-manager"
+TOKEN = re.compile(r"[a-f0-9]{32}\Z")
+KIMI_EVENTS = (
+    "SessionStart",
+    "SessionEnd",
+    "UserPromptSubmit",
+    "Stop",
+    "StopFailure",
+    "PermissionRequest",
+    "PermissionResult",
+    "Interrupt",
+)
 # agy 无 SessionStart/SessionEnd/权限事件（官方 hooks 仅五种，见 binary 内嵌文档）；
 # PreInvocation 映射为 UserPromptSubmit：既标记运行中，也按 Pi 模型把绑定指向当前会话
 # （TUI 内切换会话后下一个回合自动改绑）。进程退出由 managed_run 兜底 SessionEnd。
-AGY_HOOK_EVENTS = {'PreInvocation': 'UserPromptSubmit', 'Stop': 'Stop'}
+AGY_HOOK_EVENTS = {"PreInvocation": "UserPromptSubmit", "Stop": "Stop"}
 
 
 def kimi_command():
-    return shlex.join([sys.executable, str(Path(__file__).resolve()), 'event', '--provider', 'kimi'])
+    return shlex.join(
+        [sys.executable, str(Path(__file__).resolve()), "event", "--provider", "kimi"]
+    )
 
 
 def agy_hook_command(event_name):
     """agy hooks.json 的 handler：读 agy 载荷（conversationId）转译上报。"""
-    return shlex.join([sys.executable, str(Path(__file__).resolve()), 'agy-hook', '--event', event_name])
+    return shlex.join(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "agy-hook",
+            "--event",
+            event_name,
+        ]
+    )
 
 
 def install_agy_hooks(plugin_root):
     """生成 session-manager 捕获插件并经 `agy plugin install` 注册（幂等）。"""
     plugin_root = Path(plugin_root)
     plugin_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    (plugin_root / 'plugin.json').write_text(json.dumps({'name': 'session-manager', 'version': '1.0.0'}))
-    hooks = {'session-manager': {
-        event: [{'type': 'command', 'command': agy_hook_command(event), 'timeout': 5}]
-        for event in AGY_HOOK_EVENTS}}
-    (plugin_root / 'hooks.json').write_text(json.dumps(hooks, indent=2) + '\n')
-    listing = subprocess.run(['agy', 'plugin', 'list'], capture_output=True, text=True, timeout=30)
-    installed = '"name": "session-manager"' in listing.stdout or "'name': 'session-manager'" in listing.stdout \
-        or 'session-manager' in listing.stdout
+    (plugin_root / "plugin.json").write_text(
+        json.dumps({"name": "session-manager", "version": "1.0.0"})
+    )
+    hooks = {
+        "session-manager": {
+            event: [
+                {"type": "command", "command": agy_hook_command(event), "timeout": 5}
+            ]
+            for event in AGY_HOOK_EVENTS
+        }
+    }
+    (plugin_root / "hooks.json").write_text(json.dumps(hooks, indent=2) + "\n")
+    listing = subprocess.run(
+        ["agy", "plugin", "list"], capture_output=True, text=True, timeout=30
+    )
+    installed = (
+        '"name": "session-manager"' in listing.stdout
+        or "'name': 'session-manager'" in listing.stdout
+        or "session-manager" in listing.stdout
+    )
     if not installed:
-        result = subprocess.run(['agy', 'plugin', 'install', str(plugin_root)],
-                                capture_output=True, text=True, timeout=60)
+        result = subprocess.run(
+            ["agy", "plugin", "install", str(plugin_root)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         if result.returncode != 0:
-            raise ValueError('agy plugin install failed: ' + (result.stderr.strip() or result.stdout.strip()))
+            raise ValueError(
+                "agy plugin install failed: "
+                + (result.stderr.strip() or result.stdout.strip())
+            )
     return sorted(AGY_HOOK_EVENTS)
 
 
 def install_kimi_hooks(home):
-    path = home / 'config.toml'
+    path = home / "config.toml"
     if path.is_symlink():
-        raise ValueError('refusing to replace a linked config')
-    original = path.read_text() if path.exists() else ''
+        raise ValueError("refusing to replace a linked config")
+    original = path.read_text() if path.exists() else ""
     settings = tomllib.loads(original)
     command = kimi_command()
-    existing = {hook['event'] for hook in settings.get('hooks', []) if hook.get('command') == command}
-    additions = ''
+    existing = {
+        hook["event"]
+        for hook in settings.get("hooks", [])
+        if hook.get("command") == command
+    }
+    additions = ""
     for event_name in KIMI_EVENTS:
         if event_name not in existing:
             additions += f'\n[[hooks]]\nevent = "{event_name}"\ncommand = {json.dumps(command)}\ntimeout = 3\n'
     if not additions:
         return 0
-    content = original.rstrip() + '\n' + additions
+    content = original.rstrip() + "\n" + additions
     tomllib.loads(content)
     home.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix='.session-manager-', dir=home)
+    fd, temporary = tempfile.mkstemp(prefix=".session-manager-", dir=home)
     try:
-        with os.fdopen(fd, 'w') as stream:
+        with os.fdopen(fd, "w") as stream:
             stream.write(content)
-        if (path.read_text() if path.exists() else '') != original:
-            raise ValueError('config changed during installation')
+        if (path.read_text() if path.exists() else "") != original:
+            raise ValueError("config changed during installation")
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -94,15 +130,17 @@ def install_kimi_hooks(home):
 
 def connect(root):
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    db = sqlite3.connect(root / 'bindings.sqlite', timeout=3)
+    db = sqlite3.connect(root / "bindings.sqlite", timeout=3)
     db.row_factory = sqlite3.Row
-    db.execute('CREATE TABLE IF NOT EXISTS bindings ('
-               'pane TEXT PRIMARY KEY, run_id TEXT UNIQUE, provider TEXT, session_id TEXT, '
-               'tty TEXT, pgid INTEGER)')
-    columns = {row['name'] for row in db.execute('PRAGMA table_info(bindings)')}
-    for name, kind in [('tty', 'TEXT'), ('pgid', 'INTEGER')]:
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS bindings ("
+        "pane TEXT PRIMARY KEY, run_id TEXT UNIQUE, provider TEXT, session_id TEXT, "
+        "tty TEXT, pgid INTEGER)"
+    )
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(bindings)")}
+    for name, kind in [("tty", "TEXT"), ("pgid", "INTEGER")]:
         if name not in columns:
-            db.execute(f'ALTER TABLE bindings ADD COLUMN {name} {kind}')
+            db.execute(f"ALTER TABLE bindings ADD COLUMN {name} {kind}")
     return db
 
 
@@ -110,7 +148,7 @@ def alive(root, run_id):
     if not TOKEN.fullmatch(run_id):
         return False
     try:
-        with (root / (run_id + '.lock')).open('rb') as lease:
+        with (root / (run_id + ".lock")).open("rb") as lease:
             try:
                 fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
@@ -123,96 +161,143 @@ def alive(root, run_id):
 
 def register(root, pane, provider, run_id, tty=None, pgid=None):
     with connect(root) as db:
-        db.execute('INSERT OR REPLACE INTO bindings VALUES (?,?,?,NULL,?,?)',
-                   (pane, run_id, provider, tty, pgid))
+        db.execute(
+            "INSERT OR REPLACE INTO bindings VALUES (?,?,?,NULL,?,?)",
+            (pane, run_id, provider, tty, pgid),
+        )
 
 
 def foreground_matches(tty, pgid):
-    if (not isinstance(tty, str) or not re.fullmatch(r'/dev/tty[A-Za-z0-9]+', tty)
-            or not isinstance(pgid, int) or pgid <= 0):
+    if (
+        not isinstance(tty, str)
+        or not re.fullmatch(r"/dev/tty[A-Za-z0-9]+", tty)
+        or not isinstance(pgid, int)
+        or pgid <= 0
+    ):
         return False
     try:
         # macOS tcgetpgrp rejects another session's controlling TTY (ENOTTY).
         # ps exposes its foreground group without reading terminal contents.
-        result = subprocess.run(['/bin/ps', '-t', tty, '-o', 'pgid=,tpgid='],
-                                capture_output=True, text=True, timeout=2)
+        result = subprocess.run(
+            ["/bin/ps", "-t", tty, "-o", "pgid=,tpgid="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
         if result.returncode:
             return False
-        groups = [tuple(map(int, line.split())) for line in result.stdout.splitlines() if line.strip()]
+        groups = [
+            tuple(map(int, line.split()))
+            for line in result.stdout.splitlines()
+            if line.strip()
+        ]
         if not groups or any(len(pair) != 2 for pair in groups):
             return False
-        return ({pair[1] for pair in groups} == {pgid}
-                and any(pair[0] == pgid for pair in groups))
+        return {pair[1] for pair in groups} == {pgid} and any(
+            pair[0] == pgid for pair in groups
+        )
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return False
 
 
 def record_event(provider, payload, env=None):
     env = os.environ if env is None else env
-    run_id = env.get('SESSION_MANAGER_RUN_ID', '')
+    run_id = env.get("SESSION_MANAGER_RUN_ID", "")
     if not run_id:
         return  # Unmanaged sessions are deliberately unaffected.
-    root = Path(env['SESSION_MANAGER_STATE'])
-    event = payload.get('event') or payload.get('hook_event_name') or payload.get('type')
-    sid = payload.get('session_id')
+    root = Path(env["SESSION_MANAGER_STATE"])
+    event = (
+        payload.get("event") or payload.get("hook_event_name") or payload.get("type")
+    )
+    sid = payload.get("session_id")
     if not isinstance(sid, str) or not sid or len(sid) > 256:
-        raise ValueError('missing session identity')
+        raise ValueError("missing session identity")
     if not alive(root, run_id):
-        raise ValueError('run lease expired')
+        raise ValueError("run lease expired")
     starts = START_EVENTS
     ends = END_EVENTS
     with connect(root) as db:
-        prior = db.execute('SELECT session_id FROM bindings WHERE run_id=? AND provider=?', (run_id, provider)).fetchone()
+        prior = db.execute(
+            "SELECT session_id FROM bindings WHERE run_id=? AND provider=?",
+            (run_id, provider),
+        ).fetchone()
         if prior is None:
             return
         if event in starts.get(provider, set()):
-            db.execute('UPDATE bindings SET session_id=? WHERE run_id=? AND provider=?',
-                       (sid, run_id, provider))
+            db.execute(
+                "UPDATE bindings SET session_id=? WHERE run_id=? AND provider=?",
+                (sid, run_id, provider),
+            )
         elif event in ends.get(provider, set()):
-            if prior['session_id'] != sid:
+            if prior["session_id"] != sid:
                 return
-            db.execute('UPDATE bindings SET session_id=NULL '
-                       'WHERE run_id=? AND provider=? AND session_id=?', (run_id, provider, sid))
-        elif prior['session_id'] != sid:
+            db.execute(
+                "UPDATE bindings SET session_id=NULL "
+                "WHERE run_id=? AND provider=? AND session_id=?",
+                (run_id, provider, sid),
+            )
+        elif prior["session_id"] != sid:
             return
     from inbox_store import receive
-    if provider == 'pi' and isinstance(payload.get('session_file'), str):
+
+    if provider == "pi" and isinstance(payload.get("session_file"), str):
         from inbox_store import Store
-        Store(root).set_meta('pi-file:' + sid, payload['session_file'])
-    if event in starts.get(provider, set()) and prior['session_id'] and prior['session_id'] != sid:
-        receive(root, provider, prior['session_id'], 'SessionEnd', run_id=run_id)
-    receive(root, provider, sid, event, run_id=run_id,
-            title=payload.get('session_title') or payload.get('title'),
-            project=payload.get('cwd'), idle=payload.get('idle', True))
+
+        Store(root).set_meta("pi-file:" + sid, payload["session_file"])
+    if (
+        event in starts.get(provider, set())
+        and prior["session_id"]
+        and prior["session_id"] != sid
+    ):
+        receive(root, provider, prior["session_id"], "SessionEnd", run_id=run_id)
+    receive(
+        root,
+        provider,
+        sid,
+        event,
+        run_id=run_id,
+        title=payload.get("session_title") or payload.get("title"),
+        project=payload.get("cwd"),
+        idle=payload.get("idle", True),
+    )
 
 
 def validate(root, run_id, session_id):
     if not TOKEN.fullmatch(run_id) or not session_id:
-        raise ValueError('invalid binding identity')
+        raise ValueError("invalid binding identity")
     with connect(root) as db:
-        row = db.execute('SELECT * FROM bindings WHERE run_id=?', (run_id,)).fetchone()
-    if row is None or row['session_id'] != session_id or not alive(root, run_id):
-        raise ValueError('binding expired, superseded, or session changed')
-    if not foreground_matches(row['tty'], row['pgid']):
-        raise ValueError('foreground terminal ownership could not be verified: '
-                         'process group changed, target exited, or metadata unavailable')
+        row = db.execute("SELECT * FROM bindings WHERE run_id=?", (run_id,)).fetchone()
+    if row is None or row["session_id"] != session_id or not alive(root, run_id):
+        raise ValueError("binding expired, superseded, or session changed")
+    if not foreground_matches(row["tty"], row["pgid"]):
+        raise ValueError(
+            "foreground terminal ownership could not be verified: "
+            "process group changed, target exited, or metadata unavailable"
+        )
     return dict(row)
 
 
 def managed_run(root, pane, provider, command):
     if not os.isatty(0) or os.tcgetpgrp(0) != os.getpgrp():
-        raise ValueError('launch from the foreground of an interactive terminal')
+        raise ValueError("launch from the foreground of an interactive terminal")
     run_id = uuid4().hex
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path = root / (run_id + '.lock')
+    path = root / (run_id + ".lock")
     fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, 'w') as lease:
+    with os.fdopen(fd, "w") as lease:
         fcntl.flock(lease, fcntl.LOCK_EX)
         register(root, pane, provider, run_id, os.ttyname(0), os.getpgrp())
-        env = dict(os.environ, SESSION_MANAGER_RUN_ID=run_id,
-                   SESSION_MANAGER_STATE=str(root), SESSION_MANAGER_PYTHON=sys.executable,
-                   SESSION_MANAGER_BINDING_SCRIPT=str(Path(__file__).resolve()))
-        print(json.dumps({'managed_run_id': run_id, 'pane': pane, 'provider': provider}), flush=True)
+        env = dict(
+            os.environ,
+            SESSION_MANAGER_RUN_ID=run_id,
+            SESSION_MANAGER_STATE=str(root),
+            SESSION_MANAGER_PYTHON=sys.executable,
+            SESSION_MANAGER_BINDING_SCRIPT=str(Path(__file__).resolve()),
+        )
+        print(
+            json.dumps({"managed_run_id": run_id, "pane": pane, "provider": provider}),
+            flush=True,
+        )
         process = None
         try:
             process = subprocess.Popen(command, env=env)
@@ -224,114 +309,171 @@ def managed_run(root, pane, provider, command):
                     continue
         finally:
             with connect(root) as db:
-                last = db.execute('SELECT session_id FROM bindings WHERE run_id=?', (run_id,)).fetchone()
-                db.execute('DELETE FROM bindings WHERE run_id=?', (run_id,))
-            if last and last['session_id']:
+                last = db.execute(
+                    "SELECT session_id FROM bindings WHERE run_id=?", (run_id,)
+                ).fetchone()
+                db.execute("DELETE FROM bindings WHERE run_id=?", (run_id,))
+            if last and last["session_id"]:
                 from inbox_store import receive
-                receive(root, provider, last['session_id'], 'SessionEnd', run_id=run_id)
+
+                receive(root, provider, last["session_id"], "SessionEnd", run_id=run_id)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--state-dir', type=Path, default=DEFAULT_ROOT)
-    sub = parser.add_subparsers(dest='action', required=True)
-    run = sub.add_parser('run')
-    run.add_argument('provider', choices=['pi', 'kimi', 'opencode', 'agy'])
-    run.add_argument('args', nargs=argparse.REMAINDER)
-    sub.add_parser('list')
-    event = sub.add_parser('event')
-    event.add_argument('--provider', choices=['pi', 'kimi', 'opencode'])
-    hook = sub.add_parser('agy-hook')
-    hook.add_argument('--event', choices=sorted(AGY_HOOK_EVENTS), required=True)
-    sub.add_parser('kimi-hook-config')
-    sub.add_parser('install-kimi-hooks')
-    sub.add_parser('install-agy-hooks')
+    parser.add_argument("--state-dir", type=Path, default=DEFAULT_ROOT)
+    sub = parser.add_subparsers(dest="action", required=True)
+    run = sub.add_parser("run")
+    run.add_argument("provider", choices=["pi", "kimi", "opencode", "agy"])
+    run.add_argument("args", nargs=argparse.REMAINDER)
+    sub.add_parser("list")
+    event = sub.add_parser("event")
+    event.add_argument("--provider", choices=["pi", "kimi", "opencode"])
+    hook = sub.add_parser("agy-hook")
+    hook.add_argument("--event", choices=sorted(AGY_HOOK_EVENTS), required=True)
+    sub.add_parser("kimi-hook-config")
+    sub.add_parser("install-kimi-hooks")
+    sub.add_parser("install-agy-hooks")
     args = parser.parse_args()
     root = args.state_dir.expanduser().resolve()
     try:
-        if args.action == 'install-kimi-hooks':
-            home = Path(os.environ.get('KIMI_CODE_HOME', str(Path.home() / '.kimi-code')))
-            print(json.dumps({'hooks_added': install_kimi_hooks(home)}))
+        if args.action == "install-kimi-hooks":
+            home = Path(
+                os.environ.get("KIMI_CODE_HOME", str(Path.home() / ".kimi-code"))
+            )
+            print(json.dumps({"hooks_added": install_kimi_hooks(home)}))
             return 0
-        if args.action == 'kimi-hook-config':
+        if args.action == "kimi-hook-config":
             command = kimi_command()
             for event_name in KIMI_EVENTS:
-                print(f'[[hooks]]\nevent = "{event_name}"\ncommand = {json.dumps(command)}\ntimeout = 3\n')
+                print(
+                    f'[[hooks]]\nevent = "{event_name}"\ncommand = {json.dumps(command)}\ntimeout = 3\n'
+                )
             return 0
-        if args.action == 'install-agy-hooks':
-            print(json.dumps({'hook_events': install_agy_hooks(
-                Path(os.environ.get('AGY_PLUGIN_ROOT', str(Path.home() / '.gemini/antigravity-cli/plugins/session-manager'))))}))
+        if args.action == "install-agy-hooks":
+            print(
+                json.dumps(
+                    {
+                        "hook_events": install_agy_hooks(
+                            Path(
+                                os.environ.get(
+                                    "AGY_PLUGIN_ROOT",
+                                    str(
+                                        Path.home()
+                                        / ".gemini/antigravity-cli/plugins/session-manager"
+                                    ),
+                                )
+                            )
+                        )
+                    }
+                )
+            )
             return 0
-        if args.action == 'agy-hook':
+        if args.action == "agy-hook":
             raw = sys.stdin.buffer.read(65537)
             if len(raw) > 65536:
-                raise ValueError('event too large')
+                raise ValueError("event too large")
             source = json.loads(raw)
-            sid = source.get('conversationId')
+            sid = source.get("conversationId")
             if not isinstance(sid, str) or not sid:
                 return 0  # 载荷不合预期时不阻塞 agent 循环。
-            workspaces = source.get('workspacePaths')
-            record_event('agy', {'event': AGY_HOOK_EVENTS[args.event], 'session_id': sid,
-                                 'cwd': workspaces[0] if isinstance(workspaces, list) and workspaces else None})
+            workspaces = source.get("workspacePaths")
+            record_event(
+                "agy",
+                {
+                    "event": AGY_HOOK_EVENTS[args.event],
+                    "session_id": sid,
+                    "cwd": workspaces[0]
+                    if isinstance(workspaces, list) and workspaces
+                    else None,
+                },
+            )
             return 0
-        if args.action == 'event':
+        if args.action == "event":
             raw = sys.stdin.buffer.read(65537)
             if len(raw) > 65536:
-                raise ValueError('event too large')
+                raise ValueError("event too large")
             payload = json.loads(raw)
-            record_event(args.provider or payload['provider'], payload)
+            record_event(args.provider or payload["provider"], payload)
             return 0
-        if args.action == 'list':
+        if args.action == "list":
             with connect(root) as db:
-                rows = [dict(row) for row in db.execute('SELECT * FROM bindings')]
-            print(json.dumps([{**row, 'lease_alive': alive(root, row['run_id'])}
-                              for row in rows], indent=2))
+                rows = [dict(row) for row in db.execute("SELECT * FROM bindings")]
+            print(
+                json.dumps(
+                    [
+                        {**row, "lease_alive": alive(root, row["run_id"])}
+                        for row in rows
+                    ],
+                    indent=2,
+                )
+            )
             return 0
-        pane = os.environ.get('ITERM_SESSION_ID', '')
+        pane = os.environ.get("ITERM_SESSION_ID", "")
         if not pane:
-            parser.error('Run this launcher inside iTerm2 (ITERM_SESSION_ID is missing)')
+            parser.error(
+                "Run this launcher inside iTerm2 (ITERM_SESSION_ID is missing)"
+            )
         executable = shutil.which(args.provider)
         if not executable:
             # GUI PATH 可能缺用户安装目录；已知位置作第二通道（与 agent_launch 一致）。
-            well_known = {'opencode': OPENCODE_WELL_KNOWN, 'agy': AGY_WELL_KNOWN}.get(args.provider, ())
+            well_known = WELL_KNOWN.get(args.provider, ())
             for candidate in well_known:
                 expanded = Path(candidate).expanduser()
                 if expanded.is_file():
                     executable = str(expanded)
                     break
         if not executable:
-            parser.error('Agent executable is missing')
+            parser.error("Agent executable is missing")
         command = [executable]
-        if args.provider == 'pi':
-            command += ['-e', str(Path(__file__).with_name('pi_capture.ts'))]
-        elif args.provider == 'opencode':
+        if args.provider == "pi":
+            command += ["-e", str(Path(__file__).with_name("pi_capture.ts"))]
+        elif args.provider == "opencode":
             # 事件通道：OPENCODE_CONFIG 叠加注入上报插件，不改用户全局配置；
             # 非受管理会话不设该变量，插件根本不加载。
-            plugin_config = root / 'opencode-plugin.json'
-            plugin_config.write_text(json.dumps(
-                {'plugin': [str(Path(__file__).with_name('opencode_capture.js').resolve())]}))
-            os.environ['OPENCODE_CONFIG'] = str(plugin_config)
+            plugin_config = root / "opencode-plugin.json"
+            plugin_config.write_text(
+                json.dumps(
+                    {
+                        "plugin": [
+                            str(
+                                Path(__file__)
+                                .with_name("opencode_capture.js")
+                                .resolve()
+                            )
+                        ]
+                    }
+                )
+            )
+            os.environ["OPENCODE_CONFIG"] = str(plugin_config)
         else:
-            home = Path(os.environ.get('KIMI_CODE_HOME', str(Path.home() / '.kimi-code')))
-            config = home / 'config.toml'
+            home = Path(
+                os.environ.get("KIMI_CODE_HOME", str(Path.home() / ".kimi-code"))
+            )
+            config = home / "config.toml"
             settings = tomllib.loads(config.read_text()) if config.exists() else {}
-            expected = [sys.executable, str(Path(__file__).resolve()), 'event', '--provider', 'kimi']
+            expected = shlex.split(kimi_command())
             registered = False
-            for hook in settings.get('hooks', []):
+            for hook in settings.get("hooks", []):
                 try:
-                    if hook.get('event') == 'SessionStart' and shlex.split(hook.get('command', '')) == expected:
+                    if (
+                        hook.get("event") == "SessionStart"
+                        and shlex.split(hook.get("command", "")) == expected
+                    ):
                         registered = True
                 except ValueError:
                     continue
             if not registered:
-                parser.error('Kimi binding hook is not configured. Generate it with kimi-hook-config; '
-                             'add it to the active Kimi config before managed launch.')
-        command += args.args[1:] if args.args[:1] == ['--'] else args.args
+                parser.error(
+                    "Kimi binding hook is not configured. Generate it with kimi-hook-config; "
+                    "add it to the active Kimi config before managed launch."
+                )
+        command += args.args[1:] if args.args[:1] == ["--"] else args.args
         return managed_run(root, pane, args.provider, command)
     except (OSError, ValueError, KeyError, sqlite3.Error) as error:
-        print('binding unavailable: ' + type(error).__name__, file=sys.stderr)
+        print("binding unavailable: " + type(error).__name__, file=sys.stderr)
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

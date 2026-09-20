@@ -6,9 +6,9 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 
 ## 界面预览
 
-| 待查看 | 全部会话 | 工作日报 | 当日详情 |
-|---|---|---|---|
-| ![待查看列表](docs/images/inbox-pending.png) | ![全部会话列表](docs/images/inbox-all.png) | ![工作日报](docs/images/daily-report.png) | ![当日详情](docs/images/daily-report-day.png) |
+| 待查看 | 进行中 | 全部 | 工作日报 | 当日详情 |
+|---|---|---|---|---|
+| ![待查看列表](docs/images/inbox-pending.png) | ![进行中列表](docs/images/inbox-active.png) | ![全部会话列表](docs/images/inbox-all.png) | ![工作日报](docs/images/daily-report.png) | ![当日详情](docs/images/daily-report-day.png) |
 
 ## 项目组成
 
@@ -21,6 +21,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 核心能力：
 
 - 聚合五类来源的会话状态（运行中、等待输入、本轮已结束、发生错误、已中断、已退出），按最近活动排序，懒加载分页。
+- 「进行中」分段实时列出正在等待模型回复的回合（运行中态；等待用户确认权限或开着空闲不算），回合结束自动离场，3 秒轮询免刷新。
 - 其它工具（多 agent 协作等）拉起的会话默认过滤：不通知、不进待查看、不计入日报合计；工具栏可开关查看审计，日报注脚披露其 token 消耗。判定采用声明优于推断：工具拉起时设置 `SESSION_MANAGER_ORIGIN=agent|user` 即精确声明（最高优先级），未声明走各来源启发式；行内右键可手动改判并沉淀为目录规则。
 - 工作日报：按 token 消耗（输入/缓存/输出三类）统计每天会话任务，GitHub 式热力图回看近半年，附近 7 天 Top 项目与来源占比；当天实时计算，过去日在查看时定稿固化。
 - Pi/Kimi 经受管理启动器运行，登记 run_id 与 session_id 绑定；跳转前复核运行锁、会话 ID 与前台进程组，进程退出后旧绑定一律拒绝。

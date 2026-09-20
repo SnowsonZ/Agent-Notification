@@ -5,9 +5,23 @@ func inboxPageCount(total: Int, size: Int) -> Int { max(1, (total + size - 1) / 
 func inboxRowListed(state: String, openAvailable: Bool) -> Bool {
     state != "closed" || openAvailable
 }
+// 进行中分段：正在等待模型回复的回合（state==running）才算。waiting 等的是用户确认
+// 权限、idle 是开着空闲，都不算；口径见 docs/specs/unified-inbox.md「进行中视图」。
+func inboxActiveListed(state: String, openAvailable: Bool) -> Bool {
+    inboxRowListed(state: state, openAvailable: openAvailable) && state == "running"
+}
 func inboxPageRange(total: Int, page: Int, size: Int) -> Range<Int> {
     let start = min(max(0, page) * size, total)
     return start..<min(start + size, total)
+}
+// 待查看排序优先级：等待输入 > 发生错误 > 其余。与 inbox_store.rows 的 SQL CASE 同规则
+// （跨语言双实现，两测试同守）；App 拉 --all 全量后在客户端按此重排待查看视图。
+func pendingRank(_ state: String) -> Int {
+    switch state {
+    case "waiting": return 0
+    case "failed": return 1
+    default: return 2
+    }
 }
 func needsNotification(unread: Bool, token: String, seen: String?, initialSnapshot: Bool, enabled: Bool) -> Bool {
     enabled && !initialSnapshot && unread && !token.isEmpty && token != seen
@@ -64,15 +78,5 @@ func rhythmRange(_ segments: [[[Double]]], dayStart: Double) -> (Double, Double)
     let end = min(24, max(start + 2, ceil(high / 2) * 2))
     return (start, end)
 }
-// GitHub 贡献图同款五级强度（有效 tokens，按本机活跃日分布校准）：
-// 无记录 / <100万 / <1000万 / <5000万 / ≥5000万。
-func heatLevel(activeSeconds: Int) -> Int {
-    heatLevel(tokens: activeSeconds)
-}
-func heatLevel(tokens: Int) -> Int {
-    if tokens <= 0 { return 0 }
-    if tokens < 1_000_000 { return 1 }
-    if tokens < 10_000_000 { return 2 }
-    if tokens < 50_000_000 { return 3 }
-    return 4
-}
+// 热力分级阈值只在 Python（daily_report.heat_level）实现，界面直接使用载荷里的 level；
+// Swift 不留第二份实现，避免双语言口径漂移（旧副本阈值曾与 Python 不一致）。

@@ -2,6 +2,7 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import threading
 import sys
 import tempfile
 import unittest
@@ -156,3 +157,111 @@ class ImprovementsTests(unittest.TestCase):
         self.assertEqual(read_title(path, 'fixture'), 'Fix the login flow with tests')
         with self.assertRaises(ValueError):
             read_title(path, 'other')
+
+
+class StoreConnectionAndPatchTests(unittest.TestCase):
+    """连接复用与「值不变不写」优化后的行为契约。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "state"
+        self.store = Store(self.root)
+
+    def test_toplevel_blocks_share_connection_nested_get_fresh(self):
+        with self.store.db() as outer:
+            with self.store.db() as inner:
+                self.assertIsNot(outer, inner)  # 嵌套回退一次性连接，防内外层事务互相提交
+        with self.store.db() as again:
+            self.assertIs(again, outer)  # 顶层顺序调用复用缓存连接
+
+    def test_unchanged_patch_writes_nothing(self):
+        args = dict(
+            title="任务",
+            project="/work/p",
+            locator={"kind": "zcode", "task_id": "s1"},
+            hidden=False,
+            activity_at=100,
+        )
+        self.store.patch("zcode", "s1", **args)
+        observer = Store(self.root)
+
+        def version():
+            # data_version 只随其它连接的提交变化，是「是否真的写库」的观察窗。
+            with observer.db() as db:
+                return db.execute("PRAGMA data_version").fetchone()[0]
+
+        before = version()
+        self.store.patch("zcode", "s1", **args)  # 全同值
+        self.store.patch("zcode", "s1", activity_at=50)  # activity 只升不降
+        self.store.patch("zcode", "s1")  # 全空参数
+        self.assertEqual(version(), before)
+        self.store.patch("zcode", "s1", title="新标题")
+        self.assertGreater(version(), before)
+
+    def test_patch_semantics_unchanged(self):
+        key = self.store.patch(
+            "pi",
+            "p1",
+            title="t1",
+            locator={"kind": "managed", "run_id": "r"},
+            origin="agent",
+        )
+        row = self.store.get(key)
+        self.assertEqual(row["title"], "t1")
+        self.assertEqual(row["locator"], {"kind": "managed", "run_id": "r"})
+        self.assertEqual(row["origin"], "agent")
+        self.store.patch("pi", "p1", title="t2", hidden=True)
+        with self.store.db() as db:
+            raw = db.execute(
+                "SELECT title, hidden FROM sessions WHERE id=?", (key,)
+            ).fetchone()
+        self.assertEqual(raw["title"], "t2")
+        self.assertEqual(raw["hidden"], 1)
+        # 新行（不带任何字段）的默认标题与 ensure 契约一致。
+        key2 = self.store.patch("kimi", "k9")
+        self.assertEqual(self.store.get(key2)["title"], "kimi · k9")
+
+
+class ConcurrentFirstPatchTests(unittest.TestCase):
+    """实际失败拓扑：hook 进程与采集器同时首次发现同一会话（两个连接并发 INSERT）。
+    修复前的裸 INSERT 在此交错下抛 IntegrityError（进程级实测 30 轮 28 轮命中，
+    hook 容错会把该事件静默丢弃）；OR IGNORE 仲裁后任何交错都不再抛错。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "state"
+
+    def test_concurrent_first_patch_never_raises(self):
+        rounds = 30
+        barrier = threading.Barrier(2)
+        errors = []
+
+        def hammer(role):
+            store = Store(self.root)  # 线程内建：sqlite 连接默认限创建线程使用
+            try:
+                for i in range(rounds):
+                    barrier.wait(timeout=10)
+                    store.patch(
+                        "claude",
+                        f"race-{i}",
+                        title=f"t-{role}",
+                        project="/tmp",
+                        locator={"kind": "cli", "cwd": "/tmp"},
+                    )
+            except Exception as error:  # noqa: BLE001 - 记录任意失败用于断言
+                errors.append(f"{role}: {error!r}")
+
+        threads = [threading.Thread(target=hammer, args=(r,)) for r in ("A", "B")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        rows = {r["session_id"]: r for r in Store(self.root).rows()}
+        self.assertEqual(len(rows), rounds)
+        for i in range(rounds):
+            row = rows[f"race-{i}"]
+            self.assertIn(row["title"], ("t-A", "t-B"))
+            self.assertEqual(row["locator"], {"kind": "cli", "cwd": "/tmp"})
