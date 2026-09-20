@@ -7,8 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 普通构建只读；写权限收敛到 tag 触发的独立 release job（2026-09-21 评审 P2）。
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -37,6 +38,11 @@ jobs:
           xcrun swiftc -parse-as-library native/InboxPolicy.swift tests/InboxPolicyTests.swift -o build/policy-tests
           ./build/policy-tests
 
+      - name: Process runner tests
+        run: |
+          xcrun swiftc -parse-as-library native/ProcessRunner.swift tests/ProcessRunnerTests.swift -o build/runner-tests
+          ./build/runner-tests
+
       - name: Lint Python
         run: |
           python3 -m pip install --quiet ruff==0.16.8
@@ -46,7 +52,13 @@ jobs:
         run: python3 scripts/build_inbox_app.py --standalone
 
       - name: Run tests
-        run: scratch/iterm-probe-venv/bin/python -m unittest discover -s tests
+        run: scratch/iterm-probe-venv/bin/python -W error::ResourceWarning -m unittest discover -s tests
+
+      - name: Smoke test standalone bundle
+        run: |
+          CLI="build/Agent Notification.app/Contents/Resources/bin/session-manager"
+          "$CLI" --help
+          HOME="$(mktemp -d)" "$CLI" inbox rows --all
 
       - name: Package
         run: |
@@ -66,12 +78,23 @@ jobs:
             build/Agent-Notification.app.zip
           if-no-files-found: error
 
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Agent-Notification-macos
+          path: artifacts
+
       - name: Create release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "Agent Notification $GITHUB_REF_NAME" \
             --generate-notes \
-            build/Agent-Notification.dmg build/Agent-Notification.app.zip
+            artifacts/*

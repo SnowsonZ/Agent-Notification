@@ -1,6 +1,6 @@
-# 工作日报 v3（token 三类口径，报告 schema v6）
+# 工作日报 v3（token 三类口径，报告 schema v7）
 
-状态：v3 已实现并通过 102 项 Python 检查（含 15 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。OpenCode 来源于 2026-09-16 接入（schema v5→v6）；2026-09-17 agent 会话过滤 + OpenCode 受管理口径（v6→v7，旧固化报告自动重算）。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）；OpenCode 近 3 天独立重算与报告逐位一致（141,744）。
+状态：v3 已实现并通过 102 项 Python 检查（含 15 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。OpenCode 来源于 2026-09-16 接入（schema v5→v6）；2026-09-17 agent 会话过滤 + OpenCode 受管理口径（v6→v7，旧固化报告自动重算，现役 schema v7）。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）；OpenCode 近 3 天独立重算与报告逐位一致（141,744）。
 
 ## 度量口径（v3 核心）
 
@@ -53,7 +53,7 @@ bin/session-manager inbox daily-report --overview [--days 182] [--top 5]  # 热�
 
 ## 隐私边界
 
-只读取数值字段（token 数、时间戳）与元数据（标题、项目、状态）；转写/会话文件中的正文不解析、不存储、不输出。
+读取范围限于管理所需的元数据（标题、项目、状态）与数值字段（token 数、时间戳）。含正文的完整 JSON 行会在内存中反序列化以定位 usage 与时间字段，但正文不被提取、不持久化、不输出；唯一例外是标题摘要——claude CLI 转写的首条合格用户消息截取 ≤80 字符作为会话标题保存（2026-09-21 评审校准：原文「正文不解析」与实现不符）。
 
 ## 验证证据
 

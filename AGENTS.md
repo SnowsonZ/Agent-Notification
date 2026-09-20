@@ -5,7 +5,7 @@
 ## 开发入口
 
 - Python 后端和适配器在 `scripts/`，Swift 原生界面与 Zcode 导航在 `native/`，统一 CLI 在 `bin/session-manager`。
-- Python 检查：`python3 -m unittest discover -s tests -v`。
+- Python 检查：`python3 -W error::ResourceWarning -m unittest discover -s tests -v`（ResourceWarning 按错误对待，与 CI 同口径）。
 - Zcode 辅助程序：`xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus`；无 UI 自检：`build/zcode-focus --self-test`。
 - 原生收件箱构建：`python3 scripts/build_inbox_app.py`；先退出正在运行的本项目 App，再覆盖可执行文件。
 - 新环境依赖与启动步骤见 README.zh-CN.md；不要把现有本机虚拟环境视为仓库自带依赖。

@@ -47,13 +47,14 @@ def _codex_session_index(home):
     titles, activity = {}, {}
     index = home / ".codex/session_index.jsonl"
     if index.exists():
-        for line in index.open():
-            try:
-                record = json.loads(line)
-                titles[record["id"]] = str(record["thread_name"])[:300]
-                activity[record["id"]] = seconds(record.get("updated_at"))
-            except (ValueError, KeyError, TypeError):
-                continue
+        with index.open() as file:
+            for line in file:
+                try:
+                    record = json.loads(line)
+                    titles[record["id"]] = str(record["thread_name"])[:300]
+                    activity[record["id"]] = seconds(record.get("updated_at"))
+                except (ValueError, KeyError, TypeError):
+                    continue
     return titles, activity
 
 
@@ -270,7 +271,9 @@ def collect_claude(store, home):
         except (OSError, ValueError, AttributeError):
             errors += 1
     for sid, records in grouped.items():
-        if len(records) != 1 or errors:
+        # 单会话歧义只看该 sid 的候选数；目录里无关损坏/超大文件只进 health degraded，
+        # 不得让全部正常会话失去定位（2026-09-21 评审 P1：or errors 曾全局污染）。
+        if len(records) != 1:
             store.patch(
                 "claude",
                 sid,
@@ -613,18 +616,19 @@ def collect_zcode(store, home):
 
 def _sweep_managed_directories(store):
     """agy/opencode 受管理行：项目目录被删的条目隐藏（2026-09-16 用户决定：目录缺失
-    不允许跳转、条目不可见）；目录恢复存在时自动取消隐藏。"""
+    不允许跳转、条目不可见）；目录恢复存在时自动取消隐藏。单事务批量更新，且只写
+    发生变化的行（2026-09-21 评审性能项：hidden 未变也重写是纯写放大）。"""
     with store.db() as db:
         rows = db.execute(
-            "SELECT id, project FROM sessions "
+            "SELECT id, project, hidden FROM sessions "
             "WHERE provider IN ('agy','opencode') AND project != ''"
         ).fetchall()
-    for row_id, project in rows:
-        exists = Path(project).expanduser().is_dir()
-        with store.db() as db:
-            db.execute(
-                "UPDATE sessions SET hidden=? WHERE id=?", (0 if exists else 1, row_id)
-            )
+        updates = []
+        for row_id, project, hidden in rows:
+            flag = 0 if Path(project).expanduser().is_dir() else 1
+            if flag != hidden:
+                updates.append((flag, row_id))
+        db.executemany("UPDATE sessions SET hidden=? WHERE id=?", updates)
 
 
 def collect_agy_titles(store, home):

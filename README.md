@@ -22,7 +22,7 @@ Agent Notification is a local session inbox for macOS: it aggregates Codex, Clau
 
 Key capabilities:
 
-- Aggregates session state across five sources (running, waiting for input, turn finished, failed, interrupted, exited), sorted by recent activity with lazy pagination.
+- Aggregates session state across seven sources (Claude, Codex, Zcode, Pi, Kimi, OpenCode, Antigravity; running, waiting for input, turn finished, failed, interrupted, exited), sorted by recent activity with lazy pagination.
 - The "In Progress" segment lists sessions currently waiting on a model reply (running turns only; waiting-for-permission and idle sessions are excluded) and drops them automatically when the turn ends, polled every 3 seconds.
 - Sessions spawned by other tools (multi-agent runs) are filtered by default: no notifications, excluded from the pending view and the daily report; a toolbar toggle exposes them for audit, and the report footnote discloses their token usage. Classification prefers declaration: spawning tools set `SESSION_MANAGER_ORIGIN=agent|user` (highest priority); undeclared spawns fall back to per-source heuristics; right-click any row to override manually or pin a per-directory rule.
 - Pi/Kimi run through a managed launcher that registers a run_id/session_id binding; focusing re-verifies the run lock, session ID, and foreground process group, and stale bindings are rejected once the process exits.
@@ -95,7 +95,7 @@ The app detects locally installed CLIs (claude, codex, pi, kimi, agy, opencode) 
 Run the test suite:
 
 ```sh
-python3 -m unittest discover -s tests -v
+python3 -W error::ResourceWarning -m unittest discover -s tests -v
 ```
 
 ## Known limitations
@@ -108,7 +108,7 @@ python3 -m unittest discover -s tests -v
 
 ## Documentation
 
-The complete documentation (specifications, design plans, and dated research records) is available in Chinese under [`docs/`](docs/). Start with [the unified inbox specification](docs/specs/unified-inbox.md).
+The complete documentation (specifications, design plans, dated research records, and reviews) is available in Chinese under [`docs/`](docs/). Start with [the unified inbox specification](docs/specs/unified-inbox.md); the latest cross-project health review is the [2026-09-21 project assessment](docs/review/2026-09-21-project-assessment.md).
 
 ## License
 

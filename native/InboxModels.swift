@@ -230,27 +230,7 @@ enum InboxScope {
         applyDockIcon(dark: dark, unread: count)
     }
     nonisolated static func call(root: String, arguments: [String]) -> (Int32, Data, String) {
-        let process = Process()
-        if let resources = Bundle.main.resourceURL,
-           FileManager.default.isExecutableFile(atPath: resources.appendingPathComponent("bin/session-manager").path),
-           FileManager.default.fileExists(atPath: resources.appendingPathComponent("pylib").path) {
-            // 发布包：脚本与依赖随包，解释器选择和 PYTHONPATH 由随包的 CLI 统一处理。
-            process.executableURL = resources.appendingPathComponent("bin/session-manager")
-            process.arguments = ["inbox"] + arguments
-        } else {
-            // 开发包：直接跑仓库里的脚本和 venv。
-            process.executableURL = URL(fileURLWithPath: root + "/scratch/iterm-probe-venv/bin/python")
-            process.arguments = [root + "/scripts/inbox.py"] + arguments
-        }
-        let output = Pipe(); let errors = Pipe()
-        process.standardOutput = output; process.standardError = errors
-        do {
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let diagnostic = errors.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return (process.terminationStatus, data, String(data: diagnostic, encoding: .utf8) ?? "")
-        } catch { return (1, Data(), error.localizedDescription) }
+        ProcessRunner.run(root: root, arguments: arguments)
     }
     func refresh(full: Bool = true) {
         if loading {

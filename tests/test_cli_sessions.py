@@ -244,6 +244,58 @@ class DesktopOriginOverrideTests(unittest.TestCase):
         self.assertEqual(self.store.rows()[0]["origin"], "agent")
 
 
+class ClaudeDesktopIdentityPollutionTests(unittest.TestCase):
+    """P1 回归（2026-09-21 评审）：目录级读取失败只降级 health，不抹掉正常会话
+    的定位；歧义判定只看该 sid 的候选数，同 sid 多候选仍拒绝猜测。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self.store = Store(self.home / "state")
+        self.registry = (
+            self.home / "Library/Application Support/Claude/claude-code-sessions"
+        )
+        self.registry.mkdir(parents=True)
+
+    def write_entry(self, sid, filename=None):
+        (self.registry / (filename or f"local_{sid}.json")).write_text(
+            json.dumps(
+                {
+                    "cliSessionId": sid,
+                    "sessionId": "local_" + sid,
+                    "title": "桌面会话",
+                    "cwd": "/Users/snowson/work",
+                    "lastActivityAt": round(time.time() * 1000),
+                }
+            )
+        )
+
+    def test_unrelated_corrupt_file_keeps_valid_locator(self):
+        self.write_entry("ok-1")
+        (self.registry / "local_broken.json").write_text(
+            '{"cliSessionId": "other", "sessi'
+        )
+        health = collect_claude(self.store, self.home)
+        self.assertEqual(self.store.rows()[0]["locator"]["kind"], "url")
+        self.assertEqual(health["status"], "degraded")
+
+    def test_unrelated_oversized_file_keeps_valid_locator(self):
+        self.write_entry("ok-2")
+        (self.registry / "local_huge.json").write_text("x" * 4_000_001)
+        health = collect_claude(self.store, self.home)
+        self.assertEqual(self.store.rows()[0]["locator"]["kind"], "url")
+        self.assertEqual(health["status"], "degraded")
+
+    def test_duplicate_candidates_for_same_sid_stay_unavailable(self):
+        self.write_entry("dup-1", filename="local_copy_a.json")
+        self.write_entry("dup-1", filename="local_copy_b.json")
+        collect_claude(self.store, self.home)
+        locator = self.store.rows()[0]["locator"]
+        self.assertEqual(locator["kind"], "unavailable")
+        self.assertIn("ambiguous", locator["reason"])
+
+
 class ClaudeCliTitleTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -510,9 +562,7 @@ class CodexCliInclusionTests(unittest.TestCase):
             "cwd": "/work/codexcli",
         }
         payload.update(meta_extra or {})
-        body = [
-            json.dumps({"type": "session_meta", "payload": payload})
-        ]
+        body = [json.dumps({"type": "session_meta", "payload": payload})]
         for kind, stamp in events:
             body.append(
                 json.dumps(
@@ -613,7 +663,11 @@ class CodexCliInclusionTests(unittest.TestCase):
         index = self.home / ".codex/session_index.jsonl"
         index.write_text(
             json.dumps(
-                {"id": sid, "thread_name": "已索引的子代理任务", "updated_at": "2026-09-21T00:00:00Z"}
+                {
+                    "id": sid,
+                    "thread_name": "已索引的子代理任务",
+                    "updated_at": "2026-09-21T00:00:00Z",
+                }
             )
             + "\n"
         )
@@ -703,9 +757,13 @@ class CodexCliInclusionTests(unittest.TestCase):
             / f"rollout-2026-09-21T01-00-00-{parent}_{tail}.jsonl"
         )
         path.write_text("\n".join(body) + "\n")
-        self.store.patch("codex", parent, locator={"kind": "url", "url": f"codex://threads/{parent}"})
+        self.store.patch(
+            "codex", parent, locator={"kind": "url", "url": f"codex://threads/{parent}"}
+        )
         run_migrations(self.store, self.home)
-        rows = {r["session_id"]: r for r in self.store.rows() if r["provider"] == "codex"}
+        rows = {
+            r["session_id"]: r for r in self.store.rows() if r["provider"] == "codex"
+        }
         self.assertIn(parent, rows)
         self.assertNotIn(tail, rows)  # 不为文件名尾建行
         self.assertEqual(rows[parent]["origin"], "agent")
@@ -753,7 +811,9 @@ class CodexCliInclusionTests(unittest.TestCase):
         path.write_text("\n".join(body) + "\n")
         collect_codex(self.store, self.home)
         run_migrations(self.store, self.home)
-        rows = {r["session_id"]: r for r in self.store.rows() if r["provider"] == "codex"}
+        rows = {
+            r["session_id"]: r for r in self.store.rows() if r["provider"] == "codex"
+        }
         self.assertNotIn(parent, rows)  # 不产生父幽灵行
         self.assertIn(child, rows)  # 子会话行完整：状态 + cli 定位
         self.assertEqual(rows[child]["state"], "idle")

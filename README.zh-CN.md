@@ -20,7 +20,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 
 核心能力：
 
-- 聚合五类来源的会话状态（运行中、等待输入、本轮已结束、发生错误、已中断、已退出），按最近活动排序，懒加载分页。
+- 聚合七类来源（Claude、Codex、Zcode、Pi、Kimi、OpenCode、Antigravity）的会话状态（运行中、等待输入、本轮已结束、发生错误、已中断、已退出），按最近活动排序，懒加载分页。
 - 「进行中」分段实时列出正在等待模型回复的回合（运行中态；等待用户确认权限或开着空闲不算），回合结束自动离场，3 秒轮询免刷新。
 - 其它工具（多 agent 协作等）拉起的会话默认过滤：不通知、不进待查看、不计入日报合计；工具栏可开关查看审计，日报注脚披露其 token 消耗。判定采用声明优于推断：工具拉起时设置 `SESSION_MANAGER_ORIGIN=agent|user` 即精确声明（最高优先级），未声明走各来源启发式；行内右键可手动改判并沉淀为目录规则。
 - 工作日报：按 token 消耗（输入/缓存/输出三类）统计每天会话任务，GitHub 式热力图回看近半年，附近 7 天 Top 项目与来源占比；当天实时计算，过去日在查看时定稿固化。
@@ -101,7 +101,7 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 运行测试：
 
 ```sh
-python3 -m unittest discover -s tests -v
+python3 -W error::ResourceWarning -m unittest discover -s tests -v
 ```
 
 ## 已知边界
@@ -129,6 +129,7 @@ python3 -m unittest discover -s tests -v
 | [Zcode 状态语义排查](docs/research/2026-09-14-zcode-state-semantics.md) | 调研记录 | 等待权限状态的可达性边界 |
 | [Codex 受管理可行性论证](docs/research/2026-09-16-codex-managed-feasibility.md) | 调研记录 | notify/插件/rollout 三通道实测与暂缓决策 |
 | [各来源推送通道盘点](docs/research/2026-09-20-push-channels-per-source.md) | 调研记录 | 七家消息通道现状；codex hooks.json 全生命周期实测（含信任门禁）与 zcode 文件事件方案 |
+| [项目整体评估](docs/review/2026-09-21-project-assessment.md) | 评审记录 | 正确性、架构、安全、性能与发布验证的全库体检及优先级建议 |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 调研记录 | 现成工具比较与选型依据 |
 
 调研记录为带日期的历史档案，反映当时状态；现行行为以规范文档为准。
@@ -140,6 +141,7 @@ python3 -m unittest discover -s tests -v
 | 目录 | 内容 | 命名 |
 |---|---|---|
 | `docs/research/` | 市场调研、接口调查、实验结论与来源 | `YYYY-MM-DD-topic.md`，注明调研日期与证据边界 |
+| `docs/review/` | 全项目、版本或专项代码评审及验证结论 | `YYYY-MM-DD-topic.md`，注明审查基线、证据和未覆盖范围 |
 | `docs/plans/` | 设计方案、取舍、未决项和实施路径 | `topic.md`，注明当前阶段，持续更新 |
 | `docs/specs/` | 经确认、足以执行的需求和接口规格 | `topic.md`，关联来源方案与验收项 |
 | `docs/decisions/` | 已采纳的重要架构决策及理由 | `NNNN-topic.md`，注明状态和被替代关系 |

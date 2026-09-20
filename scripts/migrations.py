@@ -45,11 +45,10 @@ def codex_cli_error_cache_reset(store):
         if value.get("error") or value.get("cli-migrated"):
             continue
         try:
-            originator = (
-                json.loads(path.open(errors="replace").readline())
-                .get("payload", {})
-                .get("originator")
-            )
+            with path.open(errors="replace") as file:
+                originator = (
+                    json.loads(file.readline()).get("payload", {}).get("originator")
+                )
         except (OSError, ValueError):
             continue
         if originator == "Codex Desktop":
@@ -87,7 +86,8 @@ def codex_origin_backfill(store, home):
     root = home / ".codex/sessions"
     for path in root.rglob("rollout-*.jsonl"):
         try:
-            first = json.loads(path.open(errors="replace").readline())
+            with path.open(errors="replace") as file:
+                first = json.loads(file.readline())
         except (OSError, ValueError):
             continue
         meta = first.get("payload", {})
@@ -158,17 +158,21 @@ def codex_dangling_turn_repair(store, home):
         last_kind = None
         marker_ts = None
         try:
-            for line in target.open(errors="replace"):
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    continue
-                kind = (record.get("payload") or {}).get("type") or ""
-                if kind in ("task_started", "task_complete", "turn_aborted"):
-                    last_kind = kind
-                    marker_ts = None
-                elif kind == "thread_settings_applied" and last_kind == "task_started":
-                    marker_ts = record.get("timestamp")
+            with target.open(errors="replace") as file:
+                for line in file:
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    kind = (record.get("payload") or {}).get("type") or ""
+                    if kind in ("task_started", "task_complete", "turn_aborted"):
+                        last_kind = kind
+                        marker_ts = None
+                    elif (
+                        kind == "thread_settings_applied"
+                        and last_kind == "task_started"
+                    ):
+                        marker_ts = record.get("timestamp")
         except OSError:
             continue
         if last_kind != "task_started":
@@ -298,7 +302,7 @@ def codex_desktop_fork_merge(store, home):
         for sid in fork_tails:
             db.execute(
                 "UPDATE sessions SET hidden=1 WHERE provider='codex' AND session_id=? "
-                "AND locator LIKE '%\"kind\": \"url\"%'",
+                'AND locator LIKE \'%"kind": "url"%\'',
                 (sid,),
             )
     store.set_meta("codex:desktop-fork-merge-v1", True)
