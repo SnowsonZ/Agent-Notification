@@ -70,11 +70,20 @@ enum InboxScope {
     private var lastDockBadge = -1
     let root: String
     private var timer: Timer?
+    private var lastFullScanAt: Date?
+    private var pendingFullRefresh = false
     init() {
         root = Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String ?? ""
         let tick = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in self.refresh() }
+            // Timer 闭包非 MainActor 隔离，状态读取与决策全部转入 MainActor Task。
+            Task { @MainActor in
+                guard let self else { return }
+                // 3 秒 tick 只读 store（纯渲染）；全量采集按墙钟每 15 秒调度（距上次
+                // 全量发起 ≥15 秒即扫）——丢拍（在途刷新被 guard 挂起）下一个 tick 自动
+                // 补，系统唤醒后也立即补扫。即时性由各来源 hooks/事件承担。
+                let elapsed = Date().timeIntervalSince(self.lastFullScanAt ?? .distantPast)
+                self.refresh(full: inboxTickShouldScan(elapsed: elapsed, fullEvery: 15))
+            }
         }
         RunLoop.main.add(tick, forMode: .common)
         timer = tick
@@ -120,7 +129,7 @@ enum InboxScope {
     // agent 会话查看开关只影响列表可见性；通知层在 rows 默认过滤里已关闭，无需额外处理。
     func toggleAgentSessions() {
         showAgentSessions.toggle()
-        refresh()
+        refresh(full: false)  // 只影响列表可见性，读 store 即可
     }
     // 手动改判 origin：自动分类的最终兜底；ruleProject 非空时沉淀为目录覆盖规则。
     func setOrigin(_ row: InboxRow, origin: String, ruleProject: String?) {
@@ -209,7 +218,7 @@ enum InboxScope {
         initialNotificationSnapshot = false
         if previousSeen != notificationSeen { UserDefaults.standard.set(notificationSeen, forKey: "notificationSeen") }
     }
-    // Dock 角标与菜单栏托盘同口径（未读会话数）；refresh 每 3 秒跑一次，仅数值变化时改写。
+    // Dock 角标与菜单栏托盘同口径（未读会话数）；随 3 秒 tick 更新，仅数值变化时改写。
     // 不用 dockTile.badgeLabel：本应用启动时替换 applicationIconImage 后系统角标不再渲染
     // （实测 badgeLabel 有值而 Dock 不画、邻居应用角标正常），改为把角标画进应用图标。
     private func updateDockBadge() {
@@ -243,15 +252,26 @@ enum InboxScope {
             return (process.terminationStatus, data, String(data: diagnostic, encoding: .utf8) ?? "")
         } catch { return (1, Data(), error.localizedDescription) }
     }
-    func refresh() {
-        guard !loading else { return }
+    func refresh(full: Bool = true) {
+        if loading {
+            // 显式全量请求（用户刷新/窗口重开/定时全量）不静默丢弃：挂起，当前请求
+            // 结束后补执行——否则双节拍下用户动作要再等最长 15 秒（codex 评审 P2）。
+            if full { pendingFullRefresh = true }
+            return
+        }
         loading = true
+        if full { lastFullScanAt = Date() }  // 发起即计时：失败也按节拍重试，不密集轰炸
         let directory = root
-        var arguments = ["rows", "--all", "--refresh"]
+        var arguments = ["rows", "--all"]
+        if full { arguments.append("--refresh") }
         if showAgentSessions { arguments.append("--include-agents") }
         Task {
             let result = await Task.detached { Self.call(root: directory, arguments: arguments) }.value
             loading = false
+            if pendingFullRefresh {
+                pendingFullRefresh = false
+                refresh(full: true)
+            }
             guard result.0 == 0 else { error = result.2; return }
             do {
                 let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -315,7 +335,7 @@ enum InboxScope {
                     AccessibilitySetupController.shared.present()
                 }
             }
-            refresh()
+            refresh(full: false)  // 操作后的状态回读走 store；采集由兜底扫描节奏覆盖
         }
     }
 }

@@ -26,6 +26,12 @@ import Foundation
         precondition(!inboxActiveListed(state: "failed", openAvailable: true))
         precondition(!inboxActiveListed(state: "interrupted", openAvailable: true))
         precondition(!inboxActiveListed(state: "closed", openAvailable: true))
+        // 刷新节拍（墙钟）：距上次全量发起 ≥15 秒才再扫，丢拍由下一个 tick 按经过时间自动补。
+        precondition(!inboxTickShouldScan(elapsed: 0, fullEvery: 15))
+        precondition(!inboxTickShouldScan(elapsed: 14.9, fullEvery: 15))
+        precondition(inboxTickShouldScan(elapsed: 15, fullEvery: 15))
+        precondition(inboxTickShouldScan(elapsed: 3600, fullEvery: 15))  // 唤醒/久置后立即补扫
+        precondition(inboxTickShouldScan(elapsed: 1, fullEvery: 0))  // 非法参数退化为每 tick 都扫
         precondition(inboxDurationText(from: 0, to: 59) == "59秒")
         precondition(inboxDurationText(from: 100, to: 200) == "1分40秒")
         precondition(inboxDurationText(from: 0, to: 3700) == "1小时1分")

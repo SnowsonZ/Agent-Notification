@@ -26,6 +26,14 @@ func pendingRank(_ state: String) -> Int {
 func needsNotification(unread: Bool, token: String, seen: String?, initialSnapshot: Bool, enabled: Bool) -> Bool {
     enabled && !initialSnapshot && unread && !token.isEmpty && token != seen
 }
+// 自动刷新节拍：3 秒 tick 只读 store（纯渲染），全量采集按墙钟每 fullEvery 秒调度
+// （距上次全量发起 ≥fullEvery 即扫）——丢拍（在途刷新被 guard 丢弃）下一个 tick 自动补，
+// 系统唤醒后也立即补扫。即时性由各来源 hooks/事件承担，全量扫描只剩兜底职责；依据见
+// docs/research/2026-09-20-push-channels-per-source.md「轮询的职责拆解」。
+func inboxTickShouldScan(elapsed: TimeInterval, fullEvery: TimeInterval) -> Bool {
+    guard fullEvery > 0 else { return true }
+    return elapsed >= fullEvery
+}
 func inboxDurationText(from: Double, to: Double) -> String {
     let span = max(0, Int(to - from))
     if span < 60 { return "\(span)秒" }
