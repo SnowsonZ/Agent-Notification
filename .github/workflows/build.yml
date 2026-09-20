@@ -94,7 +94,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          # 本 job 不 checkout（无 .git），必须显式指定仓库。
+          gh release create --repo "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" \
             --title "Agent Notification $GITHUB_REF_NAME" \
             --generate-notes \
             artifacts/*
