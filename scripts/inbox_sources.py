@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sqlite3
 import time
 from collections import defaultdict
@@ -40,12 +41,10 @@ def seconds(value):
     return 0
 
 
-def collect_codex(store, home):
-    root = home / ".codex/sessions"
-    if not root.exists():
-        return {"status": "unavailable", "reason": "session directory missing"}
-    titles = {}
-    activity = {}
+def _codex_session_index(home):
+    """session_index.jsonl（Desktop 侧栏索引）→ (titles, activity)；采集与迁移共用，
+    两处口径不漂移。"""
+    titles, activity = {}, {}
     index = home / ".codex/session_index.jsonl"
     if index.exists():
         for line in index.open():
@@ -55,6 +54,24 @@ def collect_codex(store, home):
                 activity[record["id"]] = seconds(record.get("updated_at"))
             except (ValueError, KeyError, TypeError):
                 continue
+    return titles, activity
+
+
+def codex_subagent_source(meta):
+    """subagent 标记（guardian 审查 / thread_spawn 子代理）：source.subagent 或旧版
+    thread_source（<0.155 值为 "subagent"/"guardian_review"）。source 也可能是普通
+    字符串（如 "vscode"，实测 616 个 rollout 中 267 个），必须先验类型再取键。"""
+    source = meta.get("source")
+    if isinstance(source, dict) and source.get("subagent"):
+        return True
+    return meta.get("thread_source") in ("guardian_review", "subagent")
+
+
+def collect_codex(store, home):
+    root = home / ".codex/sessions"
+    if not root.exists():
+        return {"status": "unavailable", "reason": "session directory missing"}
+    titles, activity = _codex_session_index(home)
     errors, changed = 0, 0
     # 游标批量载入：逐文件 store.meta 各开一次 SQLite 连接，几百个 rollout 在
     # app 的 3 秒刷新节拍下太浪费；一次性 LIKE 查询取全量后内存比对。
@@ -97,6 +114,7 @@ def collect_codex(store, home):
             cli_origin = bool(originator) and not desktop
             if not desktop and not cli_origin:
                 continue
+            subagent = codex_subagent_source(meta)
             if cli_origin:
                 # CLI/exec 会话首次纳入时以当下为提醒基线：历史完成不轰炸。
                 cli_baseline = store.meta("codex-cli:baseline")
@@ -122,12 +140,20 @@ def collect_codex(store, home):
                 )
                 reader.open_turn = prior.get("open_turn")
             batch = reader.poll()
+            # Desktop 分叉文件的回合归属祖先线程（reader 裁决）；普通文件两者一致。
+            if reader.session:
+                sid = reader.session
             project = reader.metadata.get("cwd", "") if reader.metadata else None
             if desktop:
-                locator = {
-                    "kind": "url",
-                    "url": "codex://threads/" + quote(sid, safe=""),
-                }
+                if subagent and sid not in titles:
+                    # 幽灵深链：Desktop subagent（guardian 等）不在侧栏索引，
+                    # codex:// 打不开；已进索引的 thread_spawn 保留可点链接。
+                    locator = {}
+                else:
+                    locator = {
+                        "kind": "url",
+                        "url": "codex://threads/" + quote(sid, safe=""),
+                    }
             else:
                 # CLI/exec 会话：按会话 ID 经 `codex resume` 恢复；
                 # 携带 rollout 路径供「已打开则聚焦」做 fd 匹配。
@@ -140,7 +166,7 @@ def collect_codex(store, home):
                 project=project,
                 activity_at=activity.get(sid),
                 locator=locator,
-                origin=spawn_origin(str(originator or "")),
+                origin="agent" if subagent else spawn_origin(str(originator or "")),
             )
             for event in batch:
                 stamp = seconds(event["timestamp"])
@@ -185,9 +211,20 @@ def collect_codex(store, home):
     # 悬置回合兜底：cursor 全量已在上文载入，running 行据此映射回 rollout 文件；
     # 活回合持续流式写行，mtime 超窗的 running 必为死回合，修复为 interrupted
     # （不是凭静默推断"完成"，不声明成功，也不抬升待查看）。
-    cursor_files = {
-        value.get("sid"): Path(key) for key, value in cursors.items() if value.get("sid")
-    }
+    cursor_files = {}
+    for key, value in cursors.items():
+        sid = value.get("sid")
+        if not sid:
+            continue
+        # 同 sid 可能对应多个 rollout（父文件 + 分叉延续段）：兜底判活性取 mtime
+        # 最新的文件，否则父文件旧 mtime 会把分叉中的活回合误判 interrupted。
+        try:
+            mtime = os.stat(key).st_mtime
+        except OSError:
+            continue
+        if sid not in cursor_files or mtime > cursor_files[sid][0]:
+            cursor_files[sid] = (mtime, Path(key))
+    cursor_files = {sid: path for sid, (_, path) in cursor_files.items()}
     for row in store.rows():
         if row["provider"] != "codex" or row["state"] != "running":
             continue
@@ -292,18 +329,28 @@ def collect_claude(store, home):
     for row in store.rows():
         if row["provider"] != "claude" or row["locator"].get("kind") != "cli":
             continue
-        if not row["locator"].get("file"):
-            transcript = next(
-                (home / ".claude/projects").glob(f"*/{row['session_id']}.jsonl"), None
+        # 先做转写解析与 locator 回填/纠正，再判标题——已有真标题的行同样需要 locator
+        # （导航的 lsof fd 匹配依赖转写路径；2026-09-21 codex 评审：标题 continue
+        # 前置曾让这类行永远跳过回填）。
+        transcript = _claude_cli_transcript(
+            home,
+            row["session_id"],
+            store,
+            source=row["locator"].get("file"),
+            # live = 会话还可能产出转写：closed 是唯一事件终态；failed/interrupted 是
+            # 回合态（会话可继续）保持重试；unknown 是无 hooks 时代回填的历史死行，
+            # 转写不会再出现，允许永久缓存（否则每轮全量扫描空转 glob）。
+            live=row["state"] not in ("closed", "unknown"),
+        )
+        if transcript and str(transcript) != row["locator"].get("file"):
+            store.patch(
+                "claude",
+                row["session_id"],
+                locator=dict(row["locator"], file=str(transcript)),
             )
-            if transcript:
-                locator = dict(row["locator"], file=str(transcript))
-                store.patch("claude", row["session_id"], locator=locator)
-            elif not store.meta("claude-cli-title-missing:" + row["session_id"]):
-                store.set_meta("claude-cli-title-missing:" + row["session_id"], True)
         if row["title"] and not row["title"].startswith("claude ·"):
             continue
-        title = _claude_cli_title(home, row["session_id"], store)
+        title = _claude_cli_title(transcript) if transcript else None
         if title:
             store.patch("claude", row["session_id"], title=title)
             titled += 1
@@ -316,15 +363,33 @@ def collect_claude(store, home):
     }
 
 
-def _claude_cli_title(home, sid, store, limit=80):
-    """claude CLI 转写首条用户消息作展示标题（≤80 字符）；找不到转写返回 None 并记忆，
-    避免每次刷新重复全目录查找。"""
-    if store.meta("claude-cli-title-missing:" + sid):
+def _claude_cli_transcript(home, sid, store, source=None, live=False):
+    """解析 claude CLI 会话的转写路径：hook 带来的 locator 路径优先，失效时回退
+    按 sid 全目录找（只认 locator 路径会把"路径过期但可按 sid 找到"的行重新引入
+    永久锁死）。负缓存在此唯一所有者，门控按会话状态——转写文件在回合进行中才
+    落盘（实测进程存活数秒后出现，晚于首条 hook 事件；2026-09-20 修复回归：负缓存
+    曾无条件永久记忆，把标题锁死在兜底格式），未结束（live）会话不写缓存、每轮
+    重试，已结束仍缺才永久记忆。"""
+    key = "claude-cli-title-missing:" + sid
+    if store.meta(key):
         return None
-    transcript = next((home / ".claude/projects").glob(f"*/{sid}.jsonl"), None)
+    transcript = None
+    if source:
+        candidate = Path(source)
+        if candidate.exists():
+            transcript = candidate
     if transcript is None:
-        store.set_meta("claude-cli-title-missing:" + sid, True)
+        transcript = next((home / ".claude/projects").glob(f"*/{sid}.jsonl"), None)
+    if transcript is None:
+        if live:
+            return None
+        store.set_meta(key, True)
         return None
+    return transcript
+
+
+def _claude_cli_title(transcript, limit=80):
+    """claude CLI 转写首条用户消息作展示标题（≤80 字符）；无合格记录返回 None。"""
     with transcript.open(errors="replace") as file:
         for line in file:
             try:

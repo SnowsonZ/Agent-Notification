@@ -1,8 +1,8 @@
 """一次性数据迁移：每条用 metadata 键守护只跑一次，收敛在此，避免在采集器热路径里堆积。
 
-在 refresh() 开头统一执行（app 每 3 秒轮询 rows --refresh，秒级落地）；hook 等
-轻量路径不跑迁移——codex 回填要全量扫 rollout 文件，不能占 hooks 的 3 秒预算。
-新迁移加进 run()；跨大版本时可按守护键退役已全员跑过的旧迁移，控制本文件长度。
+在 refresh() 开头统一执行（app 每 15 秒全量扫描一次 rows --refresh，迁移随下一轮
+全量落地）；hook 等轻量路径不跑迁移——codex 回填要全量扫 rollout 文件，不能占 hooks
+的执行预算。新迁移加进 run()；跨大版本时可按守护键退役已全员跑过的旧迁移，控制本文件长度。
 """
 
 import json
@@ -76,7 +76,10 @@ def codex_cli_error_cache_reset(store):
 
 def codex_origin_backfill(store, home):
     """一次性回填存量行的启动方式：逐 rollout 读首行 originator（游标缓存的文件
-    不会在主循环重读首行）。sid 推导与主循环一致（文件名 UUID 优先）避免重复行。"""
+    不会在主循环重读首行）。sid 按来源分流（2026-09-21 两轮修订）：Desktop 用
+    payload.id（分叉文件归父线程，与采集器采信语义一致）；CLI/exec 用文件名尾
+    会话 id（CLI 分叉合同是独立子会话行，用 payload.id 会建出父幽灵行），文件
+    名尾非合法 UUID 时回落 payload.id。守卫键保证已跑过的库不受影响。"""
     from inbox_sources import spawn_origin
 
     if store.meta("codex-origin:backfill-v1"):
@@ -90,12 +93,13 @@ def codex_origin_backfill(store, home):
         meta = first.get("payload", {})
         if first.get("type") != "session_meta":
             continue
-        sid = str(meta.get("id") or "")
-        try:
-            sid = str(UUID(path.stem[-36:]))
-        except ValueError:
-            pass
-        if sid:
+        sid = meta.get("id")
+        if meta.get("originator") != "Codex Desktop":
+            try:
+                sid = str(UUID(path.stem[-36:]))
+            except ValueError:
+                pass
+        if isinstance(sid, str) and sid:
             store.patch(
                 "codex", sid, origin=spawn_origin(str(meta.get("originator") or ""))
             )
@@ -199,9 +203,167 @@ def codex_dangling_turn_repair(store, home):
     )
 
 
+def claude_title_cache_revalidate(store, home):
+    """旧版标题负缓存按会话无条件永久记忆（转写落盘竞争锁死修复前写入），
+    新逻辑读时无条件短路会继承锁死。一次性清除「转写现已存在」的陈旧标记，
+    让标题在下轮全量扫描补齐；转写确实缺失的标记保留（语义仍正确）。
+    2026-09-20 曾在开发机手工清过一次，本迁移把它带进升级路径（其它库/重置场景）。"""
+    if store.meta("claude-cli-title:cache-revalidate-v1"):
+        return
+    prefix = "claude-cli-title-missing:"
+    cleared = 0
+    with store.db() as db:
+        keys = [
+            row[0]
+            for row in db.execute(
+                "SELECT key FROM metadata WHERE key LIKE ?", (prefix + "%",)
+            )
+        ]
+        for key in keys:
+            sid = key[len(prefix) :]
+            if next((home / ".claude/projects").glob(f"*/{sid}.jsonl"), None):
+                db.execute("DELETE FROM metadata WHERE key=?", (key,))
+                cleared += 1
+    store.set_meta("claude-cli-title:cache-revalidate-v1", True)
+    if cleared:
+        store.set_meta("claude-cli-title:cache-revalidate-count", cleared)
+
+
+def codex_fork_replay(store):
+    """Desktop resume 分身文件（仅祖先 meta，自身 id 在文件名）曾被整文件跳过，
+    行停在 unknown（2026-09-21 修复 reader 采信逻辑）。清掉受害行的游标让下一轮
+    全量重读；只清行仍为 unknown 的，非受害行（状态已从其它文件落定）不动。"""
+    if store.meta("codex:fork-replay-v1"):
+        return
+    prefix = "codex-cursor:"
+    cleared = 0
+    with store.db() as db:
+        rows = db.execute(
+            "SELECT key, value FROM metadata WHERE key LIKE ?", (prefix + "%",)
+        ).fetchall()
+        for key, value in rows:
+            try:
+                cursor = json.loads(value)
+            except ValueError:
+                continue
+            sid = cursor.get("sid")
+            if not sid or cursor.get("validated_session"):
+                continue
+            state = db.execute(
+                "SELECT state FROM sessions WHERE session_id=?", (sid,)
+            ).fetchone()
+            if state and state["state"] == "unknown":
+                db.execute("DELETE FROM metadata WHERE key=?", (key,))
+                cleared += 1
+    store.set_meta("codex:fork-replay-v1", True)
+    if cleared:
+        store.set_meta("codex:fork-replay-count", cleared)
+
+
+def codex_desktop_fork_merge(store, home):
+    """Desktop 分叉文件（<父id>_<分身id> 文件名）的回合曾归属分身 id：分身不在
+    session_index，Desktop 侧栏与 codex:// 跳转都不识别（2026-09-21 实测跳转
+    报错）。reader 已改为归属父线程；本迁移清掉 Desktop 分叉文件的游标让下一轮
+    全量按父线程重放，并归档已按分身 id 建出的行（url 定位、id 为分叉文件名尾）。
+    CLI 变体（游标 cli=true）不动——独立会话行的语义保持。"""
+    if store.meta("codex:desktop-fork-merge-v1"):
+        return
+    prefix = "codex-cursor:"
+    cleared = 0
+    fork_tails = set()
+    with store.db() as db:
+        rows = db.execute(
+            "SELECT key, value FROM metadata WHERE key LIKE ?", (prefix + "%",)
+        ).fetchall()
+        for key, value in rows:
+            try:
+                cursor = json.loads(value)
+            except ValueError:
+                continue
+            if cursor.get("cli"):
+                continue
+            name = key.rsplit("/", 1)[-1]
+            name = name.removesuffix(".jsonl")
+            if "_" not in name[20:]:
+                continue
+            tail = name[-36:]
+            try:
+                from uuid import UUID
+
+                fork_tails.add(str(UUID(tail)))
+            except ValueError:
+                continue
+            db.execute("DELETE FROM metadata WHERE key=?", (key,))
+            cleared += 1
+        for sid in fork_tails:
+            db.execute(
+                "UPDATE sessions SET hidden=1 WHERE provider='codex' AND session_id=? "
+                "AND locator LIKE '%\"kind\": \"url\"%'",
+                (sid,),
+            )
+    store.set_meta("codex:desktop-fork-merge-v1", True)
+    if cleared:
+        store.set_meta("codex:desktop-fork-merge-count", cleared)
+
+
+def codex_subagent_origin(store, home):
+    """guardian/thread_spawn 子代理会话曾按 originator 误判人工，并生成 Desktop
+    不识别的 codex:// 深链（2026-09-21 用户报"显示却跳转报错"）。身份归 agent；
+    locator 仅对「Desktop 且不在 session_index」的幽灵深链清空，已进索引的
+    thread_spawn 与 CLI 变体保留原定位。只更新已存在的行（不创建）；身份以
+    payload.id 为准，不猜文件名尾（分叉归属教训）。"""
+    if store.meta("codex:subagent-origin-v1"):
+        return
+    from inbox_sources import _codex_session_index, codex_subagent_source
+
+    titles, _ = _codex_session_index(home)
+    updated = 0
+    with store.db() as db:
+        for path in (home / ".codex/sessions").rglob("rollout-*.jsonl"):
+            try:
+                with path.open() as file:
+                    first = json.loads(file.readline())
+            except (OSError, ValueError):
+                continue
+            if first.get("type") != "session_meta":
+                continue
+            meta = first.get("payload", {})
+            if not codex_subagent_source(meta):
+                continue
+            sid = meta.get("id")
+            if not isinstance(sid, str) or not sid:
+                continue
+            row = db.execute(
+                "SELECT state FROM sessions WHERE provider='codex' AND session_id=?",
+                (sid,),
+            ).fetchone()
+            if row is None:
+                continue
+            if meta.get("originator") == "Codex Desktop" and sid not in titles:
+                db.execute(
+                    "UPDATE sessions SET origin='agent', locator='{}' "
+                    "WHERE provider='codex' AND session_id=?",
+                    (sid,),
+                )
+            else:
+                db.execute(
+                    "UPDATE sessions SET origin='agent' "
+                    "WHERE provider='codex' AND session_id=?",
+                    (sid,),
+                )
+            updated += 1
+    store.set_meta("codex:subagent-origin-v1", True)
+    if updated:
+        store.set_meta("codex:subagent-origin-count", updated)
+
+
 def run(store, home):
     backfill_claude_tmp_origins(store)
     codex_cli_error_cache_reset(store)
     codex_origin_backfill(store, home)
     purge_passive_opencode(store)
     codex_dangling_turn_repair(store, home)
+    claude_title_cache_revalidate(store, home)
+    codex_fork_replay(store)
+    codex_desktop_fork_merge(store, home)
+    codex_subagent_origin(store, home)

@@ -42,6 +42,12 @@ class RolloutReader:
 
     def poll(self):
         output = []
+        # 祖先阶段（自身 meta 出现前）的生命周期事件暂存为三元组：文件尾若自身
+        # meta 始终未出现（Desktop resume 分身变体：仅祖先 meta、自身 id 只在文件
+        # 名尾部，2026-09-21 实测整文件回合漏采、行停 unknown），采信文件名 id
+        # 统一归属；若自身 meta 出现（[祖先历史,自身 meta,自身回合] 顺序），暂存
+        # 事件即父历史，丢弃不归属——与既有语义一致。
+        ancestral = []
         with self.path.open("rb") as source:
             import os
 
@@ -63,17 +69,16 @@ class RolloutReader:
                     record = json.loads(line)
                     payload = record.get("payload", {})
                     if record.get("type") == "session_meta":
-                        if (
-                            self.allow_ancestry
-                            and self.session is None
-                            and payload.get("id") != self.expected_session
-                        ):
+                        if payload.get("id") != self.expected_session:
+                            if not self.allow_ancestry:
+                                raise ValueError(
+                                    "rollout identity or originator mismatch"
+                                )
+                            if self.session is None and self.metadata is None:
+                                self.metadata = payload  # 祖先 meta 提供上下文
                             continue
                         required_originator = self.originator or "Codex Desktop"
-                        if (
-                            payload.get("id") != self.expected_session
-                            or payload.get("originator") != required_originator
-                        ):
+                        if payload.get("originator") != required_originator:
                             raise ValueError("rollout identity or originator mismatch")
                         self.session = payload["id"]
                         self.metadata = payload
@@ -96,12 +101,6 @@ class RolloutReader:
                             "turn_aborted",
                         ):
                             continue
-                        if not self.session:
-                            if self.allow_ancestry:
-                                continue
-                            raise ValueError(
-                                "lifecycle record before verified session metadata"
-                            )
                         turn = payload.get("turn_id")
                         if not isinstance(turn, str) or not turn:
                             # Desktop 模式保持报错（格式漂移哨兵）；显式传入
@@ -109,6 +108,13 @@ class RolloutReader:
                             if self.originator is None:
                                 raise ValueError("lifecycle record lacks turn_id")
                             continue
+                        if not self.session:
+                            if self.allow_ancestry:
+                                ancestral.append((kind, turn, record.get("timestamp")))
+                                continue
+                            raise ValueError(
+                                "lifecycle record before verified session metadata"
+                            )
                         if kind == "task_started":
                             if self.open_turn and self.open_turn != turn:
                                 # 新回合开始而旧回合无终态（同线程不会并发两回合）：
@@ -134,6 +140,39 @@ class RolloutReader:
                         )
                 except (json.JSONDecodeError, AttributeError) as error:
                     raise ValueError("unsupported or corrupt rollout record") from error
+            if self.session is None and self.metadata is not None and ancestral:
+                # Desktop（未显式传 originator）：分叉文件是同一线程的延续段，归属
+                # 祖先线程——session_index 只登记父线程，Desktop 侧栏与 codex://
+                # 跳转都不识别分身 id（2026-09-21 实测跳转报错）。CLI 变体（显式
+                # originator）：归属文件名会话 id，保持独立会话行。
+                adopted = (
+                    self.metadata.get("id")
+                    if self.originator is None
+                    else self.expected_session
+                )
+                self.session = adopted if isinstance(adopted, str) and adopted else (
+                    self.expected_session
+                )
+                for kind, turn, timestamp in ancestral:
+                    if kind == "task_started":
+                        if self.open_turn and self.open_turn != turn:
+                            output.append(
+                                self._synthetic_abort(self.open_turn, timestamp)
+                            )
+                        self.open_turn = turn
+                    elif self.open_turn == turn:
+                        self.open_turn = None
+                    output.append(
+                        {
+                            "provider": "codex",
+                            "session_id": self.session,
+                            "event": kind,
+                            "turn_id": turn,
+                            "event_id": f"{self.session}:{turn}:{kind}",
+                            "source": "rollout-compatibility",
+                            "timestamp": timestamp,
+                        }
+                    )
             return output
 
 

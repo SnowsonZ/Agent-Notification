@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import re
 import shlex
 import sqlite3
 import subprocess
@@ -149,12 +150,25 @@ def desktop_registry_hit(home, sid, *, max_age=172800):
     return False
 
 
+# 原生安装器把 claude 二进制放在 versions/<版本号> 下，ucomm 形如 "2.1.277"；
+# 它直接 exec 派生 hook，hook 的父进程是 claude 本体而非包装 shell。
+CLAUDE_BINARY_UCOMM = re.compile(r"^(claude|\d+(?:\.\d+)+)$")
+
+
+def is_claude_binary_ucomm(name):
+    return bool(CLAUDE_BINARY_UCOMM.fullmatch((name or "").strip().lower()))
+
+
 def claude_spawn_origin(sid):
     """注册时的启动方式信号。声明优于推断：
     0) 环境变量 `SESSION_MANAGER_ORIGIN=agent|user`（拉起方显式声明，最高优先级；
        未设置或非法值忽略）；以下为未声明时的启发式兜底：
-    1) claude 进程有控制终端时看直接父进程：终端 shell = 手敲（人工）；
-       node/python 等工具进程 = agent 拉起。
+    1) claude 进程有控制终端时看 claude 的直接父进程：终端 shell = 手敲（人工）；
+       node/python 等工具进程 = agent 拉起。hook 的父进程有两种形态：旧 node 版
+       经 sh 包装派生（父进程即 sh，tty 与 ucomm 都用它的）；原生二进制直接
+       exec 派生（父进程即 claude 本体，ucomm 为 claude 或版本号形态——2026-09-20
+       实测回归：升级 2.1.277 后终端会话全被误判 agent，即此形态），后者判定
+       进程上移一层，取 claude 本体的父进程做 shell 判定。
     2) 无控制终端（无头）时先查 Desktop 登记表：命中 = Desktop 内嵌会话 = 人工
        （控制终端被子进程继承，tty 单独判定会把"终端里跑的工具拉起的 claude"
        误判成人工；同理 Electron 内嵌会被误判成 agent，故必须查表）。
@@ -167,16 +181,31 @@ def claude_spawn_origin(sid):
     sid = str(sid or "")
     pid = str(os.getppid())
     try:
-        tty = subprocess.run(
-            ["ps", "-o", "tty=", "-p", pid], capture_output=True, text=True, timeout=3
-        , check=False).stdout
+        parts = subprocess.run(
+            ["ps", "-o", "tty=,ucomm=,ppid=", "-p", pid],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        ).stdout.split()
+        if len(parts) != 3:  # 进程已退出或输出异常，不猜。
+            return "user"
+        tty, ucomm, parent_pid = parts
         if spawn_origin_from_tty(tty) == "agent":
             if sid and desktop_registry_hit(Path.home(), sid):
                 return "user"
             return "agent"
-        parent = subprocess.run(
-            ["ps", "-o", "ucomm=", "-p", pid], capture_output=True, text=True, timeout=3
-        , check=False).stdout
+        if is_claude_binary_ucomm(ucomm):
+            # hook 由 claude 本体直接派生：shell 判定用本体的父进程。
+            parent = subprocess.run(
+                ["ps", "-o", "ucomm=", "-p", parent_pid],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            ).stdout
+        else:
+            parent = ucomm
     except (OSError, subprocess.TimeoutExpired):
         return "user"
     return spawn_origin_from_parent(parent)
@@ -279,7 +308,8 @@ def open_session(store, key, revision=None):
                 capture_output=True,
                 text=True,
                 timeout=100,
-            check=False)
+                check=False,
+            )
 
         result = probe(locator["run_id"])
         if result.returncode != 0:
@@ -367,7 +397,9 @@ def open_session(store, key, revision=None):
         command = ["/usr/bin/open", url]
     else:
         raise ValueError("no verified opener for this session")
-    result = subprocess.run(command, capture_output=True, text=True, timeout=100, check=False)
+    result = subprocess.run(
+        command, capture_output=True, text=True, timeout=100, check=False
+    )
     if result.returncode != 0:
         print(
             result.stderr or result.stdout or "Open failed", file=sys.stderr, end="\n"
