@@ -71,3 +71,5 @@ bin/session-manager inbox daily-report --overview [--days 182] [--top 5]  # 热�
 - 热力阈值按当前工作强度校准，工作模式显著变化时可再调整（Python/Swift 两处常量）。
 
 实现：[聚合模块](../../scripts/daily_report.py)、[CLI 接线](../../scripts/inbox.py)、[策略纯函数](../../native/InboxPolicy.swift)、[原生界面与调度](../../native/SessionInbox.swift)、[日报测试](../../tests/test_daily_report.py)、[策略测试](../../tests/InboxPolicyTests.swift)。
+
+- 节奏带色块不做 hover 缩放（2026-09-20 用户要求：色块随 hover 放大表现为"移动"）；悬浮提示保留，其余图表 hover 不变。

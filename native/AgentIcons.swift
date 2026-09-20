@@ -6,11 +6,50 @@ private var agentIconCache: [String: NSImage] = [:]
 // 统一来源标志：每个标志先按透明边界裁掉自带留白，再等比缩进目标方框居中，
 // 各家标志在列表和入口里占的框一致；按目标点数光栅化（Retina 下 2x），不做二次放大。
 func agentIcon(_ id: String, size points: CGFloat = 16) -> NSImage {
-    let key = "\(id)@\(points)"
+    // 缓存键带外观：pi 在暗色下走亮度翻转变体，系统外观切换后按新键重渲染。
+    let dark = appearanceIsDark()
+    let key = "\(id)@\(points)@\(dark ? "dark" : "light")"
     if let cached = agentIconCache[key] { return cached }
-    let image = renderAgentIcon(id, size: NSSize(width: points, height: points))
+    let image = renderAgentIcon(id, size: NSSize(width: points, height: points), dark: dark)
     agentIconCache[key] = image
     return image
+}
+
+private func appearanceIsDark() -> Bool {
+    NSApp?.effectiveAppearance.bestMatch(from: [
+        NSAppearance.Name.aqua, NSAppearance.Name.darkAqua,
+    ]) == NSAppearance.Name.darkAqua
+}
+
+// pi 官方 svg 自带 prefers-color-scheme 暗色白字变体，但 NSImage 光栅化不执行媒体
+// 查询，暗色下仍是黑方块、黑底不可见。这里像素级翻转亮度得到官方本意的白字
+// （与 opencode 亮度键控同思路：对纯色 glyph 保 alpha、翻 RGB）。
+private func luminanceFlipped(_ image: NSImage) -> NSImage {
+    let px = 256
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px,
+                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                     isPlanar: false, colorSpaceName: .deviceRGB,
+                                     bytesPerRow: 0, bitsPerPixel: 0),
+        let data = rep.bitmapData else { return image }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    image.draw(in: NSRect(x: 0, y: 0, width: px, height: px), from: .zero, operation: .sourceOver, fraction: 1)
+    NSGraphicsContext.restoreGraphicsState()
+    let rowBytes = rep.bytesPerRow
+    for y in 0..<px {
+        for x in 0..<px {
+            let o = y * rowBytes + x * 4
+            if data[o + 3] > 24 {
+                data[o] = 255 - data[o]
+                data[o + 1] = 255 - data[o + 1]
+                data[o + 2] = 255 - data[o + 2]
+            }
+        }
+    }
+    rep.size = image.size
+    let flipped = NSImage(size: image.size)
+    flipped.addRepresentation(rep)
+    return flipped
 }
 
 private func agentIconSource(_ id: String) -> NSImage? {
@@ -70,8 +109,12 @@ private func agentIconContentRect(_ image: NSImage) -> NSRect {
                   width: CGFloat(maxX - minX + 1) * sx, height: CGFloat(maxY - minY + 1) * sy)
 }
 
-private func renderAgentIcon(_ id: String, size: NSSize) -> NSImage {
-    if let source = agentIconSource(id) {
+private func renderAgentIcon(_ id: String, size: NSSize, dark: Bool) -> NSImage {
+    var loaded = agentIconSource(id)
+    if dark, id == "pi", let original = loaded {
+        loaded = luminanceFlipped(original)
+    }
+    if let source = loaded {
         let content = agentIconContentRect(source)
         // 方框内再按视觉分量微调：横宽形的 Kimi 本就矮一截保持满框，其余标志统一收一档，
         // 实心方块的 Pi 和撑满方框的 Antigravity 再多收一点。

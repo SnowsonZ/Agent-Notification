@@ -149,7 +149,8 @@ struct RhythmBandView: View {
                                     .fill(providerReportColor(task.provider))
                                     .frame(width: max(4, span * width), height: laneHeight)
                                     .offset(x: min(max(0, left * width), width - 4), y: y)
-                                    .chartHover(scale: 1.15)
+                                    // 节奏带色块不做 hover 缩放（2026-09-20 用户要求：
+                                    // 色块随 hover 放大会"移动"，取消；悬浮提示保留）。
                                     .dailyHoverTip(title: task.title,
                                                    lines: ["\(providerName(task.provider)) · \(reportClock(segment[0]))–\(reportClock(segment[1])) · 全天 \(reportTimeRange(task)) · \(task.turns) 轮"]
                                                        + classTipLines(input: task.inputTokens, cache: task.cacheTokens,
