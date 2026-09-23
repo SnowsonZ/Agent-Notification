@@ -246,7 +246,30 @@ struct InboxView: View {
                 .help(model.searchExpanded ? "收起搜索" : "搜索会话或项目")
             }
         }
-        .onAppear { model.refresh() }
+        .onAppear {
+            model.refresh()
+            // 组件 URL 在窗口未开时由 bridge 暂存，窗口挂载即补送（§5）。
+            WidgetURLBridge.shared.flush { handleWidgetURL($0) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .widgetURLOpen)) { notification in
+            if let url = notification.object as? URL { handleWidgetURL(url) }
+        }
+    }
+
+    // 组件 URL 跳转（desktop-widgets.md §5）：host 白名单与参数在
+    // WidgetURLRouter.parse 校验，非法 URL 不执行任何动作、不输出参数原文。
+    private func handleWidgetURL(_ url: URL) {
+        guard let action = WidgetURLRouter.parse(url, knownIds: Set(model.rows.map(\.id))) else { return }
+        NSApplication.shared.activate()
+        switch action {
+        case .open(let id, let revision):
+            model.openByID(id, revision: revision)
+        case .report(let period):
+            NotificationCenter.default.post(name: .widgetReportPeriod, object: period)
+            openWindow(id: "dailyReport")
+        case .inbox:
+            openWindow(id: "inbox")
+        }
     }
 }
 

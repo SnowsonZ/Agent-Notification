@@ -301,13 +301,19 @@ enum InboxScope {
         selected.removeAll()
         action(["ack-batch", "--items", payload], isOpen: false)
     }
-    func open(_ row: InboxRow) {
+    func open(_ row: InboxRow, revision: Int? = nil) {
         // Zcode 跳转依赖辅助功能授权；缺失时走拖拽授权悬浮窗，不发起会失败的开销、不动未读状态。
         if row.provider == "zcode" && !AccessibilitySetupController.shared.isGranted {
             AccessibilitySetupController.shared.present()
             return
         }
-        action(["open", row.id, "--revision", String(row.revision)], isOpen: true)
+        action(["open", row.id, "--revision", String(revision ?? row.revision)], isOpen: true)
+    }
+    // 组件 URL 打开（desktop-widgets.md §5）：与点击行同一链路——打开成功且
+    // revision 仍一致才自动确认，打开失败保留未读（复用 inbox open 的 CAS）。
+    func openByID(_ id: String, revision: Int?) {
+        guard let row = rows.first(where: { $0.id == id }) else { return }
+        open(row, revision: revision)
     }
     private func action(_ arguments: [String], isOpen: Bool) {
         if isOpen { opening = true }

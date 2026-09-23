@@ -68,7 +68,13 @@ struct DailyReportView: View {
         .coordinateSpace(name: HoverTipCenter.space)
         .frame(minWidth: 560, idealWidth: 600, minHeight: 520, idealHeight: 780)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear { model.loadOverview() }
+        .onAppear {
+            model.loadOverview()
+            WidgetSnapshotWriter.shared.refreshUsageNow()  // §3：打开日报窗口立即刷新 usage
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .widgetReportPeriod)) { notification in
+            if let period = notification.object as? String { model.pendingPeriod = period }
+        }
     }
 }
 

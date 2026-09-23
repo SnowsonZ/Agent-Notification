@@ -93,6 +93,8 @@ struct ReportOverview: Decodable {
     @Published var path: [String] = []
     @Published var loading = false
     @Published var error: String?
+    // 组件 report URL 的周期切换请求（day/week/month）：日报视图挂载/收到时消费。
+    @Published var pendingPeriod: String?
     let root: String
     init(root: String? = nil) {
         self.root = root ?? Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String ?? ""

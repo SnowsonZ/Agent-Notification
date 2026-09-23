@@ -102,18 +102,22 @@ jobs:
             -application-extension \
             -target arm64-apple-macosx14.0 \
             -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
+            -enable-testing \
             -emit-const-values -Xfrontend -serialize-debugging-options \
+            -emit-strings-data -Xfrontend -serialize-debugging-options \
             -c build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets.o
           echo "COMPILE OK"
           ls -la build/d0/
-          find build/d0 -name "*.constvals" -o -name "*.swiftconstvals" | head -5 || true
+          find build/d0 -name "*constvals*" | head -5 || true
+          find build/d0 -name "*stringsdata*" | head -5 || true
 
           # 2) 按 processor USAGE 提取 Metadata.appintents
           PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
           TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
           XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
-          find build/d0 -name "*.constvals" -o -name "*.swiftconstvals" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
+          find build/d0 -name "*constvals*" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
+          find build/d0 -name "*stringsdata*" | sed "s|^|$PWD/|" > build/d0/stringsdata.txt || true
           find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/sources.txt
           echo "--- constvals list ---"; cat build/d0/constvals.txt || true
           set +e
