@@ -100,7 +100,7 @@ App 注册 URL scheme `agentnotification`，写在 `build_inbox_app.py` 的 Info
 - **源码位置**：
   - `native/Widget/*.swift`：组件代码。放在子目录，是为了不被主程序构建脚本的 `native/*.swift` 通配编进 App。
   - `native/Shared/*.swift`：App 和组件共用的代码。构建脚本需要把这个目录显式加入主程序源码列表。
-- **产物**：`Agent Notification.app/Contents/PlugIns/AgentNotificationWidgets.appex`。开发包和 `--standalone` 包都要带上。
+- **产物**：`Agent Notification.app/Contents/PlugIns/Agent Notification Widgets.appex`（目录名含空格，与主程序包命名一致；可执行文件为 `AgentNotificationWidgets`）。开发包和 `--standalone` 包都要带上。（2026-09-24 验收同步：按实际产物命名）
   - bundle id：`local.session-manager.inbox.widgets`。
   - `CFBundlePackageType = XPC!`。
   - `NSExtension.NSExtensionPointIdentifier = com.apple.widgetkit-extension`。
