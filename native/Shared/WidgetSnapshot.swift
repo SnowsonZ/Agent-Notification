@@ -140,7 +140,8 @@ struct WidgetUsagePayload: Codable, Equatable {
         }
     }
 
-    struct SeriesRow: Codable, Equatable {
+    struct SeriesRow: Codable, Equatable, Identifiable {
+        var id: String { date }
         var date: String
         var totalTokens: Int
         var inputTokens: Int?

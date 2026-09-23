@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import Charts
 #if WIDGET_APPINTENTS
 import AppIntents
 #endif
@@ -291,27 +292,16 @@ struct UsageStaleHint: View {
 }
 
 struct InboxWidgetView: View {
+    @Environment(\.widgetFamily) private var family
     let entry: InboxEntry
 
     var body: some View {
         Group {
             if let snapshot = entry.box.snapshot {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("\(snapshot.inbox.pending)")
-                            .font(.system(size: 36, weight: .bold))
-                            .foregroundStyle(snapshot.inbox.pending > 0 ? Color.primary : Color.secondary)
-                        Text("待查看").font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Text("进行中 \(snapshot.inbox.running)").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if let first = snapshot.inbox.pendingItems.first {
-                        let title = first.title.isEmpty ? first.project : first.title
-                        Text(widgetProviderName(first.provider) + " · " + title)
-                            .font(.caption2).lineLimit(2).foregroundStyle(.secondary)
-                    }
-                    UsageStaleHint(box: entry.box)
+                switch family {
+                case .systemSmall: small(snapshot)
+                case .systemLarge: large(snapshot)
+                default: medium(snapshot)
                 }
             } else {
                 Text("请打开会话通知").font(.caption)
@@ -319,9 +309,96 @@ struct InboxWidgetView: View {
         }
         .widgetURL(URL(string: "agentnotification://inbox"))
     }
+
+    // 小：待查看大字 + 进行中 + 最新一条来源
+    private func small(_ snapshot: WidgetSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(snapshot.inbox.pending)")
+                    .font(.system(size: 38, weight: .bold))
+                    .foregroundStyle(snapshot.inbox.pending > 0 ? Color.primary : Color.secondary)
+                Text("待查看").font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            HStack {
+                Text("进行中 \(snapshot.inbox.running)").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                if let first = snapshot.inbox.pendingItems.first {
+                    Text(widgetProviderName(first.provider)).font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            UsageStaleHint(box: entry.box)
+        }
+    }
+
+    // 中：最近 3 条待处理（图标位=来源名、标题、状态、相对时间）
+    private func medium(_ snapshot: WidgetSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("\(snapshot.inbox.pending) 待查看").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text("进行中 \(snapshot.inbox.running)").font(.caption2).foregroundStyle(.secondary)
+            }
+            ForEach(snapshot.inbox.pendingItems.prefix(3), id: \.id) { item in
+                HStack(spacing: 5) {
+                    Text(widgetProviderName(item.provider))
+                        .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
+                    Text(item.title.isEmpty ? item.project : item.title)
+                        .font(.caption).lineLimit(1)
+                    Spacer()
+                    Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            if snapshot.inbox.pendingItems.isEmpty {
+                Text("没有待处理事项").font(.caption).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            UsageStaleHint(box: entry.box)
+        }
+    }
+
+    // 大：待处理最多 6 条 + 进行中最多 3 条
+    private func large(_ snapshot: WidgetSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("待查看 \(snapshot.inbox.pending)").font(.caption).foregroundStyle(.secondary)
+            ForEach(snapshot.inbox.pendingItems.prefix(6), id: \.id) { item in
+                itemRow(item)
+            }
+            if !snapshot.inbox.runningItems.isEmpty {
+                Text("进行中 \(snapshot.inbox.running)").font(.caption).foregroundStyle(.secondary)
+                    .padding(.top, 2)
+                ForEach(snapshot.inbox.runningItems.prefix(3), id: \.id) { item in
+                    itemRow(item)
+                }
+            }
+            Spacer()
+            UsageStaleHint(box: entry.box)
+        }
+    }
+
+    private func itemRow(_ item: WidgetSnapshot.Inbox.Item) -> some View {
+        HStack(spacing: 5) {
+            Text(widgetProviderName(item.provider))
+                .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
+            Text(item.title.isEmpty ? item.project : item.title)
+                .font(.caption).lineLimit(1)
+            Spacer()
+            Text(item.state).font(.caption2).foregroundStyle(.tertiary)
+            Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
+        }
+    }
+
+    private func relative(_ at: Double) -> String {
+        let interval = Date().timeIntervalSince1970 - at
+        if interval < 60 { return "刚刚" }
+        if interval < 3600 { return "\(Int(interval / 60))分" }
+        if interval < 86400 { return "\(Int(interval / 3600))时" }
+        return "\(Int(interval / 86400))天"
+    }
 }
 
 struct UsageWidgetView: View {
+    @Environment(\.widgetFamily) private var family
     let entry: UsageEntry
 
     private var snapshot: WidgetSnapshot? { entry.box.snapshot }
@@ -330,9 +407,7 @@ struct UsageWidgetView: View {
     }
     private var rate: Double { snapshot?.fx.usdCny ?? 7.10 }
 
-    private var usage: WidgetUsagePayload? {
-        snapshot?.usage[entry.configuration.period]
-    }
+    private var usage: WidgetUsagePayload? { snapshot?.usage[entry.configuration.period] }
 
     private var dimensionRows: [WidgetUsagePayload.By.Row] {
         guard let by = usage?.by else { return [] }
@@ -344,9 +419,8 @@ struct UsageWidgetView: View {
     }
 
     private var tokenTotal: Int? {
-        guard let usage else { return nil }
-        let tokens = usage.totals.totalTokens
-        return tokens > 0 ? tokens : nil
+        guard let usage, usage.totals.totalTokens > 0 else { return nil }
+        return usage.totals.totalTokens
     }
 
     private var money: Double? {
@@ -357,9 +431,8 @@ struct UsageWidgetView: View {
 
     private var environmentChange: Double? {
         guard let usage, let previous = usage.previous else { return nil }
-        let current = usage.totals.totalTokens
-        guard previous.totalTokens > 0, current > 0 else { return nil }
-        return Double(current - previous.totalTokens) / Double(previous.totalTokens)
+        guard previous.totalTokens > 0, usage.totals.totalTokens > 0 else { return nil }
+        return Double(usage.totals.totalTokens - previous.totalTokens) / Double(previous.totalTokens)
     }
 
     var body: some View {
@@ -367,35 +440,10 @@ struct UsageWidgetView: View {
             if snapshot == nil {
                 Text("请打开会话通知").font(.caption)
             } else if let usage {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        if entry.configuration.metric == "tokens" {
-                            Text(tokenTotal.map { tokenText($0) } ?? "—")
-                                .font(.system(size: 26, weight: .bold))
-                                .minimumScaleFactor(0.6)
-                        } else {
-                            Text(moneyText(money, currency: currency))
-                                .font(.system(size: 26, weight: .bold))
-                                .minimumScaleFactor(0.6)
-                        }
-                        if let change = environmentChange {
-                            Image(systemName: change >= 0 ? "arrow.up.right" : "arrow.down.right")
-                                .font(.caption2).foregroundStyle(change >= 0 ? Color.secondary : Color.green)
-                        }
-                    }
-                    if entry.configuration.metric != "tokens" {
-                        Text(tokenTotal.map { "\($0) tokens" } ?? "—").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    ForEach(dimensionRows.prefix(2), id: \.key) { row in
-                        Text(widgetProviderName(row.key) + " " + percent(row, usage))
-                            .font(.caption2).lineLimit(1).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    HStack {
-                        Text(periodLabel(usage.period)).font(.caption2).foregroundStyle(.secondary)
-                        Spacer()
-                        UsageStaleHint(box: entry.box)
-                    }
+                switch family {
+                case .systemSmall: small(usage)
+                case .systemLarge: large(usage)
+                default: medium(usage)
                 }
             } else {
                 Text("用量待刷新").font(.caption)
@@ -404,23 +452,151 @@ struct UsageWidgetView: View {
         .widgetURL(URL(string: "agentnotification://report?period=" + entry.configuration.period))
     }
 
-    private func percent(_ row: WidgetUsagePayload.By.Row, _ usage: WidgetUsagePayload) -> String {
-        guard usage.totals.totalTokens > 0 else { return "" }
-        let share = Double(row.totalTokens) / Double(usage.totals.totalTokens)
-        return String(format: "%.0f%%", share * 100)
+    // 小：所选度量大字 + 另一度量小字 + 环比箭头
+    private func small(_ usage: WidgetUsagePayload) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(primaryValue(usage))
+                    .font(.system(size: 26, weight: .bold))
+                    .minimumScaleFactor(0.6)
+                if let change = environmentChange {
+                    Image(systemName: change >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.caption2).foregroundStyle(change >= 0 ? Color.secondary : Color.green)
+                }
+            }
+            Text(secondaryValue(usage)).font(.caption2).foregroundStyle(.secondary)
+            Spacer()
+            HStack {
+                Text(periodLabel(usage.period)).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                UsageStaleHint(box: entry.box)
+            }
+        }
+    }
+
+    // 中：左侧合计，右侧所选视角 Top 4 横向条
+    private func medium(_ usage: WidgetUsagePayload) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(primaryValue(usage))
+                    .font(.system(size: 24, weight: .bold)).minimumScaleFactor(0.6)
+                Text(secondaryValue(usage)).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                UsageStaleHint(box: entry.box)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 5) {
+                let rows = dimensionRows
+                let top = rows.prefix(4)
+                let other = rows.dropFirst(4)
+                ForEach(Array(top), id: \.key) { row in
+                    barRow(row, total: usage.totals.totalTokens)
+                }
+                if !other.isEmpty {
+                    barRow(
+                        WidgetUsagePayload.By.Row(
+                            key: "其他",
+                            name: nil,
+                            totalTokens: other.reduce(0) { $0 + $1.totalTokens },
+                            cost: .empty
+                        ),
+                        total: usage.totals.totalTokens
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // 大：中尺寸内容 + 周期内逐天柱图（Swift Charts）
+    private func large(_ usage: WidgetUsagePayload) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            medium(usage)
+                .frame(maxHeight: 120)
+            if let series = usage.series, !series.isEmpty {
+                Chart(series) { row in
+                    BarMark(
+                        x: .value("日期", shortDay(row.date)),
+                        y: .value("token", Double(row.totalTokens))
+                    )
+                    .foregroundStyle(Color.accentColor.opacity(0.7))
+                    .cornerRadius(2)
+                }
+                .chartXAxis(.hidden)
+                .frame(height: 80)
+            }
+        }
+    }
+
+    private func barRow(_ row: WidgetUsagePayload.By.Row, total: Int) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack {
+                Text(displayName(row.key)).font(.caption2).lineLimit(1)
+                Spacer()
+                Text(moneyText(moneyOrNil(row.cost), currency: currency))
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.15))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor.opacity(0.7))
+                        .frame(width: max(2, proxy.size.width * share(row.totalTokens, total)))
+                }
+            }
+            .frame(height: 5)
+        }
+    }
+
+    private func primaryValue(_ usage: WidgetUsagePayload) -> String {
+        if entry.configuration.metric == "tokens" {
+            return tokenTotal.map { tokenText($0) } ?? "—"
+        }
+        return moneyText(money, currency: currency)
+    }
+
+    private func secondaryValue(_ usage: WidgetUsagePayload) -> String {
+        entry.configuration.metric == "tokens"
+            ? "金额 \(moneyText(money, currency: currency))"
+            : "\(tokenTotal.map { tokenText($0) } ?? "—") tokens"
+    }
+
+    private func moneyOrNil(_ cost: WidgetSnapshotMoney) -> Double? {
+        let total = widgetMoneyTotal(cost, currency: currency, rate: rate)
+        return total > 0 ? total : nil
+    }
+
+    private func share(_ tokens: Int, _ total: Int) -> Double {
+        total > 0 ? Double(tokens) / Double(total) : 0
+    }
+
+    private func shortDay(_ iso: String) -> String {
+        let day = iso.suffix(2)
+        return String(day.prefix(1) == "0" ? day.dropFirst() : day)
     }
 
     private func periodLabel(_ period: String) -> String {
         ["day": "今日", "week": "本周", "month": "本月"][period] ?? period
     }
+
+    private func displayName(_ key: String) -> String {
+        widgetProviderNames[key] ?? key
+    }
 }
 
 struct RecentWidgetView: View {
+    @Environment(\.widgetFamily) private var family
     let entry: RecentEntry
+
+    private var limit: Int { family == .systemLarge ? 8 : 4 }
 
     private var items: [WidgetSnapshot.RecentItem] {
         guard let snapshot = entry.box.snapshot else { return [] }
-        return snapshot.recent.filter { entry.providerFilter == nil || $0.provider == entry.providerFilter }
+        return Array(
+            snapshot.recent
+                .filter { entry.providerFilter == nil || $0.provider == entry.providerFilter }
+                .prefix(limit)
+        )
     }
 
     var body: some View {
@@ -431,11 +607,12 @@ struct RecentWidgetView: View {
                 Text("暂无最近任务").font(.caption).foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(items.prefix(6), id: \.id) { item in
+                    ForEach(items, id: \.id) { item in
                         Link(destination: destination(item)) {
                             VStack(alignment: .leading, spacing: 1) {
                                 HStack(spacing: 4) {
-                                    Text(widgetProviderName(item.provider)).font(.caption2).foregroundStyle(.secondary)
+                                    Text(widgetProviderName(item.provider))
+                                        .font(.caption2).foregroundStyle(.secondary)
                                     if !item.title.isEmpty || !item.project.isEmpty {
                                         Text(item.title.isEmpty ? item.project : item.title)
                                             .font(.caption).lineLimit(1)
@@ -444,7 +621,9 @@ struct RecentWidgetView: View {
                                     Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 if let tokens = item.todayTokens {
-                                    let money = item.todayCost.flatMap { widgetMoneyTotal($0, currency: "CNY", rate: entry.box.snapshot?.fx.usdCny ?? 7.10) }
+                                    let money = item.todayCost.flatMap {
+                                        widgetMoneyTotal($0, currency: "CNY", rate: entry.box.snapshot?.fx.usdCny ?? 7.10)
+                                    }
                                     Text(tokenText(tokens) + (money.map { " · " + moneyText($0, currency: "CNY") } ?? ""))
                                         .font(.caption2).foregroundStyle(.tertiary)
                                 }
@@ -458,7 +637,7 @@ struct RecentWidgetView: View {
         }
     }
 
-    // 组件只走 widgetURL/Link 唤起 App（§5）；点击 recent 条目进收件箱并打开该行。
+    // 组件只走 widgetURL/Link 唤起 App（§5）；点击 recent 条目按 id+revision 打开原会话。
     private func destination(_ item: WidgetSnapshot.RecentItem) -> URL {
         URL(string: "agentnotification://open?id=\(item.id)&revision=\(item.revision)")
             ?? URL(string: "agentnotification://inbox")!
