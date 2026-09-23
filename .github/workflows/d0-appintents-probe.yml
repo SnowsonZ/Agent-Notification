@@ -110,7 +110,7 @@ jobs:
           echo "VARIANT-B done"
           ls -la build/d0/
           echo "--- global constvals search ---"
-          find "$GITHUB_WORKSPACE" -name "*constvals*" -not -path "*/.git/*" 2>/dev/null | head -10 || true
+          find "$GITHUB_WORKSPACE" -name "*constvalue*" -not -path "*/.git/*" 2>/dev/null | head -10 || true
           echo "--- CI swiftc const/strings params ---"
           xcrun swiftc --help-hidden 2>&1 | grep -iE "const.values|stringsdata" | head -10 || true
 
@@ -119,7 +119,7 @@ jobs:
           TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
           XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
-          find "$GITHUB_WORKSPACE" -name "*constvals*" -not -name "*.txt" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
+          find "$GITHUB_WORKSPACE" -name "*constvalue*" -not -name "*.txt" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
           echo "--- constvals.txt ---"; cat build/d0/constvals.txt || true
           find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/sources.txt
           echo "--- constvals list ---"; cat build/d0/constvals.txt || true
