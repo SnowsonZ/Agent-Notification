@@ -429,17 +429,13 @@ def _zcode_data(home):
                 bucket[index] += req_four[index]
         if len(request_sums) == 1:
             model_key = next(iter(request_sums))
-            raw_models = [
-                part[0] for part in parts if canonical(part[0]) == model_key
-            ]
+            raw_models = [part[0] for part in parts if canonical(part[0]) == model_key]
             turns.append(
                 (target, start, end, *turn_four, raw_models[0], count_turn, activity)
             )
             continue
         # 多 model：逐项按占比拆分轮级 token，取整误差归占比最大的 model。
-        largest = max(
-            request_sums, key=lambda key: sum(request_sums[key])
-        )
+        largest = max(request_sums, key=lambda key: sum(request_sums[key]))
         total_sums = [
             sum(bucket[index] for bucket in request_sums.values()) or 1
             for index in range(4)
@@ -1265,6 +1261,7 @@ from usage_cost import (
     PricingTables,
     cost_for_models,
     empty_cost,
+    load_fx,
     merge_cost,
 )
 
@@ -1405,14 +1402,29 @@ def _merge_day_tasks(report, base, excluded_sessions):
         # 来源部分被清理：三类合计沿用现有报告，差额记 unknown。
         merged_record = dict(record)
         diff = {
-            "fresh_input": max(int(old.get("input_tokens") or 0) - int(record.get("input_tokens") or 0), 0),
+            "fresh_input": max(
+                int(old.get("input_tokens") or 0)
+                - int(record.get("input_tokens") or 0),
+                0,
+            ),
             "cache_write": 0,
-            "cache_read": max(int(old.get("cache_tokens") or 0) - int(record.get("cache_tokens") or 0), 0),
-            "output": max(int(old.get("output_tokens") or 0) - int(record.get("output_tokens") or 0), 0),
+            "cache_read": max(
+                int(old.get("cache_tokens") or 0)
+                - int(record.get("cache_tokens") or 0),
+                0,
+            ),
+            "output": max(
+                int(old.get("output_tokens") or 0)
+                - int(record.get("output_tokens") or 0),
+                0,
+            ),
         }
         models = dict(merged_record.get("models") or {})
         unknown = models.get(UNKNOWN) or {
-            "fresh_input": 0, "cache_write": 0, "cache_read": 0, "output": 0
+            "fresh_input": 0,
+            "cache_write": 0,
+            "cache_read": 0,
+            "output": 0,
         }
         for name in MODEL_KEYS:
             unknown[name] = int(unknown.get(name) or 0) + diff[name]
@@ -1438,7 +1450,11 @@ def _merge_day_tasks(report, base, excluded_sessions):
         if is_v7:
             restored = True
     merged.sort(
-        key=lambda item: (-item.get("total_tokens", 0), item.get("provider", ""), item.get("session_id", ""))
+        key=lambda item: (
+            -item.get("total_tokens", 0),
+            item.get("provider", ""),
+            item.get("session_id", ""),
+        )
     )
     return merged, restored
 
@@ -1446,14 +1462,20 @@ def _merge_day_tasks(report, base, excluded_sessions):
 def _merge_day_report(report, base, excluded_sessions):
     """合并任务并用 build_report 重算 totals；返回 (new_report, restored_v7)。"""
     merged, restored = _merge_day_tasks(report, base, excluded_sessions)
-    if not restored and len(merged) == len(report.get("tasks") or []) and base.get("version") == REPORT_VERSION:
+    if (
+        not restored
+        and len(merged) == len(report.get("tasks") or [])
+        and base.get("version") == REPORT_VERSION
+    ):
         # 没有恢复发生且任务集不变：直接用重扫报告。
         return report, False
     restored_flag = restored or any("restored_from" in record for record in merged)
     new_report = build_report(
         parse_day(report["date"]), merged, report.get("generated_at") or time.time()
     )
-    new_report["generated_at"] = report.get("generated_at") or new_report["generated_at"]
+    new_report["generated_at"] = (
+        report.get("generated_at") or new_report["generated_at"]
+    )
     if restored_flag:
         new_report["migrated_from"] = REPORT_V7
     return new_report, restored_flag
@@ -1474,7 +1496,9 @@ def finalize_day_report(
         _backup_v7_reports(root)
     base = current or legacy
     if base is None:
-        backup = _read_report_version(Path(root) / "reports.v7.bak", day_text, REPORT_V7)
+        backup = _read_report_version(
+            Path(root) / "reports.v7.bak", day_text, REPORT_V7
+        )
         base = backup
     if base is not None:
         report, _restored = _merge_day_report(report, base, excluded_sessions)
@@ -1533,32 +1557,36 @@ def generate_overview(store, home, *, days=182, top=5):
     )
     day_rows = []
     pricing_tables = PricingTables.load(store.root)
-    cost_rows = []  # (day, report) 先收集，算金额分位阈值后产出 cost_level
+    # §7 热力图按金额着色：定稿报告不存金额（§3），逐日从 totals.models 现算
+    # CNY 视图金额（汇率读 load_fx），阈值取有消耗日金额的 50/75/90 分位。
+    fx_rate = load_fx(store.root)["USD_CNY"]
+
+    def cny_view(cost):
+        total = 0.0
+        for bucket in ("input", "cache", "output", "native_fallback"):
+            entries = cost.get(bucket) or {}
+            total += (
+                float(entries.get("CNY") or 0)
+                + float(entries.get("USD") or 0) * fx_rate
+            )
+        return total
+
+    day_cost_map = {}
+    amounts = []
     for offset in range(days):
         day = first_day + timedelta(days=offset)
-        cost_rows.append((day, live_today if day == today else cached.get(day)))
-    # §7 热力图按金额着色：阈值取近 N 天有消耗日日金额（CNY 视图）的 50/75/90 分位。
-    amounts = []
-    for day, report in cost_rows:
-        cost = (
-            (report or {}).get("totals", {}).get("cost")
-            if isinstance(report, dict)
-            else None
-        )
-        if cost:
-            cny = (
-                float(cost.get("input", {}).get("CNY") or 0)
-                + float(cost.get("cache", {}).get("CNY") or 0)
-                + float(cost.get("output", {}).get("CNY") or 0)
-                + float(cost.get("native_fallback", {}).get("CNY") or 0)
-                + float(cost.get("native_fallback", {}).get("USD") or 0) * 7.10
-            )
-            if cny > 0:
-                amounts.append(cny)
-    thresholds = [0.0, 0.0, 0.0]
-    if len(amounts) >= 8:
-        amounts.sort()
-        thresholds = [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)]
+        report = live_today if day == today else cached.get(day)
+        models = ((report or {}).get("totals") or {}).get("models") or {}
+        day_cost = cost_for_models(models, day, pricing_tables)[0]
+        day_cost_map[day] = day_cost
+        value = cny_view(day_cost)
+        if value > 0:
+            amounts.append(value)
+    thresholds = (
+        [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)]
+        if len(amounts) >= 8
+        else [0.0, 0.0, 0.0]
+    )
     for offset in range(days):
         day = first_day + timedelta(days=offset)
         text = day.isoformat()
@@ -1570,18 +1598,15 @@ def generate_overview(store, home, *, days=182, top=5):
                 time.time(),
                 agent_excluded=agent_stats.get(day),
             )
-            report = finalize_day_report(store.root, day, report)
+            report = finalize_day_report(
+                store.root,
+                day,
+                report,
+                excluded_sessions=set(agent_stats.get(day, {}).get("tasks", set())),
+            )
         totals = report.get("totals", {})
-        day_cost, _, _ = cost_for_models(
-            totals.get("models") or {}, day, pricing_tables
-        )
-        cny_total = (
-            float(day_cost.get("input", {}).get("CNY") or 0)
-            + float(day_cost.get("cache", {}).get("CNY") or 0)
-            + float(day_cost.get("output", {}).get("CNY") or 0)
-            + float(day_cost.get("native_fallback", {}).get("CNY") or 0)
-            + float(day_cost.get("native_fallback", {}).get("USD") or 0) * 7.10
-        )
+        day_cost = day_cost_map[day]
+        cny_total = cny_view(day_cost)
         day_rows.append(
             {key: int(totals.get(key) or 0) for key in CLASSES}
             | {
