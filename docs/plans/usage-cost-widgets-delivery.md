@@ -427,3 +427,22 @@ scratch/r6-unknown-ratio.json，本机数据不入库。）
 ### 复验要求
 
 修复 R8、R10、R15、R17、R18、R19，补齐上面的回归测试，完成 R1 的运行记录清理，并更新状态表中的 SHA。push 后让主 workflow 完整通过（附 run 链接），再申请第三轮复验。
+
+## 第二轮复验修复响应（2026-09-24，实现方）
+
+| # | 状态 | 说明 |
+|---|---|---|
+| R8 | ✅ 重修（本轮） | runningRows 去掉 inboxNotifyEligible；判定抽为 `widgetRunningListed` 纯函数（InboxPolicy）并补 5 条断言。此前修复确在假提交事故中丢失（与 074bf39 同模式：多段替换脚本中途失败，write_text 未执行但 commit message 已声称修复），本轮起每个修复单独验证文件内容后提交 |
+| R15 | ✅ 重修（本轮） | 三处 hideTitles 只清标题（判定抽为 `widgetEntryTitle` 纯函数 + 3 条断言）；项目名全部保留 |
+| R10 | ✅ 重做 | 重设计：`WidgetURLGate`（2 秒防抖，纯函数）+ `WidgetURLQueue`（enqueue/markHandled/flush，纯函数）；通知路径处理后 markHandled 移出队列（不重放）；去掉 delivered（同条目窗口外可再开）；**行未就绪挂起**：handleWidgetURL 在 rows 为空时直接返回（URL 留在队列），rows 首次加载后 flush 补处理（InboxView 监听 $rows.isEmpty 变化）。三种情况（防抖重复/通知处理后不重放/挂起补处理）在 InboxPolicyTests 各有断言 |
+| R17 | ✅（本轮） | amounts.sort() 恢复；回归测试断言乱序输入的阈值 [20,80,200] 与各级分布 |
+| R18 | ✅（本轮） | 主 workflow 断言改 test -d |
+| R19 | ✅（本轮） | 非法数值（负数/非有限）同样保留上一版条目；上一版缺失时丢弃并记原因；回归测试两条 |
+| 回归测试 | ✅ 补齐 | 价格 3 条（history 继承/负数保留/别名冲突与一致）、迁移 5 条（按任务合并/agent 不恢复/部分清理差额/--refresh 不降级/v7.bak 回退）、周期调价 1 条（totals=series 之和且各段按各自价格）、热力 1 条（乱序分位与分布）、Swift 2 组（R8 口径/R15 标题 + R10 桥三情况）。总测试数 258 → 271 |
+| R1 残留 | ✅ 已执行 | 84 个旧 SHA 孤儿运行已删除（清单在上文），删除后复验无旧 SHA 残留；其他 task 分支的 1 个运行与评审方运行保留；R1 口径改为「运行记录已清理；旧提交仍可按 SHA 访问（未联系 GitHub Support，用户已知情）」 |
+| 状态表 | ✅ | 已替换为改写后 SHA（如 7f8fc4b→2b3b1dc、9080a51→1c30add） |
+
+### 待推送
+
+以上修复与测试按用户约束保留在本地（6555ffb 及此前若干提交）。第三轮复验需要
+push 后跑主 workflow——**待用户确认后推送**。
