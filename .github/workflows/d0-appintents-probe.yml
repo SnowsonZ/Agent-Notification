@@ -200,6 +200,7 @@ jobs:
           fi
 
       - name: Discover real emit params from frontend binary
+        if: always()
         run: |
           FE="$(xcrun -f swift-frontend)"
           echo "--- -h emit options ---"
