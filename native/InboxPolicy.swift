@@ -47,29 +47,6 @@ func inboxDurationText(from: Double, to: Double) -> String {
     if span < 86400 { return "\(span / 3600)小时\(span % 3600 / 60)分" }
     return "\(span / 86400)天\(span % 86400 / 3600)小时"
 }
-// token 计数 k/M/B：<1k 原值、≥1k x.k、≥1M x.xM（<10M 两位小数）、≥1B x.xxB，末尾零去除。
-func trimTrailingZeros(_ text: String) -> String {
-    var result = text
-    if result.contains(".") {
-        while result.hasSuffix("0") { result.removeLast() }
-        if result.hasSuffix(".") { result.removeLast() }
-    }
-    return result
-}
-func tokenText(_ value: Int) -> String {
-    if value <= 0 { return "0" }
-    if value < 1_000 { return String(value) }
-    let units: [(factor: Double, symbol: String, decimals: Int)] =
-        [(1_000_000_000, "B", 2), (1_000_000, "M", 1), (1_000, "k", 1)]
-    for unit in units where Double(value) >= unit.factor {
-        let mantissa = Double(value) / unit.factor
-        let text = mantissa < 100
-            ? trimTrailingZeros(String(format: "%.\(unit.decimals)f", mantissa))
-            : String(format: "%.0f", mantissa)
-        return text + unit.symbol
-    }
-    return String(value)
-}
 // 日报日期键「YYYY-MM-DD」：今日高亮与实时标注按它比对报告日期。
 func dailyReportDayKey(_ date: Date, calendar: Calendar = .current) -> String {
     let components = calendar.dateComponents([.year, .month, .day], from: date)
@@ -94,33 +71,6 @@ func rhythmRange(_ segments: [[[Double]]], dayStart: Double) -> (Double, Double)
 }
 // 热力分级阈值只在 Python（daily_report.heat_level）实现，界面直接使用载荷里的 level；
 // Swift 不留第二份实现，避免双语言口径漂移（旧副本阈值曾与 Python 不一致）。
-
-// MARK: - 金额展示（usage-cost.md §5）
-
-// 与 Python money_text 同规则、测试用例相同：None（无可定价 token）→ "—"；
-// 0 → $0.00；0 < |v| < 0.01 → <$0.01 / <¥0.01；其余两位小数千分位。
-func moneyText(_ value: Double?, currency: String) -> String {
-    guard let value else { return "—" }
-    let symbol = currency == "USD" ? "$" : "¥"
-    if abs(value) < 1e-9 { return "\(symbol)0.00" }
-    if abs(value) < 0.01 { return "<\(symbol)0.01" }
-    let parts = String(format: "%.2f", abs(value)).split(separator: ".")
-    var whole = String(parts[0])
-    var grouped = ""
-    while whole.count > 3 {
-        let cut = whole.index(whole.endIndex, offsetBy: -3)
-        grouped = "," + whole[cut...] + grouped
-        whole = String(whole[..<cut])
-    }
-    let sign = value < 0 ? "-" : ""
-    let fraction = parts.count > 1 ? String(parts[1]) : "00"
-    return "\(sign)\(symbol)\(whole + grouped).\(fraction)"
-}
-
-// 展示换算（usage-cost.md §5）：CNY 视图 = USD×rate + CNY；USD 视图 = USD + CNY/rate。
-func convertAmount(usd: Double, cny: Double, to currency: String, rate: Double) -> Double {
-    currency == "CNY" ? usd * rate + cny : usd + cny / rate
-}
 
 // MARK: - 组件快照刷新（desktop-widgets.md §3）
 

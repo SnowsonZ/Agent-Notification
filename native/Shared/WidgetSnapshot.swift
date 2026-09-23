@@ -5,6 +5,67 @@ import Foundation
 // hide_titles 打开时标题根本不写入文件（写空字符串），而不只是显示时隐藏。
 // Python 侧金额对象 / `inbox usage` 输出为 snake_case，统一用 CodingKeys 映射。
 
+// token 计数 k/M/B：<1k 原值、k/M 段 mantissa<100 保留小数否则取整、B 段两位小数，
+// 末尾零去除（与 Python token_text 同规则）。
+func trimTrailingZeros(_ text: String) -> String {
+    var result = text
+    if result.contains(".") {
+        while result.hasSuffix("0") { result.removeLast() }
+        if result.hasSuffix(".") { result.removeLast() }
+    }
+    return result
+}
+func tokenText(_ value: Int) -> String {
+    if value <= 0 { return "0" }
+    if value < 1_000 { return String(value) }
+    let units: [(factor: Double, symbol: String, decimals: Int)] =
+        [(1_000_000_000, "B", 2), (1_000_000, "M", 1), (1_000, "k", 1)]
+    for unit in units where Double(value) >= unit.factor {
+        let mantissa = Double(value) / unit.factor
+        let text = mantissa < 100
+            ? trimTrailingZeros(String(format: "%." + String(unit.decimals) + "f", mantissa))
+            : String(format: "%.0f", mantissa)
+        return text + unit.symbol
+    }
+    return String(value)
+}
+
+// MARK: - 金额展示与换算（usage-cost.md §5；App 与组件共享）
+
+// 与 Python money_text 同规则、测试用例相同：nil（无可定价 token）→ "—"；
+// 0 → $0.00；0 < |v| < 0.01 → <$0.01 / <¥0.01；其余两位小数千分位。
+func moneyText(_ value: Double?, currency: String) -> String {
+    guard let value else { return "—" }
+    let symbol = currency == "USD" ? "$" : "¥"
+    if abs(value) < 1e-9 { return "\(symbol)0.00" }
+    if abs(value) < 0.01 { return "<\(symbol)0.01" }
+    let parts = String(format: "%.2f", abs(value)).split(separator: ".")
+    var whole = String(parts[0])
+    var grouped = ""
+    while whole.count > 3 {
+        let cut = whole.index(whole.endIndex, offsetBy: -3)
+        grouped = "," + whole[cut...] + grouped
+        whole = String(whole[..<cut])
+    }
+    let sign = value < 0 ? "-" : ""
+    let fraction = parts.count > 1 ? String(parts[1]) : "00"
+    return "\(sign)\(symbol)\(whole + grouped).\(fraction)"
+}
+
+// 展示换算：CNY 视图 = USD×rate + CNY；USD 视图 = USD + CNY/rate。
+func convertAmount(usd: Double, cny: Double, to currency: String, rate: Double) -> Double {
+    currency == "CNY" ? usd * rate + cny : usd + cny / rate
+}
+
+// 金额对象 → 单币种展示值（三类合计 + native 兜底；未定价 token 不折算）。
+func widgetMoneyTotal(_ cost: WidgetSnapshotMoney, currency: String, rate: Double) -> Double {
+    var total = 0.0
+    for bucket in [cost.input, cost.cache, cost.output, cost.nativeFallback ?? [:]] {
+        total += convertAmount(usd: bucket["USD"] ?? 0, cny: bucket["CNY"] ?? 0, to: currency, rate: rate)
+    }
+    return total
+}
+
 struct WidgetSnapshotMoney: Codable, Equatable {
     var input: [String: Double]
     var cache: [String: Double]
