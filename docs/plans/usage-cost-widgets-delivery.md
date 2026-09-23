@@ -227,3 +227,45 @@ W 编号不属于本里程碑。
 ### 复验要求
 
 修复后开 PR，让 `build` workflow 完整运行。PR 描述中逐条对应 R1–R16，写明修复方式与证据；R2、R6 需附真实数据前后对比。复验通过后，再进行 W1、W4、W7、W9 与配置面板的用户 UI 验收。
+
+
+## 验收修复响应（2026-09-24，实现方）
+
+逐条状态（R1–R16），详情见各提交：
+
+| # | 状态 | 说明 |
+|---|---|---|
+| R1 | ✅ 已删除 + .gitignore（9271f9b） | 文件仍存在于分支历史（f73e41b/36112b8）且曾推送公开仓库；**是否改写历史强制推送由用户决定**（改写不能撤回已暴露的事实）。根因：写入器曾把 SessionManagerRoot（代码根）当数据根，仓库根的 widget/snapshot.json 被 `git add -A` 带入 |
+| R2/R3 | ✅ 合并逻辑重写（7f8fc4b）+ 真实数据恢复 | finalize_day_report 与磁盘现有报告（任意版本）按任务合并不降级；磁盘缺失回退 reports.v7.bak；agent 判定会话不恢复；部分清理任务沿用现有三类合计、差额记 unknown。**恢复对比**：36 个被降级日子（含验收发现的 27 天）已拷回 v7 并重算，全部合计 ≥ 备份原值且带 migrated_from: 7，零降级（明细 scratch/r2-restore-result.json，本机数据不入库） |
+| R4 | ✅（607af1a） | 单价不变原样继承 history；防护（>10 倍跳变）原样保留上一版条目；别名冲突丢弃；U6 补回归断言 |
+| R5 | ✅（a831146） | workflow Swift 测试命令补 Shared/WidgetSnapshot.swift；PR 待评审后创建（用户要求评审完毕前不推送） |
+| R6 | ✅（7f8fc4b） | 按修订 §2「Zcode 归属」实现。**补测（下表）：最近 7 天 unknown 占比 46.8% → 0.002%** |
+| R7 | ✅（3ba04a2） | 阈值与逐日金额从 totals.models 经 cost_for_models 现算，汇率读 load_fx |
+| R8 | ✅（9080a51） | 进行中只排除 agent，与 activeCount 同口径 |
+| R9 | ✅（9080a51） | InboxModel 低频（5 分钟）拉今日报告构建 provider:session_id 映射传入写入器 |
+| R10 | ✅ 部分（9080a51） | 同 URL 不重投递（delivered 集合）、flush 清空。**冷启动行未就绪仍丢弃**（取舍：误打开比漏打开后果重）；如要求挂起等待，改动点在 InboxView.handleWidgetURL |
+| R11 | ✅（9f7b393） | totals/by/previous 逐日计价累加；实测 totals.cost 与 series 之和逐位一致 |
+| R12 | ✅（9f7b393） | _iter_reports 补录带 agent_stats |
+| R13 | ✅（607af1a） | 分歧别名丢弃并记入 guards |
+| R14 | ✅（9080a51） | inbox 中/大条目逐条 Link（open?id&revision） |
+| R15 | ✅（9080a51） | hide_titles 只清标题 |
+| R16 | ✅（9080a51 等） | InfoDictionaryVersion 6.0；appex 命名三方（规范/构建/CI 断言）已统一为含空格 |
+
+### R6 补测：最近 7 天各来源 unknown 占比（新算法，2026-09-24 实测）
+
+| 来源 | tokens | unknown | 占比 |
+|---|---|---|---|
+| zcode | 1,121,539,635 | 0 | 0.0% |
+| claude | 579,697,627 | 0 | 0.0% |
+| codex | 189,737,731 | 0 | 0.0% |
+| kimi | 342,867 | 0 | 0.0% |
+| 合计 | 1,891,317,860 | 35,192 | 0.002% |
+
+（验收时 46.8% → 0.002%。剩余 35,192 为合并差额，可忽略。原始数据
+scratch/r6-unknown-ratio.json，本机数据不入库。）
+
+### 复验与推送状态
+
+- 按用户约束：**修复提交保留在本地，评审完毕前不推送**（当前未推送提交：
+  9271f9b..HEAD，含 R1 移除、R2/R3/R6/R7/R11/R12/R4/R13 与组件侧全部修复）。
+- 评审通过后一次性推送，并创建 PR 触发完整 `build` workflow（PR 描述引用本表）。
