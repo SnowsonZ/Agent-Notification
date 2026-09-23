@@ -45,3 +45,71 @@ W 编号不属于本里程碑。
 ### 需要用户验收的部分
 
 无（M1 全部为 Python 数据层与 CLI，单测 + 真实数据脚本已覆盖；界面验收在 M3/M4）。
+
+
+## M2 组件骨架（D0–D3）与 M3 日报界面（C1–C3）
+
+### D0 结论（评审重点）
+
+- **手动 swiftc + appintentsmetadataprocessor 在 Xcode 26/Swift 6.3 上不可行**：driver 接受
+  `-emit-const-values` 但静默不产出任何 `.swiftconstvalues`；前端 sema/默认模式明确报
+  「this mode does not support emitting extracted const values」；output-file-map、
+  `-emit-stringsdata`（参数不存在）等 18 轮组合全部排除。结论：const values 产出只能由
+  xcodebuild 构建系统驱动。
+- **采用预案 A**：配置式组件只在 Xcode 环境构建——`build_inbox_app.py` 生成最小 pbxproj
+  （app-extension target、SWIFT_ENABLE_EMIT_CONST_VALUES=YES、SWIFT_VERSION 5.0），
+  xcodebuild 构建后拷贝 appex；本机 CLT 走 swiftc 降级静态组件（已本地验证）。
+  CI 验证（Metadata.appintents 断言）待一轮运行确认（见「待 CI 验证」）。
+- 过程记录：临时 workflow 20 轮，结论沉淀于本节与 git 历史日期 09-23/09-24；确认结论后删除。
+
+### 变更摘要（M2）
+
+- `native/Widget/Widgets.swift`：inbox / usage / recent 三 kind；配置式（AppEnum 参数）
+  与降级（StaticConfiguration + prefs.fallback）条件编译；过时提示与「请打开会话通知」。
+- `native/Shared/WidgetSnapshot.swift`：双端共享快照结构 + moneyText/tokenText/换算
+  （与 Python 同组测试用例）；by 维度 Top 5 截断合并 `__other__`。
+- `WidgetSnapshotWriter`：刷新策略（签名不变不写不 reload；recent 60s 合并；usage 15 分钟），
+  0700/0600 原子写，hide_titles 不写标题；快照路径固定 `~/.local/state/session-manager/widget/`。
+- URL：`agentnotification://` 注册 + 全 App 级接收（窗口未开时暂存补送）；
+  `WidgetURLRouter.parse` host 白名单 + id/revision/period 校验（非法拒绝、不记参数原文）。
+
+### 变更摘要（M3）
+
+- 周期（日/周/月）与币种（CNY/USD，默认 CNY）分段控件，UserDefaults 持久化；
+  周/月视图：汇总卡（金额大字/三类/任务/环比/未定价）、金额与 token 三段堆叠柱图、
+  月视图累计折线、来源与模型榜（Top 6 + 其他）、Top 5 项目、周期导航（下期不超本期）、口径注脚。
+- 日视图：汇总卡金额行与未定价提示、模型占比条（Top 6 + 其他）；overview/today/详情解码附 cost/models。
+- pricing：App 启动与每 6 小时后台执行 `pricing update --auto`（由命令判断到期）。
+- usage 拉取打开日报窗口 / 切币种立即刷新（§3）。
+
+### 本地验证证据
+
+- 257 项 Python 测试 + Swift 策略测试 + ruff 全部通过（每个里程碑提交前 CI 同口径）。
+- 截图（scratch/）：m3-daily-week.png（周视图 CNY 金额模式，¥2,040.20/环比 ↘70%/未定价 467M/
+  来源榜金额与 token 一致）、m3-daily-month-tokens.png（月视图 token 模式 + 累计折线，
+  ¥59,961.30/582 任务/2.1B 未定价）、m3-daily-day.png（日总览）。
+- 快照端到端（本机真实数据）：`~/.local/state/session-manager/widget/snapshot.json` 生成，
+  inbox/recent/usage 三周期/fx/prefs 齐全，键名 snake_case，by 维度 Top 5 截断生效。
+- Swift 解码交叉验证：overview/day/usage 三份真实 JSON 解码通过（本地最小依赖测试）。
+- **组件数字与 CLI 一致性（W5）**：周快照 total 887,002,972 与 `inbox usage --period week` 同源。
+
+### 偏离与疑点
+
+1. **快照 fx 键名为 `usd_cny`**（规范示例 `USD_CNY`）：解码策略 convertFromSnakeCase 的
+   转换结果要求；组件与 App 读写同一文件、语义一致。
+2. **`@State` 不可用**（裸 swiftc 无 SwiftUIMacros）：金额/token 切换状态放模型层。
+3. **日总览页暂无金额行**（金额在汇总卡=当日详情页与周/月视图）；热力图按金额着色开关、
+   悬浮卡金额行、x 轴标签截断优化为 M3 尾巴，见「未完成」。
+4. 配置式构建的 pbxproj 由脚本生成（非 Xcode 维护）；构建产物经 codesign 与
+   Metadata.appintents 断言把关。
+
+### 未完成（下轮补）
+
+- 悬浮提示金额行（§7 悬浮卡）；热力图按金额着色开关（§7）；x 轴日期标签截断优化。
+- D4 组件界面视觉细化（当前为基础可读版）；W1/W7/W9 与配置面板的用户 UI 验收。
+
+### 待 CI 验证（1 轮）
+
+- 配置式组件构建：`build_inbox_app.py --standalone` 在 macos-26（Xcode 26）产出
+  Metadata.appintents，并全部 D1 断言（plist 键/版本同步/_NSExtensionMain/entitlements 两项/
+  URL scheme）通过。本地无 Xcode（缺 xcodebuild 与 appintentsmetadataprocessor），无法自验。
