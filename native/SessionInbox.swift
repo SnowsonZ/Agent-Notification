@@ -65,20 +65,26 @@ extension Notification.Name {
 @MainActor
 final class WidgetURLBridge {
     static let shared = WidgetURLBridge()
-    private var pending: [URL] = []
-    func deliver(_ url: URL) {
-        // R10：同一 URL 只投递一次（通知与 flush 都会触发处理，不能重放）。
-        if pending.contains(url) || delivered.contains(url) { return }
-        delivered.insert(url)
-        pending.append(url)
+    private var gate = WidgetURLGate()
+    private var queue = WidgetURLQueue()
+
+    /// 组件点击入口：防抖后投递通知（窗口已开时立即处理）并入队；
+    /// 处理方完成后调 markHandled 把 URL 移出队列（R10：只处理一次）。
+    func deliver(_ url: URL, now: TimeInterval = Date().timeIntervalSince1970) {
+        guard gate.accept(url, now: now) else { return }
+        queue.enqueue(url)
         NotificationCenter.default.post(name: .widgetURLOpen, object: url)
     }
-    func flush(to handler: (URL) -> Void) {
-        let queued = pending
-        pending.removeAll()
-        for url in queued { handler(url) }
+
+    /// 通知路径处理完成：移出队列，flush 不再重放。
+    func markHandled(_ url: URL) {
+        queue.markHandled(url)
     }
-    private var delivered: Set<URL> = []
+
+    /// 窗口挂载或首批行加载完成：补处理仍挂起的 URL（R10 冷启动挂起语义）。
+    func flush(to handler: (URL) -> Void) {
+        for url in queue.flush() { handler(url) }
+    }
 }
 
 // Dock 未读角标：dockTile.badgeLabel 在本应用不渲染（见 InboxModel.updateDockBadge 注），

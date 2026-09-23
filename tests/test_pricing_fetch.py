@@ -201,6 +201,75 @@ class FetchStateMachineTest(unittest.TestCase):
         second = (self.root / "pricing" / "fetched.json").read_text()
         self.assertEqual(first, second)
 
+    def test_history_inherited_when_price_unchanged(self):
+        # R4 修订：单价不变时原样继承旧条目的 history，且不算内容变化。
+        previous = {
+            "m": {
+                "input": 3.0,
+                "output": 12.0,
+                "currency": "USD",
+                "history": [{"until": "2026-01-01", "input": 6.0, "output": 24.0}],
+            }
+        }
+        entries, guards = transform(
+            {
+                "m": {
+                    "mode": "chat",
+                    "input_cost_per_token": 3e-6,
+                    "output_cost_per_token": 12e-6,
+                }
+            },
+            previous,
+            DAY,
+        )
+        # 单价不变：history 原样继承，不追加、不判变化。
+        self.assertEqual(
+            entries["m"]["history"],
+            [{"until": "2026-01-01", "input": 6.0, "output": 24.0}],
+        )
+        self.assertEqual(guards, [])
+
+    def test_negative_keeps_old_entry_when_previous_exists(self):
+        # R19 修订：非法数值时保留上一版条目（含 history）。
+        previous = {"m": {"input": 3.0, "output": 12.0, "currency": "USD"}}
+        entries, guards = transform(
+            {"m": {"mode": "chat", "input_cost_per_token": -1e-6}}, previous, DAY
+        )
+        self.assertEqual(entries["m"], previous["m"])
+        self.assertTrue(any("kept old" in guard for guard in guards))
+
+    def test_alias_conflict_dropped_consistent_kept(self):
+        # R13 修订：别名只有在所有指向条目四项单价完全一致时才保留。
+        raw = {
+            "provider-a/model-x": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+            },
+            "provider-b/model-x": {
+                "mode": "chat",
+                "input_cost_per_token": 5e-6,
+                "output_cost_per_token": 8e-6,
+            },
+            "provider-c/model-y": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+            },
+            "provider-d/model-y": {
+                "mode": "chat",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+            },
+        }
+        entries, guards = transform(raw, today=DAY)
+        self.assertNotIn("model-x", entries["provider-a/model-x"].get("aliases") or [])
+        self.assertNotIn("model-x", entries["provider-b/model-x"].get("aliases") or [])
+        self.assertTrue(any("model-x" in guard for guard in guards))
+        # model-y 两处单价一致：别名保留。
+        self.assertEqual(entries["provider-c/model-y"].get("aliases"), ["model-y"])
+        self.assertEqual(entries["provider-d/model-y"].get("aliases"), ["model-y"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -270,3 +270,66 @@ scratch/r6-unknown-ratio.json，本机数据不入库。）
   （`d6a157e`，含全部 R1–R16 修复）；原 hash（f73e41b/36112b8/db94a4e 等）全部作废，
   引用旧 hash 的地方（含本文档验收发现一节）以提交 message/日期对应理解。
 - 下一步：评审通过后创建 PR 触发完整 `build` workflow（PR 描述引用修复响应表）。
+
+
+## 复验发现（2026-09-24 第二轮，评审方）
+
+结论：**仍不通过**。数据层的核心问题已修好：R2、R3、R6 在真实数据上验证通过，这是本轮最重要的进展。但组件侧有 3 项未修或修错，修复中又引入了 2 个新缺陷，CI 主构建仍然失败。基线：本地 `2091e65`（远端 `d6a157e`）。
+
+**先修正本文的溯源信息**：上方状态表引用的提交（`9080a51`、`7f8fc4b`、`607af1a`、`3ba04a2`、`9f7b393`、`a831146`、`9271f9b`）都是改写历史之前的 SHA，现在已不存在（`git cat-file` 报 Not a valid object）。请替换为当前分支上的实际提交。
+
+### 已验证修复
+
+| # | 验证方式与结果 |
+|---|---|
+| R2/R3 | 以 `reports.v7.bak/` 对比 `reports/`：0 天低于 v7（上轮 27 天），58 天带 `migrated_from`。在状态目录副本上对 8/24、8/02 执行 `--refresh`，合计不变（584,704,005 / 13,404,467）。9/21 恢复为逐 model 数据，`agent_excluded` 保留 |
+| R6 | 最近 7 天 `unknown` 占比：zcode 1.4%，其余 0%（上轮分别为 61% 和 52%） |
+| R4 | 序列 p1→p2→p2→p2→p2：history 一直保留，`changed` 依次为 T,T,F,F,F，间隔 7→7→7→14→14；超过 10 倍跳变时保留旧条目 |
+| R9 | 已按 `provider:session_id` 接入今日报告 |
+| R11/R12 | 逐日计价；日、周、月 totals 与 series、by.harness、by.model 之和一致；补录路径带 `agent_stats` |
+| R13 | 分歧别名被丢弃，一致别名保留 |
+| R14/R16 | inbox 组件中/大尺寸逐条 `Link`；`CFBundleInfoDictionaryVersion` 已改为 6.0 |
+| 其他 | 本地 258 项测试通过、ruff 通过；按 CI 命令编译 Swift 策略测试通过 |
+
+### 未修或修错
+
+| # | 问题 | 证据 | 要求 |
+|---|---|---|---|
+| R8 | **未修**：`WidgetSnapshotWriter.swift` 中 `runningRows` 仍带 `inboxNotifyEligible`（要求未读）。提交 `1c30add` 的说明声称已修，但该提交没有改这个文件，修改很可能在改写历史时丢失 | `sed -n '/let human/,/recentRows/p' native/WidgetSnapshotWriter.swift` | 按原要求修复并补单测 |
+| R15 | **未修**：pending、running、recent 三处仍在 `hideTitles` 时清空 `project`（第 63、74、177 行），原因同 R8 | 同上文件 | 只清空标题 |
+| R10 | **重放未修，另引入新缺陷**。① `deliver` 在发通知的同时把 URL 放进 `pending`；窗口已打开时，通知立即处理一次，`pending` 里的这条仍在，下次 `onAppear` 调用 `flush` 时再处理一次，也就是重复打开。② 新增的 `delivered` 集合从不清空：同一条目（id、revision 不变）再次点击时 URL 完全相同，会被永久吞掉，直到 App 重启。③ 冷启动时丢弃点击：执行者的理由是「误打开比漏打开后果重」，这个理由不成立。挂起到行数据加载完成后再做 id 校验，不会造成误打开 | `native/SessionInbox.swift` 中的 `WidgetURLBridge` | 每次点击只处理一次：由通知路径处理的 URL 不再进入 `pending`（或处理后立即移除）；去掉 `delivered`，如需防抖只做短时间窗口（例如 2 秒）去重；行数据未就绪时挂起，首批行加载后再校验。三种情况都要有测试（可以把桥的状态机抽成纯函数） |
+
+### 本轮新缺陷
+
+| # | 问题 | 证据 | 要求 |
+|---|---|---|---|
+| R17 | **R7 修复引入的回归：取分位数之前没有排序**。`generate_overview` 从未排序的 `amounts`（按日期顺序）取 50/75/90 分位，旧代码中的 `amounts.sort()` 被删除。真实数据的 cost_level 分布为 `{0:114, 1:5, 2:45, 3:0, 4:18}`，68 个有消耗的日子中 3 级为 0 天 | `scripts/daily_report.py` 约第 1585 行 | 先排序；补测试：乱序的金额得到正确阈值与各级分布 |
+| R18 | **CI 主构建失败**：手动触发的 run 35913092966 失败在「Assert widget extension」步骤。构建日志显示已写出 `Metadata.appintents`，但它是目录（D0 阶段提交 `b434cf3` 已发现），主 workflow 却用 `test -f` 判断。上一轮 W8「CI 验证通过」的依据是临时探针 workflow，主 workflow 从未通过 | `gh run view 35913092966 --log` | 改为 `test -d`（或 `-e`），让主 workflow 完整跑通，附上 run 链接 |
+| R19 | 防护规则未完全落实：单价为负数或非有限值时，仍然直接删除条目，没有按修订后的规范 §4.4 保留上一版 | 评审复现：旧条目存在时，输入 `input_cost_per_token=-1`，结果条目为 None | 与 10 倍跳变同样处理 |
+
+### 回归测试严重不足
+
+本轮修复了十几项，测试总数只从 257 增加到 258：新增 2 个（Zcode 多 model 拆分、无 model_usage 记 unknown），删除 1 个（`test_v7_migration_uses_v8_when_not_smaller`），另改了 1 条断言。R17 这样的回归能混进来，原因就在这里。至少补齐下面这些，每条都要能在修复前失败、修复后通过：
+
+- 价格：单价不变时继承 history；非法数值和 10 倍跳变都保留旧条目；别名冲突时丢弃、一致时保留。
+- 迁移：按任务合并；只在 v7 中存在的任务被恢复；已改判为 agent 的任务不恢复；同一任务部分被清理时差额记 unknown；对已恢复日执行 `--refresh` 不降级；现有报告缺失时回退到 `reports.v7.bak`。
+- 周期：期内有调价时，totals 等于逐日之和，且各段按各自的价格计算（R11）。
+- 热力：乱序金额的分位与各级分布（R17）。
+- Swift：进行中口径（R8）、hide_titles 保留项目名（R15）、URL 桥（R10 的三种情况）。
+
+### R1 残留（运行记录由执行者清理；GitHub Support 暂不联系）
+
+历史改写与强制推送已完成，但**旧提交在 GitHub 上仍能按 SHA 公开访问**：`gh api repos/SnowsonZ/Agent-Notification/commits/f73e41b` 仍返回含 `widget/snapshot.json` 的文件列表，`36112b8` 同理。公开的 Actions 运行记录（d0-appintents-probe 的约 20 次运行）会显示这些旧 SHA，别人顺着就能找到。本文「残留风险：GitHub GC 前的 dangling commit」的说法低估了可访问性：GitHub 不会主动清理这类提交。
+
+**用户决定（2026-09-24）：由执行者删除旧的 CI 运行记录。暂不联系 GitHub Support。**
+
+执行要求：
+
+- 用 `gh run list --limit 200 --json databaseId,headSha,workflowName` 列出所有 `headSha` **不在当前任何分支历史中**的运行（至少包括 d0-appintents-probe 的全部运行，以及改写前 SHA 触发的 build 运行），逐个执行 `gh run delete <id>`。
+- 删除前把待删清单（run id、workflow、headSha）写进本文；删除后再执行一次列表命令，确认没有残留的旧 SHA。
+- 只删除旧 SHA 的运行，**不删除**当前分支 SHA 或 main 上的运行（例如评审方触发的 35913092966）。
+- 本文 R1 状态改为「运行记录已清理；旧提交仍可按 SHA 访问（未联系 GitHub Support，用户已知情）」，不要写成「已清除」。
+
+### 复验要求
+
+修复 R8、R10、R15、R17、R18、R19，补齐上面的回归测试，完成 R1 的运行记录清理，并更新状态表中的 SHA。push 后让主 workflow 完整通过（附 run 链接），再申请第三轮复验。

@@ -1496,10 +1496,18 @@ def finalize_day_report(
         _backup_v7_reports(root)
     base = current or legacy
     if base is None:
-        backup = _read_report_version(
-            Path(root) / "reports.v7.bak", day_text, REPORT_V7
-        )
-        base = backup
+        # 回退 reports.v7.bak（§3.1.4）：备份目录平铺，不走 reports/ 拼接。
+        backup_path = Path(root) / "reports.v7.bak" / f"{day_text}.json"
+        try:
+            backup = json.loads(backup_path.read_text())
+        except (OSError, ValueError):
+            backup = None
+        if (
+            isinstance(backup, dict)
+            and backup.get("version") == REPORT_V7
+            and backup.get("date") == day_text
+        ):
+            base = backup
     if base is not None:
         report, _restored = _merge_day_report(report, base, excluded_sessions)
     _write_report(root, report)
@@ -1582,6 +1590,7 @@ def generate_overview(store, home, *, days=182, top=5):
         value = cny_view(day_cost)
         if value > 0:
             amounts.append(value)
+    amounts.sort()  # R17：分位数必须基于有序样本（此前按日期顺序取值导致分级错误）。
     thresholds = (
         [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)]
         if len(amounts) >= 8

@@ -59,7 +59,7 @@ jobs:
           EXE="$APPLEX/Contents/MacOS/AgentNotificationWidgets"
           test -x "$EXE"
           # CI（macos-26 带 Xcode）必须是配置式组件（desktop-widgets.md §6）
-          test -f "$APPLEX/Contents/Resources/Metadata.appintents"
+          test -d "$APPLEX/Contents/Resources/Metadata.appintents"  # R18：Metadata.appintents 是目录
           plutil -extract CFBundlePackageType raw "$APPLEX/Contents/Info.plist" | grep -qx "XPC!"
           plutil -extract CFBundleIdentifier raw "$APPLEX/Contents/Info.plist" | grep -qx "local.session-manager.inbox.widgets"
           plutil -extract NSExtension.NSExtensionPointIdentifier raw "$APPLEX/Contents/Info.plist" | grep -qx "com.apple.widgetkit-extension"

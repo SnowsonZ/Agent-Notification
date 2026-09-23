@@ -1,4 +1,5 @@
 import json
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -1610,6 +1611,89 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(
             load_report(self.store.root, self.day.isoformat())["version"], 8
         )
+    def test_v7_migration_uses_v8_when_not_smaller(self):
+        # 按任务合并（§3.1.3 修订）：重扫任务用 v8，v7 独有任务恢复并标记。
+        self.write_v7_report(10)
+        self.zcode_index("sess_a")
+        self.zcode_turn(
+            "sess_a", "t1", stamp(self.day, 10), stamp(self.day, 10, 30), fresh=100
+        )
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        self.assertEqual(report["version"], 8)
+        self.assertEqual(report.get("migrated_from"), 7)
+        self.assertEqual(report["totals"]["total_tokens"], 110)
+        restored = [task for task in report["tasks"] if task.get("restored_from") == 7]
+        self.assertEqual([task["session_id"] for task in restored], ["old-1"])
+        self.assertTrue((self.store.root / "reports.v7.bak").exists())
+
+    def test_partial_cleanup_diff_becomes_unknown(self):
+        # 同一任务 v8 合计小于 v7（部分来源被清理）：三类沿用 v7，差额记 unknown。
+        self.write_v7_report(100)
+        # v7 任务三类对齐 total=100（60 输入 / 0 缓存 / 40 输出）。
+        day_path = self.store.root / "reports" / f"{self.day.isoformat()}.json"
+        data = json.loads(day_path.read_text())
+        task = data["tasks"][0]
+        task.update(input_tokens=60, cache_tokens=0, output_tokens=40, total_tokens=100)
+        for group in ("sources", "projects"):
+            for entry in data["totals"][group].values():
+                entry.update(input_tokens=60, cache_tokens=0, output_tokens=40, total_tokens=100)
+        data["totals"].update(input_tokens=60, cache_tokens=0, output_tokens=40, total_tokens=100)
+        day_path.write_text(json.dumps(data))
+        # 重扫同 session_id（codex old-1）但只有 60 tokens
+        usage = {
+            "input_tokens": 40,
+            "cache_write_input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 20,
+            "reasoning_output_tokens": 0,
+        }
+        self.codex_rollout("old-1", [("token_count", (self.day, 9, 30), usage)])
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        task = next(t for t in report["tasks"] if t["session_id"] == "old-1")
+        self.assertEqual(task["total_tokens"], 100)  # 沿用 v7 合计
+        unknown = task["models"]["unknown"]
+        # unknown = 重扫自身的 unknown（40f+20o，codex 无 turn_context）
+        #          + 清理差额（20f + 20o）→ 60f / 40o，与沿用后的三类合计一致。
+        self.assertEqual(unknown["fresh_input"], 60)
+        self.assertEqual(unknown["output"], 40)
+        self.assertEqual(report["totals"]["total_tokens"], 100)
+
+    def test_refresh_does_not_degrade_restored_day(self):
+        # 对已恢复日 --refresh：重扫更少也不降级（§3.1.4 长期约束）。
+        self.write_v7_report(150)
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        self.assertEqual(report["totals"]["total_tokens"], 150)
+        # 再次 refresh（来源仍为空）：合计保持 150，不降为 0。
+        again = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
+        self.assertEqual(again["totals"]["total_tokens"], 150)
+        self.assertEqual(again.get("migrated_from"), 7)
+
+    def test_backup_fallback_when_current_report_missing(self):
+        # 磁盘现有报告缺失时回退 reports.v7.bak（§3.1.4）。
+        self.write_v7_report(150)
+        backup = self.store.root / "reports.v7.bak"
+        backup.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(
+            self.store.root / "reports" / f"{self.day.isoformat()}.json",
+            backup / f"{self.day.isoformat()}.json",
+        )
+        (self.store.root / "reports" / f"{self.day.isoformat()}.json").unlink()
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        self.assertEqual(report["totals"]["total_tokens"], 150)
+        self.assertEqual(report.get("migrated_from"), 7)
+
+    def test_cost_level_thresholds_on_unsorted_amounts(self):
+        # R17 回归：乱序金额排序后取 50/75/90 分位，各级分布正确。
+        from daily_report import cost_level
+
+        amounts = sorted([5, 100, 20, 8, 50, 200, 3, 12, 80, 1])  # 10 个样本乱序输入
+        thresholds = [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)]
+        self.assertEqual(thresholds, [20, 80, 200])  # int(10*q) 索引取 5/7/9 号样本
+        levels = [cost_level(value, thresholds) for value in [1, 3, 5, 8, 12, 20, 50, 80, 100, 200]]
+        self.assertEqual(levels, [1, 1, 1, 1, 1, 2, 2, 3, 3, 4])
+        self.assertEqual(cost_level(0, thresholds), 0)
+        self.assertEqual(cost_level(10, [0, 0, 0]), 0)  # 样本不足时不分级
+
 
 if __name__ == "__main__":
     unittest.main()

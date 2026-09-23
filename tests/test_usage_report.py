@@ -169,6 +169,69 @@ class CollectTest(unittest.TestCase):
         payload = collect(self.store, self.root, "all", tables=PricingTables())
         self.assertEqual(sorted(payload), ["day", "month", "week"])
 
+    def test_period_price_change_totals_match_daily_sum(self):
+        # R11：期内调价时 totals 按每天适用价格逐日计价，等于 series 之和。
+        tables = PricingTables(
+            official={
+                "glm-5.3-flash": {
+                    "input": 0.8,
+                    "output": 2.8,
+                    "currency": "CNY",
+                    "history": [
+                        {"until": "2026-09-10", "input": 1.6, "output": 5.6}
+                    ],
+                }
+            }
+        )
+        day_a = date(2026, 9, 9)  # 调价前（旧价 1.6/5.6）
+        day_b = date(2026, 9, 11)  # 调价后（新价 0.8/2.8）
+        records = [
+            {
+                "provider": "pi",
+                "session_id": "s1",
+                "title": "t",
+                "project": "/work/x",
+                "first_at": 0,
+                "last_at": 1,
+                "input_tokens": 1_000_000,
+                "cache_tokens": 0,
+                "output_tokens": 1_000_000,
+                "total_tokens": 2_000_000,
+                "turns": 1,
+                "state": "idle",
+                "fidelity": "exact",
+                "segments": [],
+                "models": {
+                    "glm-5.3-flash": {
+                        "fresh_input": 1_000_000,
+                        "cache_write": 0,
+                        "cache_read": 0,
+                        "output": 1_000_000,
+                        "native_cost_usd": None,
+                    }
+                },
+            }
+        ]
+        self.finalize(day_a, records)
+        self.finalize(day_b, [dict(records[0], session_id="s2")])
+        payload = collect(
+            self.store, self.root, "month", date(2026, 9, 15), tables=tables
+        )
+        # 逐日取价：9/9 按旧价（1.6+5.6=7.2 元），9/11 按新价（0.8+2.8=3.6 元）。
+        self.assertAlmostEqual(payload["totals"]["cost"]["input"]["CNY"], 1.6 + 0.8)
+        self.assertAlmostEqual(payload["totals"]["cost"]["output"]["CNY"], 5.6 + 2.8)
+        series_sum = sum(
+            row["cost"]["input"]["CNY"] for row in payload["series"]
+        )
+        self.assertAlmostEqual(
+            series_sum, payload["totals"]["cost"]["input"]["CNY"]
+        )
+        # by.model 同样逐日累加。
+        top = payload["by"]["model"][0]
+        self.assertAlmostEqual(top["cost"]["input"]["CNY"], 1.6 + 0.8)
+        self.assertAlmostEqual(top["cost"]["output"]["CNY"], 5.6 + 2.8)
+
+
 
 if __name__ == "__main__":
     unittest.main()

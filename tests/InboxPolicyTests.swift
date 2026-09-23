@@ -145,6 +145,38 @@ import Foundation
         precondition(parse("agentnotification://unknown") == nil)  // host 白名单外
         precondition(parse("otherscheme://inbox") == nil)  // scheme 不符
         precondition(WidgetURLRouter.parse(nil, knownIds: ["row-1"]) == nil)
+        // ---- R10 组件 URL 桥状态机：防抖、队列不重放、挂起补处理。
+        var gate = WidgetURLGate()
+        let urlA = URL(string: "agentnotification://open?id=a&revision=1")!
+        precondition(gate.accept(urlA, now: 100))  // 首次点击接受
+        precondition(!gate.accept(urlA, now: 101))  // 2 秒窗口内重复点击拒绝
+        precondition(gate.accept(urlA, now: 103))  // 窗口外再次点击接受（同条目可再开）
+        let urlB = URL(string: "agentnotification://inbox")!
+        precondition(gate.accept(urlB, now: 103))  // 不同 URL 立即接受
+        var queue = WidgetURLQueue()
+        queue.enqueue(urlA)
+        queue.enqueue(urlB)
+        queue.enqueue(urlA)  // 队列内去重
+        precondition(queue.pending.count == 2)
+        queue.markHandled(urlA)  // 通知路径已处理：flush 不再重放
+        var handled: [URL] = []
+        for url in queue.flush() { handled.append(url) }
+        precondition(handled == [urlB])
+        precondition(queue.pending.isEmpty)
+        // 挂起语义：enqueue 后不 markHandled，flush 时补处理。
+        queue.enqueue(urlB)
+        precondition(queue.flush() == [urlB])
+        // ---- R8：组件进行中口径（只排除 agent，不要求未读）。
+        precondition(widgetRunningListed(origin: "user", state: "running", openAvailable: false))
+        precondition(widgetRunningListed(origin: nil, state: "running", openAvailable: true))
+        precondition(!widgetRunningListed(origin: "agent", state: "running", openAvailable: true))
+        precondition(!widgetRunningListed(origin: "user", state: "idle", openAvailable: true))
+        precondition(!widgetRunningListed(origin: "user", state: "waiting", openAvailable: true))
+        // ---- R15：hide_titles 只清标题，项目名保留。
+        precondition(widgetEntryTitle(hideTitles: true, title: "标题") == "")
+        precondition(widgetEntryTitle(hideTitles: true, title: "") == "")
+        precondition(widgetEntryTitle(hideTitles: false, title: "标题") == "标题")
+        print("widget URL bridge state machine checks passed")
         print("Pagination, notification, daily report policy checks passed")
     }
 }

@@ -169,3 +169,53 @@ enum WidgetURLRouter {
         }
     }
 }
+
+// MARK: - 组件 URL 桥状态机（desktop-widgets.md §5 / R10）
+
+// 防抖：同一 URL 在 debounce 窗口内的重复回调只接受一次（组件点击可能连续
+// 触发两次系统回调）；窗口外或不同 URL 正常接受。
+struct WidgetURLGate {
+    private var lastAccepted: (url: URL, at: TimeInterval)?
+    var debounce: TimeInterval = 2
+
+    mutating func accept(_ url: URL, now: TimeInterval) -> Bool {
+        if let last = lastAccepted, last.url == url, now - last.at < debounce {
+            return false
+        }
+        lastAccepted = (url, now)
+        return true
+    }
+}
+
+// 待处理队列：通知路径处理完成时 markHandled 移除（不重放）；行数据未就绪时
+// 留在队列，首批行加载后 flush 一次性补处理（挂起语义，R10）。
+struct WidgetURLQueue {
+    private(set) var pending: [URL] = []
+
+    mutating func enqueue(_ url: URL) {
+        guard !pending.contains(url) else { return }
+        pending.append(url)
+    }
+
+    mutating func markHandled(_ url: URL) {
+        pending.removeAll { $0 == url }
+    }
+
+    mutating func flush() -> [URL] {
+        let queued = pending
+        pending.removeAll()
+        return queued
+    }
+}
+
+// MARK: - 组件快照条目口径（desktop-widgets.md §2 / R8、R15）
+
+// 进行中（R8）：只排除 agent（运行中的会话通常还不是未读）；与 activeCount 同口径。
+func widgetRunningListed(origin: String?, state: String, openAvailable: Bool) -> Bool {
+    origin != "agent" && inboxActiveListed(state: state, openAvailable: openAvailable)
+}
+
+// hide_titles（R15/§2）：只隐藏标题；来源与项目名仍显示。
+func widgetEntryTitle(hideTitles: Bool, title: String) -> String {
+    hideTitles ? "" : title
+}

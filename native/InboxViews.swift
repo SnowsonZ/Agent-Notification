@@ -254,11 +254,17 @@ struct InboxView: View {
         .onReceive(NotificationCenter.default.publisher(for: .widgetURLOpen)) { notification in
             if let url = notification.object as? URL { handleWidgetURL(url) }
         }
+        // R10：行数据未就绪时收到的 URL 会留在队列，首批行加载完成后补处理。
+        .onReceive(model.$rows.map(\.isEmpty).removeDuplicates()) { empty in
+            if !empty { WidgetURLBridge.shared.flush { handleWidgetURL($0) } }
+        }
     }
 
-    // 组件 URL 跳转（desktop-widgets.md §5）：host 白名单与参数在
-    // WidgetURLRouter.parse 校验，非法 URL 不执行任何动作、不输出参数原文。
+    // 组件 URL 跳转（desktop-widgets.md §5）：行未就绪时挂起不丢；非法 URL
+    // （就绪但 id 不存在/参数非法）标记处理后忽略、不输出参数原文。
     private func handleWidgetURL(_ url: URL) {
+        guard !model.rows.isEmpty else { return }  // 未就绪：留在 bridge 队列
+        defer { WidgetURLBridge.shared.markHandled(url) }
         guard let action = WidgetURLRouter.parse(url, knownIds: Set(model.rows.map(\.id))) else { return }
         NSApplication.shared.activate()
         switch action {

@@ -53,6 +53,9 @@ def transform(raw, previous=None, today=None):
     today = today or date.today()
     previous = previous if isinstance(previous, dict) else {}
     entries, guards = {}, []
+
+    def name_key(raw_name):
+        return str(raw_name).strip().lower()
     for key, value in raw.items():
         if not isinstance(value, dict) or value.get("mode") not in KEEP_MODES:
             continue
@@ -65,11 +68,19 @@ def transform(raw, previous=None, today=None):
                 continue
             number = float(number) * 1e6
             if not math.isfinite(number) or number < 0:
-                guards.append(f"{key}: invalid {target}")
                 bad = True
                 break
             prices[target] = number
         if bad or "input" not in prices:
+            # R19（§4.4 修订）：非法数值同样保留上一版条目（含 history），
+            # 上一版没有该条目时才丢弃（丢弃也记原因）。
+            key_name = name_key(key)
+            old = previous.get(key_name)
+            if isinstance(old, dict):
+                entries[key_name] = json.loads(json.dumps(old))
+                guards.append(f"{key}: invalid price, kept old value")
+            else:
+                guards.append(f"{key}: invalid price, dropped (no previous entry)")
             continue
         name = str(key).strip().lower()
         if not name:

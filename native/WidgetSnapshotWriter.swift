@@ -48,9 +48,9 @@ final class WidgetSnapshotWriter {
             inboxNotifyEligible(origin: $0.origin, unread: $0.unread)
                 && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable)
         }
+        // R8：进行中只排除 agent（运行中的会话通常还不是未读）；与 activeCount 同口径。
         let runningRows = human.filter {
-            inboxNotifyEligible(origin: $0.origin, unread: $0.unread)
-                && inboxActiveListed(state: $0.state, openAvailable: $0.openAvailable)
+            inboxActiveListed(state: $0.state, openAvailable: $0.openAvailable)
         }
         let recentRows = human.sorted {
             max($0.activityAt ?? 0, $0.eventAt) > max($1.activityAt ?? 0, $1.eventAt)
@@ -60,7 +60,7 @@ final class WidgetSnapshotWriter {
             WidgetSnapshot.Inbox.Item(
                 id: row.id, revision: row.revision, provider: row.provider,
                 title: hideTitles ? "" : row.title,
-                project: hideTitles ? "" : row.project,
+                project: row.project,
                 state: row.state, at: max(row.activityAt ?? 0, row.eventAt)
             )
         }
@@ -71,7 +71,7 @@ final class WidgetSnapshotWriter {
             return WidgetSnapshot.RecentItem(
                 id: row.id, revision: row.revision, provider: row.provider,
                 title: hideTitles ? "" : row.title,
-                project: hideTitles ? "" : row.project,
+                project: row.project,
                 state: row.state, at: max(row.activityAt ?? 0, row.eventAt),
                 todayTokens: usage?.tokens, todayCost: usage?.cost
             )
@@ -173,8 +173,7 @@ final class WidgetSnapshotWriter {
         var recent = recentItems
         if hideTitles {
             for index in recent.indices {
-                recent[index].title = ""
-                recent[index].project = ""
+                recent[index].title = widgetEntryTitle(hideTitles: true, title: recent[index].title)
             }
         }
         return WidgetSnapshot(
