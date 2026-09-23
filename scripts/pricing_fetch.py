@@ -79,24 +79,57 @@ def transform(raw, previous=None, today=None):
             prices["aliases"] = [name.rsplit("/", 1)[1]]
         old = previous.get(name)
         if isinstance(old, dict) and _price_jump(old, prices):
+            # 防护（§4.4 修订）：原样保留上一版条目（含 history），不删除。
+            if isinstance(old, dict):
+                entries[name] = json.loads(json.dumps(old))
             guards.append(f"{name}: price jump >10x, kept old value")
             continue
-        if isinstance(old, dict) and any(
-            old.get(field) != prices.get(field) for field in PRICE_FIELDS
-        ):
-            history = list(old.get("history") or [])
-            history.append(
-                {
-                    "until": today.isoformat(),
-                    **{
-                        field: old[field]
-                        for field in PRICE_FIELDS
-                        if old.get(field) is not None
-                    },
-                }
-            )
-            prices["history"] = history
+        if isinstance(old, dict):
+            if any(old.get(field) != prices.get(field) for field in PRICE_FIELDS):
+                # 单价变化：旧价追加进 history（until=本次生效日期）。
+                history = list(old.get("history") or [])
+                history.append(
+                    {
+                        "until": today.isoformat(),
+                        **{
+                            field: old[field]
+                            for field in PRICE_FIELDS
+                            if old.get(field) is not None
+                        },
+                    }
+                )
+                prices["history"] = history
+            else:
+                # 单价不变：原样继承旧条目的 history（§4.4 修订），否则历史丢失
+                # 且会被误判为内容变化。
+                if old.get("history"):
+                    prices["history"] = old["history"]
         entries[name] = prices
+    entries, guards = _drop_conflicting_aliases(entries, guards)
+    return entries, guards
+
+
+def _drop_conflicting_aliases(entries, guards):
+    """别名只有在所有指向它的条目四项单价完全相同时才保留（§4.4 修订）；
+    有分歧的别名全部丢弃并记入 guards（pricing check 展示）。"""
+    alias_owners = {}
+    for name, entry in entries.items():
+        for alias in entry.get("aliases") or []:
+            alias_owners.setdefault(alias, []).append(name)
+    for alias, owners in alias_owners.items():
+        if len(owners) < 2:
+            continue
+        reference = entries[owners[0]]
+        consistent = all(
+            all(entries[name].get(field) == reference.get(field) for field in PRICE_FIELDS)
+            for name in owners[1:]
+        )
+        if consistent:
+            continue
+        for name in owners:
+            aliases = entries[name].get("aliases") or []
+            entries[name]["aliases"] = [item for item in aliases if item != alias]
+        guards.append(f"alias {alias}: conflicting prices dropped ({', '.join(owners)})")
     return entries, guards
 
 

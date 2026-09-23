@@ -100,7 +100,8 @@ class TransformTest(unittest.TestCase):
         entries, guards = transform(
             {"m": {"mode": "chat", "input_cost_per_token": 3.1e-5}}, previous, DAY
         )
-        self.assertNotIn("m", entries)
+        # 修订 §4.4：防护触发时原样保留上一版条目（含 history），不删除。
+        self.assertEqual(entries["m"], previous["m"])
         self.assertTrue(any("kept old" in guard for guard in guards))
 
     def test_price_change_appends_history(self):
