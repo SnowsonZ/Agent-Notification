@@ -1,7 +1,8 @@
 """跨周期用量聚合（用量金额规范 §6）：day / week / month / all 与 `inbox usage` 输出。
 
 周期内已定稿的过去日读缓存，未定稿/缺失的过去日与今天合并一次扫描（不触发
-全量重扫）；金额是读取时的派生值，按周期聚合 models 后统一计价。
+全量重扫）；金额是读取时的派生值（§5）：本期合计、各维度与 series 均按每天
+适用价格逐日计价后累加，期内有调价时合计与逐天之和一致。
 """
 
 import time
@@ -15,12 +16,7 @@ from daily_report import (
     load_report,
     scan_buckets,
 )
-from usage_cost import (
-    cost_for_models,
-    display_total,
-    empty_cost,
-    load_fx,
-)
+from usage_cost import cost_for_models, empty_cost, load_fx, merge_cost
 
 
 def period_bounds(period, anchor):
@@ -70,7 +66,7 @@ def _iter_reports(store, home, first_day, last_day, shared=None):
     if pending:
         missing = [day for day in pending if day not in shared["live"]]
         if missing:
-            agent_stats = {}  # R12：补录路径也要带 agent 统计（agent_excluded 注脚）
+            agent_stats = {}  # 补录也要带 agent 统计（agent_excluded 注脚，R12）
             buckets = scan_buckets(
                 store, home, min(missing), max(missing), agent_stats=agent_stats
             )
@@ -144,8 +140,12 @@ def _public_models(models):
     return output
 
 
-def _dimension_rows(groups, tables, day, fx_rate):
-    """by 维度行：{key, total_tokens, cost}，按 CNY 视图金额降序、同额按 token 降序。"""
+def _dimension_rows(groups, day_costs, tables, fx_rate):
+    """by 维度行：{key, total_tokens, cost}，按 CNY 视图金额降序、同额按 token 降序。
+
+    day_costs: {group_key: 累计金额对象}——由 collect 按逐日计价预先累加（§5）。"""
+    from usage_cost import display_total
+
     rows = []
     for key, models in groups.items():
         tokens = sum(
@@ -153,7 +153,7 @@ def _dimension_rows(groups, tables, day, fx_rate):
             for entry in models.values()
             for name in ("fresh_input", "cache_write", "cache_read", "output")
         )
-        cost, _unpriced, _notes = cost_for_models(_public_models(models), day, tables)
+        cost = day_costs.get(key, empty_cost())
         rows.append(
             {
                 "key": key,
@@ -168,6 +168,11 @@ def _dimension_rows(groups, tables, day, fx_rate):
     return rows
 
 
+def _per_key_buckets(models):
+    """by.model 的分组：每个 model 一个桶（组内容即该 model 的聚合条目）。"""
+    return {key: {key: entry} for key, entry in models.items()}
+
+
 def collect(store, home, period, anchor_day=None, tables=None, shared=None):
     """`inbox usage` 单周期输出（§6）。period=all 返回 {day, week, month}。"""
     from usage_cost import PricingTables
@@ -175,7 +180,7 @@ def collect(store, home, period, anchor_day=None, tables=None, shared=None):
     tables = tables or PricingTables.load(store.root)
     anchor = anchor_day or date.today()
     if period == "all":
-        shared = {"reports": {}, "live": {}}
+        shared = shared or {"reports": {}, "live": {}}
         return {
             name: collect(store, home, name, anchor, tables=tables, shared=shared)
             for name in ("day", "week", "month")
@@ -194,6 +199,9 @@ def collect(store, home, period, anchor_day=None, tables=None, shared=None):
     }
     models = _models_accumulator()
     harness_models, project_models = {}, {}
+    harness_costs, project_costs, model_costs = {}, {}, {}
+    totals_cost = empty_cost()
+    unpriced_models = []
     series = []
     for day in sorted(reports):
         report = reports[day]
@@ -209,16 +217,27 @@ def collect(store, home, period, anchor_day=None, tables=None, shared=None):
         day_models = _models_accumulator()
         for task in report.get("tasks") or []:
             _merge_models(day_models, task.get("models"))
-            harness = harness_models.setdefault(task["provider"], _models_accumulator())
-            _merge_models(harness, task.get("models"))
-            project = project_models.setdefault(
-                task["project"] or NO_PROJECT, _models_accumulator()
+            provider = task["provider"]
+            project = task["project"] or NO_PROJECT
+            _merge_models(
+                harness_models.setdefault(provider, _models_accumulator()),
+                task.get("models"),
             )
-            _merge_models(project, task.get("models"))
+            _merge_models(
+                project_models.setdefault(project, _models_accumulator()),
+                task.get("models"),
+            )
+            # 逐日取价（§5）：维度金额按每天适用价格逐 model 计价后累加（R11）。
+            for key, entry in (task.get("models") or {}).items():
+                single, _, _ = cost_for_models({key: entry}, day, tables)
+                merge_cost(harness_costs.setdefault(provider, empty_cost()), single)
+                merge_cost(project_costs.setdefault(project, empty_cost()), single)
+                merge_cost(model_costs.setdefault(key, empty_cost()), single)
         _merge_models(models, day_models)
-        day_cost, _unpriced, _notes = cost_for_models(
-            _public_models(day_models), day, tables
-        )
+        public_day = _public_models(day_models)
+        day_cost, day_unpriced, _notes = cost_for_models(public_day, day, tables)
+        unpriced_models.extend(day_unpriced)
+        merge_cost(totals_cost, day_cost)
         series.append(
             {
                 "date": day.isoformat(),
@@ -230,24 +249,20 @@ def collect(store, home, period, anchor_day=None, tables=None, shared=None):
             }
         )
 
-    cost, unpriced_models, _notes = cost_for_models(
-        _public_models(models), anchor, tables
-    )
-    totals["cost"] = cost
+    totals["cost"] = totals_cost
 
     previous_totals = {"total_tokens": 0, "cost": empty_cost()}
     prev_first, prev_last = period_bounds(period, previous_anchor(period, anchor))
     previous_reports = _iter_reports(store, home, prev_first, prev_last, shared)
-    prev_models = _models_accumulator()
     for day in sorted(previous_reports):
         day_totals = previous_reports[day].get("totals", {})
         previous_totals["total_tokens"] += int(day_totals.get("total_tokens") or 0)
+        day_models = _models_accumulator()
         for task in previous_reports[day].get("tasks") or []:
-            _merge_models(prev_models, task.get("models"))
-    prev_cost, _prev_unpriced, _prev_notes = cost_for_models(
-        _public_models(prev_models), prev_first, tables
-    )
-    previous_totals["cost"] = prev_cost
+            _merge_models(day_models, task.get("models"))
+        # 上期同样逐日取价（§5/R11）。
+        day_cost, _, _ = cost_for_models(_public_models(day_models), day, tables)
+        merge_cost(previous_totals["cost"], day_cost)
 
     return {
         "period": period,
@@ -259,23 +274,22 @@ def collect(store, home, period, anchor_day=None, tables=None, shared=None):
         "previous": previous_totals,
         "series": series,
         "by": {
-            "harness": _dimension_rows(harness_models, tables, anchor, fx["USD_CNY"]),
-            "model": _dimension_rows(
-                _per_key_buckets(models), tables, anchor, fx["USD_CNY"]
+            "harness": _dimension_rows(
+                harness_models, harness_costs, tables, fx["USD_CNY"]
             ),
-            "project": _dimension_rows(project_models, tables, anchor, fx["USD_CNY"]),
+            "model": _dimension_rows(
+                _per_key_buckets(models), model_costs, tables, fx["USD_CNY"]
+            ),
+            "project": _dimension_rows(
+                project_models, project_costs, tables, fx["USD_CNY"]
+            ),
         },
         "fx": fx,
         "pricing": {
             "fetched_at": load_state_fetched_at(store.root),
-            "unpriced_models": unpriced_models,
+            "unpriced_models": sorted(set(unpriced_models)),
         },
     }
-
-
-def _per_key_buckets(models):
-    """by.model 的分组：每个 model 一个桶（桶内容即该 model 的聚合条目）。"""
-    return {key: {key: entry} for key, entry in models.items()}
 
 
 def load_state_fetched_at(state_root):
