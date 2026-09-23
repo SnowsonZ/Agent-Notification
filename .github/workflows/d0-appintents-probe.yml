@@ -37,6 +37,8 @@ jobs:
           APP="build/Agent Notification.app"
           APPLEX="$APP/Contents/PlugIns/Agent Notification Widgets.appex"
           EXE="$APPLEX/Contents/MacOS/AgentNotificationWidgets"
+          find build -maxdepth 4 -name "*.appex" || true
+          find "$APPLEX" -maxdepth 3 || true
           test -x "$EXE"
           test -e "$APPLEX/Contents/Resources/Metadata.appintents"
           echo "=== D0 PASS: Metadata.appintents produced via build_inbox_app.py ==="
