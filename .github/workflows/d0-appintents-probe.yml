@@ -104,7 +104,6 @@ jobs:
             -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
             -enable-testing \
             -emit-const-values -Xfrontend -serialize-debugging-options \
-            -emit-strings-data -Xfrontend -serialize-debugging-options \
             -c build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets.o
           echo "COMPILE OK"
           ls -la build/d0/
