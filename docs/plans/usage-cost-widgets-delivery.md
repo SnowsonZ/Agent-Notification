@@ -235,7 +235,7 @@ W 编号不属于本里程碑。
 
 | # | 状态 | 说明 |
 |---|---|---|
-| R1 | ✅ 已删除 + .gitignore（9271f9b） | 文件仍存在于分支历史（f73e41b/36112b8）且曾推送公开仓库；**是否改写历史强制推送由用户决定**（改写不能撤回已暴露的事实）。根因：写入器曾把 SessionManagerRoot（代码根）当数据根，仓库根的 widget/snapshot.json 被 `git add -A` 带入 |
+| R1 | ✅ 已清除（9271f9b + 历史改写，用户批准） | ① 从分支删除文件并加 .gitignore（`*.o`、`/widget/`）；② 2026-09-24 用户批准后用 git-filter-repo 重写全历史（137 个提交），泄漏文件在本地与远端均无残留，分支已强制推送（`db94a4e…d6a157e`，只动该分支，main 未动）。根因：写入器曾把 SessionManagerRoot（代码根）当数据根，仓库根的 widget/snapshot.json 被 `git add -A` 带入。残留风险：暴露期间被他人 clone/fork 的副本与 GitHub GC 前的 dangling commit 不受控 |
 | R2/R3 | ✅ 合并逻辑重写（7f8fc4b）+ 真实数据恢复 | finalize_day_report 与磁盘现有报告（任意版本）按任务合并不降级；磁盘缺失回退 reports.v7.bak；agent 判定会话不恢复；部分清理任务沿用现有三类合计、差额记 unknown。**恢复对比**：36 个被降级日子（含验收发现的 27 天）已拷回 v7 并重算，全部合计 ≥ 备份原值且带 migrated_from: 7，零降级（明细 scratch/r2-restore-result.json，本机数据不入库） |
 | R4 | ✅（607af1a） | 单价不变原样继承 history；防护（>10 倍跳变）原样保留上一版条目；别名冲突丢弃；U6 补回归断言 |
 | R5 | ✅（a831146） | workflow Swift 测试命令补 Shared/WidgetSnapshot.swift；PR 待评审后创建（用户要求评审完毕前不推送） |
@@ -266,6 +266,7 @@ scratch/r6-unknown-ratio.json，本机数据不入库。）
 
 ### 复验与推送状态
 
-- 按用户约束：**修复提交保留在本地，评审完毕前不推送**（当前未推送提交：
-  9271f9b..HEAD，含 R1 移除、R2/R3/R6/R7/R11/R12/R4/R13 与组件侧全部修复）。
-- 评审通过后一次性推送，并创建 PR 触发完整 `build` workflow（PR 描述引用本表）。
+- R1 历史改写已完成（用户批准）：远端 `docs/usage-cost-widgets-design` = 重写后历史
+  （`d6a157e`，含全部 R1–R16 修复）；原 hash（f73e41b/36112b8/db94a4e 等）全部作废，
+  引用旧 hash 的地方（含本文档验收发现一节）以提交 message/日期对应理解。
+- 下一步：评审通过后创建 PR 触发完整 `build` workflow（PR 描述引用修复响应表）。
