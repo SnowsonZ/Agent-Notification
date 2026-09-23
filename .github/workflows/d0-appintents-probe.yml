@@ -105,7 +105,7 @@ jobs:
             -target arm64-apple-macosx14.0 \
             -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
             -enable-testing \
-            -emit-strings-data -Xfrontend -serialize-debugging-options \
+            -emit-stringsdata -Xfrontend -serialize-debugging-options \
             -c build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets.o
           echo "COMPILE OK"
           ls -la build/d0/
@@ -117,9 +117,8 @@ jobs:
           TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
           XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
-          find "$PWD" -name "*.constvals" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
           find "$PWD" -name "*.stringsdata" | sed "s|^|$PWD/|" > build/d0/stringsdata.txt || true
-          echo "--- constvals.txt ---"; cat build/d0/constvals.txt || true
+          echo "--- stringsdata.txt ---"; cat build/d0/stringsdata.txt || true
           find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/sources.txt
           echo "--- constvals list ---"; cat build/d0/constvals.txt || true
           set +e
@@ -133,8 +132,8 @@ jobs:
             --deployment-target 14.0 \
             --target-triple arm64-apple-macosx14.0 \
             --source-file-list build/d0/sources.txt \
-            --swift-const-vals-list build/d0/constvals.txt
-          echo "ATTEMPT-usage exit=$?"
+            --stringsdata-file "$(head -1 build/d0/stringsdata.txt)"
+          echo "ATTEMPT-stringsdata exit=$?"
           ls -la build/d0/ 2>/dev/null
           if [ ! -f build/d0/Metadata.appintents ]; then
             # 备选：stringsdata 形态（-g）
