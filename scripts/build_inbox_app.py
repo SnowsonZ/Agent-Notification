@@ -312,6 +312,7 @@ def _write_widget_project(
     \t\t\t\tPRODUCT_NAME = "$(TARGET_NAME)";
     \t\t\t\tSDKROOT = macosx;
     \t\t\t\tSKIP_INSTALL = YES;
+    \t\t\t\tSWIFT_ACTIVE_COMPILATION_CONDITIONS = WIDGET_APPINTENTS;
     \t\t\t\tSWIFT_ENABLE_EMIT_CONST_VALUES = YES;
     \t\t\t\tSWIFT_VERSION = 5.0;
     \t\t\t\tMACOSX_DEPLOYMENT_TARGET = 14.0;
