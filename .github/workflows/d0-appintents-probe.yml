@@ -1,7 +1,8 @@
 name: d0-appintents-probe
 
-# D0 构建探针（临时）：在 macos-26（带 Xcode）上摸清 swiftc + appintentsmetadataprocessor
-# 构建配置式组件并产出 Metadata.appintents 的可用命令行。结论记录后本文件删除，不合入主线。
+# D0 构建探针（临时）：手动 swiftc + appintentsmetadataprocessor 在 Swift 6.3 上
+# 无法产出 const values（前 18 轮系统性排除），改走 xcodebuild 构建最小 appex 工程
+# ——这本身是执行计划 D0 失败预案 A 的候选实现：配置式组件只在 Xcode 环境构建。
 
 on:
   push:
@@ -17,23 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Toolchain inventory
-        run: |
-          set -x
-          xcodebuild -version || true
-          xcrun -f appintentsmetadataprocessor && echo FOUND-PROCESSOR
-          xcrun -f actool && echo FOUND-ACTOOL
-          swiftc --version
-
-      - name: Processor help
-        run: |
-          xcrun appintentsmetadataprocessor --help 2>&1 | head -80 || true
-
-      - name: Build minimal AppIntentConfiguration widget
+      - name: Generate minimal widget xcodeproj
         run: |
           set -euo pipefail
-          mkdir -p build/d0
-          cat > build/d0/ProbeWidget.swift <<'SWIFT'
+          mkdir -p build/d0proj
+          cat > build/d0proj/ProbeWidget.swift <<'SWIFT'
           import WidgetKit
           import SwiftUI
           import AppIntents
@@ -77,220 +66,200 @@ jobs:
               }
           }
           SWIFT
-
-          cat > build/d0/Info.plist <<'PLIST'
+          cat > build/d0proj/Info.plist <<'PLIST'
           {
             CFBundleDisplayName = ProbeWidgets;
-            CFBundleExecutable = ProbeWidgets;
-            CFBundleIdentifier = "local.session-manager.probe.widgets";
+            CFBundleExecutable = "$(EXECUTABLE_NAME)";
+            CFBundleIdentifier = "$(PRODUCT_BUNDLE_IDENTIFIER)";
             CFBundleName = ProbeWidgets;
             CFBundlePackageType = "XPC!";
             CFBundleShortVersionString = "0.0.0";
             CFBundleVersion = "1";
             CFBundleSupportedPlatforms = [MacOSX];
-            CFBundleInfoDictionaryVersion = "7.0";
-            DTPlatformName = macosx;
-            DTSDKName = macosx14.0;
             NSExtension = { NSExtensionPointIdentifier = "com.apple.widgetkit-extension"; };
           }
           PLIST
-
-          SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
-          # 变体 A：output-file-map 明确指定 swiftconstvalues 输出路径
-          SRC_ABS="$PWD/build/d0/ProbeWidget.swift"
-          cat > build/d0/ofm.json <<OFM
+          python3 <<'PYB'
+          import os
+          project = os.path.abspath("build/d0proj")
+          pbx = """// !$*UTF8*$!
           {
-            "$SRC_ABS": {
-              "object": "$PWD/build/d0/variantA.o",
-              "swiftconstvalues": "$PWD/build/d0/ProbeWidget.swiftconstvalues"
-            }
+          	archiveVersion = 1;
+          	classes = {
+          	};
+          	objectVersion = 56;
+          	objects = {
+
+          /* Begin PBXBuildFile section */
+          B00001 /* ProbeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00001; };
+          /* End PBXBuildFile section */
+
+          /* Begin PBXFileReference section */
+          F00001 /* ProbeWidget.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ProbeWidget.swift; sourceTree = "<group>"; };
+          F00002 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+          F00003 /* ProbeWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProbeWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+          /* End PBXFileReference section */
+
+          /* Begin PBXFrameworksBuildPhase section */
+          P00002 /* Frameworks */ = {
+          	isa = PBXFrameworksBuildPhase;
+          	buildActionMask = 2147483647;
+          	files = (
+          	);
+          	runOnlyForDeploymentPostprocessing = 0;
+          };
+          /* End PBXFrameworksBuildPhase section */
+
+          /* Begin PBXGroup section */
+          G00001 = {
+          	isa = PBXGroup;
+          	children = (
+          		G00002,
+          		F00003,
+          	);
+          	sourceTree = "<group>";
+          };
+          G00002 = {
+          	isa = PBXGroup;
+          	children = (
+          		F00001,
+          		F00002,
+          	);
+          	path = %PROJECT%;
+          	sourceTree = "<absolute>";
+          };
+          /* End PBXGroup section */
+
+          /* Begin PBXNativeTarget section */
+          T00001 /* ProbeWidgets */ = {
+          	isa = PBXNativeTarget;
+          	buildConfigurationList = C00001;
+          	buildPhases = (
+          		P00001,
+          		P00002,
+          	);
+          	dependencies = (
+          	);
+          	name = ProbeWidgets;
+          	productName = ProbeWidgets;
+          	productReference = F00003;
+          	productType = "com.apple.product-type.app-extension";
+          };
+          /* End PBXNativeTarget section */
+
+          /* Begin PBXProject section */
+          PR0001 /* Project object */ = {
+          	isa = PBXProject;
+          	attributes = {
+          		LastSwiftUpdateCheck = 1600;
+          		LastUpgradeCheck = 1600;
+          	};
+          	buildConfigurationList = C00003;
+          	developmentRegion = en;
+          	knownRegions = (
+          		en,
+          		Base,
+          	);
+          	mainGroup = G00001;
+          	productRefGroup = G00001;
+          	projectDirPath = %PROJECT%;
+          	projectRoot = "";
+          	targets = (
+          		T00001,
+          	);
+          };
+          /* End PBXProject section */
+
+          /* Begin PBXSourcesBuildPhase section */
+          P00001 /* Sources */ = {
+          	isa = PBXSourcesBuildPhase;
+          	buildActionMask = 2147483647;
+          	files = (
+          		B00001,
+          	);
+          	runOnlyForDeploymentPostprocessing = 0;
+          };
+          /* End PBXSourcesBuildPhase section */
+
+          /* Begin XCBuildConfiguration section */
+          C00002 /* Release */ = {
+          	isa = XCBuildConfiguration;
+          	buildSettings = {
+          		CODE_SIGNING_ALLOWED = NO;
+          		CODE_SIGN_IDENTITY = "";
+          		COMBINE_HIDPI_IMAGES = YES;
+          		CURRENT_PROJECT_VERSION = 1;
+          		GENERATE_INFOPLIST_FILE = NO;
+          		INFOPLIST_FILE = %PROJECT%/Info.plist;
+          		LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
+          		MARKETING_VERSION = 0.0.0;
+          		PRODUCT_BUNDLE_IDENTIFIER = local.session-manager.probe.widgets;
+          		PRODUCT_NAME = "$(TARGET_NAME)";
+          		SDKROOT = macosx;
+          		SKIP_INSTALL = YES;
+          		SWIFT_ENABLE_EMIT_CONST_VALUES = YES;
+          		SWIFT_VERSION = 6.0;
+          		MACOSX_DEPLOYMENT_TARGET = 14.0;
+          	};
+          	name = Release;
+          };
+          C00001 /* Build configuration list for PBXNativeTarget */ = {
+          	isa = XCConfigurationList;
+          	buildConfigurations = (
+          		C00002,
+          	);
+          	defaultConfigurationIsVisible = 0;
+          	defaultConfigurationName = Release;
+          };
+          C00004 /* Release */ = {
+          	isa = XCBuildConfiguration;
+          	buildSettings = {
+          	};
+          	name = Release;
+          };
+          C00003 /* Build configuration list for PBXProject */ = {
+          	isa = XCConfigurationList;
+          	buildConfigurations = (
+          		C00004,
+          	);
+          	defaultConfigurationIsVisible = 0;
+          	defaultConfigurationName = Release;
+          };
+          /* End XCBuildConfiguration section */
+          	};
+          	rootObject = PR0001 /* Project object */;
           }
-          OFM
-          xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
-            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
-            -emit-const-values -Xfrontend -serialize-debugging-options \
-            -output-file-map build/d0/ofm.json -c build/d0/ProbeWidget.swift || true
-          echo "VARIANT-A done"
-          # 变体 B：保留旧形态对照
-          xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
-            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
-            -emit-const-values-path build/d0/variantB.constvals -Xfrontend -serialize-debugging-options \
-            -c build/d0/ProbeWidget.swift -o build/d0/variantB.o || true
-          echo "VARIANT-B done"
-          ls -la build/d0/
-          echo "--- global constvals search ---"
-          find "$GITHUB_WORKSPACE" -name "*constvalue*" -not -path "*/.git/*" 2>/dev/null | head -10 || true
-          echo "--- CI swiftc const/strings params ---"
-          xcrun swiftc --help-hidden 2>&1 | grep -iE "const.values|stringsdata" | head -10 || true
+          """.replace("%PROJECT%", project)
+          os.makedirs(f"{project}/Probe.xcodeproj", exist_ok=True)
+          with open(f"{project}/Probe.xcodeproj/project.pbxproj", "w") as f:
+              f.write(pbx)
+          print("pbxproj written")
+          PYB
+          ls -la build/d0proj/Probe.xcodeproj/
 
-          # 2) 按 processor USAGE 提取 Metadata.appintents
-          PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
-          TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
-          SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
-          XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
-          find "$GITHUB_WORKSPACE" -name "*constvalue*" -not -name "*.txt" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
-          echo "--- constvals.txt ---"; cat build/d0/constvals.txt || true
-          find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/sources.txt
-          echo "--- constvals list ---"; cat build/d0/constvals.txt || true
-          set +e
-          "$PROCESSOR" \
-            --output build/d0/Metadata.appintents \
-            --toolchain-dir "$TOOLCHAIN_DIR" \
-            --module-name ProbeWidgets \
-            --sdk-root "$SDK_ROOT" \
-            --xcode-version "$XCODE_BUILD" \
-            --platform-family macos \
-            --deployment-target 14.0 \
-            --target-triple arm64-apple-macosx14.0 \
-            --source-file-list build/d0/sources.txt \
-            --swift-const-vals-list build/d0/constvals.txt
-          echo "ATTEMPT-constvals exit=$?"
-          ls -la build/d0/ 2>/dev/null
-          if [ ! -f build/d0/Metadata.appintents ]; then
-            # 备选：stringsdata 形态（-g）
-            find build/d0 -name "*.stringsdata" | sed "s|^|$PWD/|" > build/d0/stringsdata.txt || true
-            "$PROCESSOR" \
-              --output build/d0/Metadata.appintents \
-              --toolchain-dir "$TOOLCHAIN_DIR" \
-              --module-name ProbeWidgets \
-              --sdk-root "$SDK_ROOT" \
-              --xcode-version "$XCODE_BUILD" \
-              --platform-family macos \
-              --deployment-target 14.0 \
-              --target-triple arm64-apple-macosx14.0 \
-              --source-file-list build/d0/sources.txt \
-              --stringsdata-file "$(head -1 build/d0/stringsdata.txt)"
-            echo "ATTEMPT-stringsdata exit=$?"
-            ls -la build/d0/ 2>/dev/null
-          fi
-          set -e
-
-      - name: Link and sign appex
+      - name: xcodebuild the appex
         run: |
           set -euo pipefail
-          # 3) 链接（入口 _NSExtensionMain，探针已验证的硬性要求）
-          xcrun clang++ -target arm64-apple-macosx14.0 \
-            -fobjc-link-runtime -fapplication-extension \
-            -Xlinker -e -Xlinker _NSExtensionMain \
-            -Xlinker -rpath -Xlinker /usr/lib/swift \
-            -framework WidgetKit -framework SwiftUI -framework AppKit \
-            -L"$(xcrun -sdk macosx -show-sdk-path)/usr/lib/swift" \
-            build/d0/ProbeWidgets.o \
-            -o build/d0/ProbeWidgets 2>&1 | head -20 || true
-          # swiftc 直接链接更省事（带 -emit-executable？）——备选：
-          if [ ! -f build/d0/ProbeWidgets ] || [ ! -x build/d0/ProbeWidgets ]; then
-            xcrun swiftc \
-              -module-name ProbeWidgets \
-              -parse-as-library \
-              -application-extension \
-              -target arm64-apple-macosx14.0 \
-              -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
-              -Xlinker -e -Xlinker _NSExtensionMain \
-              -framework WidgetKit -framework SwiftUI \
-              -emit-executable \
-              build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets
-          fi
-          echo "LINK OK"
-          file build/d0/ProbeWidgets
-          nm -u build/d0/ProbeWidgets | grep -i NSExtensionMain || echo "no NSExtensionMain ref (unexpected)"
+          xcodebuild -project build/d0proj/Probe.xcodeproj -target ProbeWidgets \
+            -configuration Release -sdk macosx -derivedDataPath build/d0derived \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY= build
+          echo "=== find metadata & constvalues ==="
+          find build/d0derived -name "Metadata.appintents" -o -name "*.swiftconstvalues" | head -10
+          APP=$(find build/d0derived -name "ProbeWidgets.appex" -type d | head -1)
+          echo "appex: $APP"
+          ls -la "$APP/Contents/Resources/" 2>/dev/null || true
 
       - name: Assert Metadata.appintents
         run: |
           set -euo pipefail
-          if [ -f build/d0/Metadata.appintents ]; then
-            echo "=== D0 PASS: Metadata.appintents produced ==="
-            file build/d0/Metadata.appintents
-            wc -c build/d0/Metadata.appintents
-            plutil -p build/d0/Metadata.appintents 2>/dev/null | head -20 || head -c 400 build/d0/Metadata.appintents
+          APP=$(find build/d0derived -name "ProbeWidgets.appex" -type d | head -1)
+          if [ -f "$APP/Contents/Resources/Metadata.appintents" ]; then
+            echo "=== D0 PASS via xcodebuild: Metadata.appintents produced ==="
+            wc -c "$APP/Contents/Resources/Metadata.appintents"
+            ls -la "$APP/Contents/MacOS/"
+            nm -u "$APP/Contents/MacOS/"* | grep -i NSExtensionMain || echo "note: no _NSExtensionMain ref"
           else
-            echo "=== D0 FAIL: no Metadata.appintents ==="
-            ls -laR build/d0
+            echo "=== D0 FAIL via xcodebuild ==="
+            find build/d0derived -type f | head -30
             exit 1
-          fi
-
-      - name: Frontend sema-mode constvals
-        if: always()
-        run: |
-          set +e
-          FE="$(xcrun -f swift-frontend)"
-          SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
-          # d0: 前端 emit-module 模式（const values 是模块编译的附属产物）
-          "$FE" -module-name ProbeWidgets -parse-as-library -application-extension \
-            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
-            -emit-const-values-path build/d0/d0.constvals -serialize-debugging-options \
-            -emit-module-path build/d0/ProbeWidgets.swiftmodule \
-            build/d0/ProbeWidget.swift
-          echo "D0M exit=$?"; ls -la build/d0/*.constvals 2>/dev/null && head -c 300 build/d0/d0.constvals 2>/dev/null
-          # d1: 前端无 -c（sema/类型检查模式）+ const-values-path
-          "$FE" -module-name ProbeWidgets -parse-as-library -application-extension \
-            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
-            -emit-const-values-path build/d0/d1.constvals -serialize-debugging-options \
-            build/d0/ProbeWidget.swift
-          echo "D1 exit=$?"; ls -la build/d0/d1.constvals 2>/dev/null && head -c 200 build/d0/d1.constvals
-          # d2: driver 无 -c + const-values-path
-          xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
-            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
-            -emit-const-values-path build/d0/d2.constvals -Xfrontend -serialize-debugging-options \
-            build/d0/ProbeWidget.swift
-          echo "D2 exit=$?"; ls -la build/d0/d2.constvals 2>/dev/null && head -c 200 build/d0/d2.constvals
-          set -e
-
-      - name: Processor input variants
-        if: always()
-        run: |
-          set +e
-          PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
-          TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
-          SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
-          XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
-          COMMON=(--toolchain-dir "$TOOLCHAIN_DIR" --module-name ProbeWidgets --sdk-root "$SDK_ROOT"
-            --xcode-version "$XCODE_BUILD" --platform-family macos --deployment-target 14.0
-            --target-triple arm64-apple-macosx14.0)
-          # c1: scl 直接给 .swift 源文件（processor 可能自行解析）
-          find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/scl-swift.txt
-          "$PROCESSOR" --output build/d0/meta-c1.appintents "${COMMON[@]}" \
-            --source-file-list build/d0/sources.txt --swift-const-vals-list build/d0/scl-swift.txt
-          echo "C1 exit=$?"; ls -la build/d0/meta-c1.appintents 2>/dev/null
-          # c2: scl 给 .o 文件（const values 可能嵌进 .o section）
-          find build/d0 -name "*.o" | sed "s|^|$PWD/|" > build/d0/scl-o.txt
-          "$PROCESSOR" --output build/d0/meta-c2.appintents "${COMMON[@]}" \
-            --source-file-list build/d0/sources.txt --swift-const-vals-list build/d0/scl-o.txt
-          echo "C2 exit=$?"; ls -la build/d0/meta-c2.appintents 2>/dev/null
-          # c3: stringsdata-file 给 .o
-          "$PROCESSOR" --output build/d0/meta-c3.appintents "${COMMON[@]}" \
-            --source-file-list build/d0/sources.txt --stringsdata-file "$PWD/build/d0/ProbeWidgets.o"
-          echo "C3 exit=$?"; ls -la build/d0/meta-c3.appintents 2>/dev/null
-          echo "=== strings context ==="
-          FE="$(xcrun -f swift-frontend)"
-          strings "$FE" | grep -iE "constvals" | sort -u | head -10 || true
-          strings "$FE" | grep -E "const.values" | sort -u | head -10 || true
-          set -e
-
-      - name: Hidden help const-values docs
-        if: always()
-        run: |
-          echo "--- frontend help-hidden const-values ---"
-          xcrun swift-frontend --help-hidden 2>&1 | grep -B4 -A8 "const-values" | head -40 || true
-          echo "--- frontend help-hidden emit-module context ---"
-          xcrun swift-frontend --help-hidden 2>&1 | grep -iE "emit-module" | head -6 || true
-
-      - name: Discover real emit params from frontend binary
-        if: always()
-        run: |
-          FE="$(xcrun -f swift-frontend)"
-          echo "--- -h emit options ---"
-          xcrun swift-frontend -h 2>&1 | grep -iE "emit" | head -30 || true
-          echo "--- binary strings: emit-* params ---"
-          strings "$FE" | grep -E "^-?emit-[a-z-]+$" | sort -u | head -30 || true
-          strings "$FE" | grep -iE "const.?values|stringsdata" | sort -u | head -20 || true
-
-      - name: Dump build transcript for records
-        if: always()
-        run: |
-          echo "--- swiftc driver availability ---"
-          xcrun -f swift-frontend || true
-          echo "--- appintentsmetadataprocessor man/usage ---"
-          PROCESSOR="$(xcrun -f appintentsmetadataprocessor 2>/dev/null || true)"
-          if [ -n "$PROCESSOR" ]; then
-            strings "$PROCESSOR" | grep -E "^--[a-z-]+" | sort -u | head -40 || true
           fi
