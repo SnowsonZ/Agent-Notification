@@ -199,6 +199,15 @@ jobs:
             exit 1
           fi
 
+      - name: Discover real emit params from frontend binary
+        run: |
+          FE="$(xcrun -f swift-frontend)"
+          echo "--- -h emit options ---"
+          xcrun swift-frontend -h 2>&1 | grep -iE "emit" | head -30 || true
+          echo "--- binary strings: emit-* params ---"
+          strings "$FE" | grep -E "^-?emit-[a-z-]+$" | sort -u | head -30 || true
+          strings "$FE" | grep -iE "const.?values|stringsdata" | sort -u | head -20 || true
+
       - name: Dump build transcript for records
         if: always()
         run: |
