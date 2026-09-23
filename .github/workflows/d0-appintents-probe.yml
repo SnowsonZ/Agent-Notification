@@ -96,13 +96,22 @@ jobs:
           PLIST
 
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
-          # 变体 A：driver -emit-const-values（第四轮已证编译成功）
+          # 变体 A：output-file-map 明确指定 swiftconstvalues 输出路径
+          SRC_ABS="$PWD/build/d0/ProbeWidget.swift"
+          cat > build/d0/ofm.json <<OFM
+          {
+            "$SRC_ABS": {
+              "object": "$PWD/build/d0/variantA.o",
+              "swiftconstvalues": "$PWD/build/d0/ProbeWidget.swiftconstvalues"
+            }
+          }
+          OFM
           xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
             -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
             -emit-const-values -Xfrontend -serialize-debugging-options \
-            -c build/d0/ProbeWidget.swift -o build/d0/variantA.o || true
+            -output-file-map build/d0/ofm.json -c build/d0/ProbeWidget.swift || true
           echo "VARIANT-A done"
-          # 变体 B：driver -emit-const-values-path 显式路径
+          # 变体 B：保留旧形态对照
           xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
             -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
             -emit-const-values-path build/d0/variantB.constvals -Xfrontend -serialize-debugging-options \
