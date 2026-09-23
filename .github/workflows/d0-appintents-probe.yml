@@ -250,6 +250,14 @@ jobs:
           strings "$FE" | grep -E "const.values" | sort -u | head -10 || true
           set -e
 
+      - name: Hidden help const-values docs
+        if: always()
+        run: |
+          echo "--- frontend help-hidden const-values ---"
+          xcrun swift-frontend --help-hidden 2>&1 | grep -B4 -A8 "const-values" | head -40 || true
+          echo "--- frontend help-hidden emit-module context ---"
+          xcrun swift-frontend --help-hidden 2>&1 | grep -iE "emit-module" | head -6 || true
+
       - name: Discover real emit params from frontend binary
         if: always()
         run: |
