@@ -96,16 +96,16 @@ jobs:
           PLIST
 
           # 1) 编译为对象文件（-emit-const-values 供元数据提取）
-          # swiftc driver 会吞掉 -emit-const-values；直接用前端 swift-frontend
-          xcrun swift-frontend \
+          # Swift 6.3（Xcode 26）：AppIntents 元数据提取走 stringsdata 机制
+          # （const values 已被取代）；-emit-stringsdata 是 driver 参数。
+          xcrun swiftc \
             -module-name ProbeWidgets \
             -parse-as-library \
-            -enable-library-evolution \
             -application-extension \
             -target arm64-apple-macosx14.0 \
             -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
             -enable-testing \
-            -emit-const-values -Xfrontend -serialize-debugging-options \
+            -emit-strings-data -Xfrontend -serialize-debugging-options \
             -c build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets.o
           echo "COMPILE OK"
           ls -la build/d0/
