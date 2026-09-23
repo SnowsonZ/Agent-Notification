@@ -95,41 +95,31 @@ jobs:
           }
           PLIST
 
-          # 1) 双变体编译：A=swift-frontend -emit-const-values（第五轮报错在
-          # -Xfrontend 而非 -emit-const-values，去掉 -Xfrontend 再试）；
-          # B=driver -emit-const-values-path 显式路径。
-          SWIFTFRONTEND="$(xcrun -f swift-frontend)"
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
-          "$SWIFTFRONTEND" \
-            -module-name ProbeWidgets \
-            -parse-as-library \
-            -application-extension \
-            -target arm64-apple-macosx14.0 \
-            -sdk "$SDK_ROOT" \
-            -enable-testing \
-            -emit-const-values -serialize-debugging-options \
-            -c build/d0/ProbeWidget.swift -o build/d0/variantA.o
-          echo "VARIANT-A COMPILE OK"
-          "$SWIFTFRONTEND" \
-            -module-name ProbeWidgets \
-            -parse-as-library \
-            -application-extension \
-            -target arm64-apple-macosx14.0 \
-            -sdk "$SDK_ROOT" \
-            -enable-testing \
-            -emit-const-values-path build/d0/variantB.constvals -serialize-debugging-options \
-            -c build/d0/ProbeWidget.swift -o build/d0/variantB.o
-          echo "VARIANT-B COMPILE OK"
+          # 变体 A：driver -emit-const-values（第四轮已证编译成功）
+          xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
+            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
+            -emit-const-values -Xfrontend -serialize-debugging-options \
+            -c build/d0/ProbeWidget.swift -o build/d0/variantA.o || true
+          echo "VARIANT-A done"
+          # 变体 B：driver -emit-const-values-path 显式路径
+          xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
+            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
+            -emit-const-values-path build/d0/variantB.constvals -Xfrontend -serialize-debugging-options \
+            -c build/d0/ProbeWidget.swift -o build/d0/variantB.o || true
+          echo "VARIANT-B done"
           ls -la build/d0/
           echo "--- global constvals search ---"
-          find "$GITHUB_WORKSPACE" -name "*.constvals" 2>/dev/null | head -10 || true
+          find "$GITHUB_WORKSPACE" -name "*constvals*" -not -path "*/.git/*" 2>/dev/null | head -10 || true
+          echo "--- CI swiftc const/strings params ---"
+          xcrun swiftc --help-hidden 2>&1 | grep -iE "const.values|stringsdata" | head -10 || true
 
           # 2) 按 processor USAGE 提取 Metadata.appintents
           PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
           TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
           XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
-          find "$GITHUB_WORKSPACE" -name "*.constvals" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
+          find "$GITHUB_WORKSPACE" -name "*constvals*" -not -name "*.txt" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
           echo "--- constvals.txt ---"; cat build/d0/constvals.txt || true
           find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/sources.txt
           echo "--- constvals list ---"; cat build/d0/constvals.txt || true
