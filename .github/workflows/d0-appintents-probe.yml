@@ -202,7 +202,7 @@ jobs:
           		SDKROOT = macosx;
           		SKIP_INSTALL = YES;
           		SWIFT_ENABLE_EMIT_CONST_VALUES = YES;
-          		SWIFT_VERSION = 6.0;
+          		SWIFT_VERSION = 5.0;
           		MACOSX_DEPLOYMENT_TARGET = 14.0;
           	};
           	name = Release;
