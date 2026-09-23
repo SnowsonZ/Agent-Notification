@@ -35,7 +35,7 @@ jobs:
 
       - name: Swift policy tests
         run: |
-          xcrun swiftc -parse-as-library native/InboxPolicy.swift tests/InboxPolicyTests.swift -o build/policy-tests
+          xcrun swiftc -parse-as-library native/InboxPolicy.swift native/Shared/WidgetSnapshot.swift tests/InboxPolicyTests.swift -o build/policy-tests
           ./build/policy-tests
 
       - name: Process runner tests
