@@ -75,8 +75,8 @@ struct WidgetSnapshotMoney: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case input, cache, output
-        case unpricedTokens = "unpriced_tokens"
-        case nativeFallback = "native_fallback"
+        case unpricedTokens
+        case nativeFallback
     }
 
     static let empty = WidgetSnapshotMoney(
@@ -94,11 +94,23 @@ struct WidgetUsagePayload: Codable, Equatable {
     var previous: Previous?
     var series: [SeriesRow]?
     var by: By?
+    var pricing: Pricing?
+    var fx: WidgetSnapshot.Fx?
 
     enum CodingKeys: String, CodingKey {
         case period, start, end
-        case isCurrent = "is_current"
-        case totals, previous, series, by
+        case isCurrent
+        case totals, previous, series, by, pricing, fx
+    }
+
+    struct Pricing: Codable, Equatable {
+        var fetchedAt: Double
+        var unpricedModels: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case fetchedAt
+            case unpricedModels
+        }
     }
 
     struct Totals: Codable, Equatable {
@@ -106,14 +118,15 @@ struct WidgetUsagePayload: Codable, Equatable {
         var cacheTokens: Int
         var outputTokens: Int
         var totalTokens: Int
+        var tasks: Int?
         var cost: WidgetSnapshotMoney
 
         enum CodingKeys: String, CodingKey {
-            case cost
-            case inputTokens = "input_tokens"
-            case cacheTokens = "cache_tokens"
-            case outputTokens = "output_tokens"
-            case totalTokens = "total_tokens"
+            case cost, tasks
+            case inputTokens
+            case cacheTokens
+            case outputTokens
+            case totalTokens
         }
     }
 
@@ -123,18 +136,24 @@ struct WidgetUsagePayload: Codable, Equatable {
 
         enum CodingKeys: String, CodingKey {
             case cost
-            case totalTokens = "total_tokens"
+            case totalTokens
         }
     }
 
     struct SeriesRow: Codable, Equatable {
         var date: String
         var totalTokens: Int
+        var inputTokens: Int?
+        var cacheTokens: Int?
+        var outputTokens: Int?
         var cost: WidgetSnapshotMoney
 
         enum CodingKeys: String, CodingKey {
             case date, cost
-            case totalTokens = "total_tokens"
+            case totalTokens
+            case inputTokens
+            case cacheTokens
+            case outputTokens
         }
     }
 
@@ -150,7 +169,7 @@ struct WidgetUsagePayload: Codable, Equatable {
 
             enum CodingKeys: String, CodingKey {
                 case key, name, cost
-                case totalTokens = "total_tokens"
+                case totalTokens
             }
         }
     }
@@ -175,9 +194,9 @@ struct WidgetSnapshot: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case schema
-        case generatedAt = "generated_at"
+        case generatedAt
         case prefs, fx, inbox, usage
-        case usageAt = "usage_at"
+        case usageAt
         case recent
     }
 
@@ -188,7 +207,7 @@ struct WidgetSnapshot: Codable, Equatable {
 
         enum CodingKeys: String, CodingKey {
             case currency
-            case hideTitles = "hide_titles"
+            case hideTitles
             case fallback
         }
 
@@ -208,8 +227,8 @@ struct WidgetSnapshot: Codable, Equatable {
         var asOf: String
 
         enum CodingKeys: String, CodingKey {
-            case usdCny = "USD_CNY"
-            case asOf = "as_of"
+            case usdCny
+            case asOf
         }
     }
 
@@ -221,8 +240,8 @@ struct WidgetSnapshot: Codable, Equatable {
 
         enum CodingKeys: String, CodingKey {
             case pending, running
-            case pendingItems = "pending_items"
-            case runningItems = "running_items"
+            case pendingItems
+            case runningItems
         }
 
         struct Item: Codable, Equatable {
@@ -251,8 +270,8 @@ struct WidgetSnapshot: Codable, Equatable {
 
         enum CodingKeys: String, CodingKey {
             case id, revision, provider, title, project, state, at
-            case todayTokens = "today_tokens"
-            case todayCost = "today_cost"
+            case todayTokens
+            case todayCost
         }
     }
 }

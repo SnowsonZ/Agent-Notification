@@ -25,7 +25,9 @@ enum WidgetSnapshotReader {
     static func load() -> WidgetSnapshot? {
         let path = homeDirectory() + "/.local/state/session-manager/widget/snapshot.json"
         guard let data = FileManager.default.contents(atPath: path) else { return nil }
-        return try? JSONDecoder().decode(WidgetSnapshot.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try? decoder.decode(WidgetSnapshot.self, from: data)
     }
 }
 

@@ -15,7 +15,7 @@ struct DayDetailView: View {
                     } else {
                         // 各区块统一卡片内边距，比例条/节奏带左右边界对齐。
                         // 来源与项目并排成一行，和总览页的双栏节奏一致。
-                        SummaryCardView(report: report)
+                        SummaryCardView(model: model, report: report)
                         if let excluded = report.agentExcluded {
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "person.2.slash").font(.caption).foregroundStyle(.secondary)
@@ -62,13 +62,34 @@ struct DayDetailView: View {
 }
 
 struct SummaryCardView: View {
+    @ObservedObject var model: DailyReportModel
     let report: DayReport
     var body: some View {
-        UsageHeroView(total: report.totals.totalTokens, input: report.totals.inputTokens,
-                      cache: report.totals.cacheTokens, output: report.totals.outputTokens,
-                      caption: "token 合计", accent: liveLabel,
-                      tiles: [("\(report.totals.tasks)", "任务"), ("\(report.totals.turns)", "轮次"),
-                              ("\(activeSourceCount)", "来源"), (activeSpanText, "活跃时长")])
+        VStack(alignment: .leading, spacing: 8) {
+            UsageHeroView(total: report.totals.totalTokens, input: report.totals.inputTokens,
+                          cache: report.totals.cacheTokens, output: report.totals.outputTokens,
+                          caption: "token 合计", accent: liveLabel,
+                          tiles: [("\(report.totals.tasks)", "任务"), ("\(report.totals.turns)", "轮次"),
+                                  ("\(activeSourceCount)", "来源"), (activeSpanText, "活跃时长")])
+            // 金额行（§7 日视图补金额）：按标价估算；有未定价 token 时提示。
+            if let cost = report.totals.cost {
+                let total = widgetMoneyTotal(cost, currency: model.currency, rate: model.fxRate)
+                HStack(spacing: 8) {
+                    Text("金额").font(.caption).foregroundStyle(.secondary)
+                    Text(moneyText(total > 0 ? total : nil, currency: model.currency))
+                        .font(.system(size: 20, weight: .semibold))
+                    if cost.unpricedTokens > 0 {
+                        Text("另有 \(tokenText(cost.unpricedTokens)) tokens 未定价")
+                            .font(.caption2).foregroundStyle(.orange)
+                    }
+                    Spacer()
+                    Text("按标价估算 · 汇率 \(String(format: "%.2f", model.fxRate))").font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            if let models = report.totals.models, !models.isEmpty {
+                ModelBreakdownView(models: models)
+            }
+        }
     }
     // 今天不固化：每次打开即时重算，标明截止时刻，次日首次查看时补算定稿。
     private var liveLabel: String? {
@@ -352,5 +373,38 @@ struct TaskListView: View {
             }
         }
         .rowHover()
+    }
+}
+
+// §7 日视图补 model 占比条：Top 6 + 其余合并「其他」。
+struct ModelBreakdownView: View {
+    let models: [String: ModelUsage]
+
+    var body: some View {
+        let ranked = models.values.sorted { $0.totalTokens > $1.totalTokens }
+        let total = ranked.reduce(0) { $0 + $1.totalTokens }
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("模型占比").font(.caption).foregroundStyle(.secondary)
+            ForEach(Array(ranked.prefix(6).enumerated()), id: \.offset) { _, entry in
+                HStack(spacing: 6) {
+                    Text(entry.rawNames?.first ?? "").font(.caption)
+                        .frame(width: 120, alignment: .leading).lineLimit(1)
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15))
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.accentColor.opacity(0.75))
+                                .frame(width: max(2, proxy.size.width * share(entry, total)))
+                        }
+                    }
+                    .frame(height: 7)
+                    Text(tokenText(entry.totalTokens)).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func share(_ entry: ModelUsage, _ total: Int) -> Double {
+        total > 0 ? Double(entry.totalTokens) / Double(total) : 0
     }
 }

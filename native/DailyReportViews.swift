@@ -11,6 +11,20 @@ struct DailyReportView: View {
                         Text("工作日报").font(.system(size: 24, weight: .bold))
                         Text("数据来自本地会话元数据 · 今日随时实时汇总 · 次日首次查看定稿").font(.subheadline).foregroundStyle(.secondary)
                     }
+                    PeriodHeader(model: model)
+                    if model.period != .day {
+                        // 周 / 月视图（usage-cost.md §7）：数据来自 inbox usage
+                        if let payload = model.usageByPeriod[model.period.rawValue] {
+                            PeriodNavigator(model: model)
+                            PeriodReportView(model: model, payload: payload)
+                        } else if let usageError = model.usageError {
+                            Text("周期用量读取失败：\(usageError)").font(.caption).foregroundStyle(.red)
+                            Button { model.loadUsage(force: true) } label: { Text("重试").font(.caption) }
+                                .buttonStyle(InboxActionButtonStyle())
+                        } else {
+                            Text("正在读取周期用量…").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     if let error = model.error {
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
@@ -22,7 +36,7 @@ struct DailyReportView: View {
                         .padding(10)
                         .background(Color.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                     }
-                    if let overview = model.overview {
+                    if model.period == .day, let overview = model.overview {
                         if let today = overview.today {
                             TodayChipsView(today: today, overview: overview)
                         }
@@ -70,10 +84,18 @@ struct DailyReportView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             model.loadOverview()
+            model.loadUsage(force: false)
             WidgetSnapshotWriter.shared.refreshUsageNow()  // §3：打开日报窗口立即刷新 usage
         }
         .onReceive(NotificationCenter.default.publisher(for: .widgetReportPeriod)) { notification in
-            if let period = notification.object as? String { model.pendingPeriod = period }
+            if let period = notification.object as? String {
+                // 组件 report URL：切到对应周期的本期（§5）
+                if let target = ReportPeriod(rawValue: period), target != model.period {
+                    model.period = target
+                } else {
+                    model.shiftPeriod(0)
+                }
+            }
         }
     }
 }

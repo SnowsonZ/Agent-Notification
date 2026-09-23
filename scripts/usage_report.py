@@ -212,6 +212,9 @@ def collect(store, home, period, anchor_day=None, tables=None, shared=None):
             {
                 "date": day.isoformat(),
                 "total_tokens": int(day_totals.get("total_tokens") or 0),
+                "input_tokens": int(day_totals.get("input_tokens") or 0),
+                "cache_tokens": int(day_totals.get("cache_tokens") or 0),
+                "output_tokens": int(day_totals.get("output_tokens") or 0),
                 "cost": day_cost,
             }
         )

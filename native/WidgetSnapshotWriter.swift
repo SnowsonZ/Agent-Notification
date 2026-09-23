@@ -122,8 +122,17 @@ final class WidgetSnapshotWriter {
             usageLoading = false
             guard result.0 == 0,
                   let object = try? JSONSerialization.jsonObject(with: result.1) as? [String: Any]
-            else { return }
+            else {
+                // 诊断：失败原因落盘（不含正文，只含错误摘要）
+                let reason = result.2.isEmpty ? String(data: result.1, encoding: .utf8) ?? "" : result.2
+                try? String(reason.prefix(300)).write(
+                    to: dataDirectory.appendingPathComponent("widget/usage-error.txt"),
+                    atomically: true, encoding: .utf8
+                )
+                return
+            }
             let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
             var payload: [String: WidgetUsagePayload] = [:]
             for name in ["day", "week", "month"] {
                 guard let section = object[name],
@@ -194,7 +203,7 @@ final class WidgetSnapshotWriter {
 
     // 手动汇率文件由 CLI `inbox pricing fx` 写入；缺失用默认值（usage-cost.md §5）。
     private var fx: WidgetSnapshot.Fx {
-        let url = URL(fileURLWithPath: root).appendingPathComponent("pricing/fx.json")
+        let url = dataDirectory.appendingPathComponent("pricing/fx.json")
         if let data = try? Data(contentsOf: url),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             let rate = (object["USD_CNY"] as? NSNumber)?.doubleValue ?? 7.10
@@ -203,13 +212,23 @@ final class WidgetSnapshotWriter {
         return WidgetSnapshot.Fx(usdCny: 7.10, asOf: "")
     }
 
+    /// 快照数据目录固定在 ~/.local/state/session-manager/widget/（§2）：
+    /// SessionManagerRoot 是代码根（开发包=repo），不是数据根，不能混用。
+    private var dataDirectory: URL {
+        // 沙盒外取真实 home 直接用 NSHomeDirectory（getpwuid 是组件沙盒内才需要）
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".local/state/session-manager", isDirectory: true)
+    }
+
     private func write(_ snapshot: WidgetSnapshot) {
-        let directoryURL = URL(fileURLWithPath: root).appendingPathComponent("widget", isDirectory: true)
+        let directoryURL = dataDirectory.appendingPathComponent("widget", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: directoryURL, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        guard let data = try? encoder.encode(snapshot) else { return }
         let target = directoryURL.appendingPathComponent("snapshot.json")
         let temporary = directoryURL.appendingPathComponent(".snapshot.json.tmp")
         do {
