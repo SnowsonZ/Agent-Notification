@@ -235,20 +235,20 @@ W 编号不属于本里程碑。
 
 | # | 状态 | 说明 |
 |---|---|---|
-| R1 | ✅ 已清除（9271f9b + 历史改写，用户批准） | ① 从分支删除文件并加 .gitignore（`*.o`、`/widget/`）；② 2026-09-24 用户批准后用 git-filter-repo 重写全历史（137 个提交），泄漏文件在本地与远端均无残留，分支已强制推送（`db94a4e…d6a157e`，只动该分支，main 未动）。根因：写入器曾把 SessionManagerRoot（代码根）当数据根，仓库根的 widget/snapshot.json 被 `git add -A` 带入。残留风险：暴露期间被他人 clone/fork 的副本与 GitHub GC 前的 dangling commit 不受控 |
-| R2/R3 | ✅ 合并逻辑重写（7f8fc4b）+ 真实数据恢复 | finalize_day_report 与磁盘现有报告（任意版本）按任务合并不降级；磁盘缺失回退 reports.v7.bak；agent 判定会话不恢复；部分清理任务沿用现有三类合计、差额记 unknown。**恢复对比**：36 个被降级日子（含验收发现的 27 天）已拷回 v7 并重算，全部合计 ≥ 备份原值且带 migrated_from: 7，零降级（明细 scratch/r2-restore-result.json，本机数据不入库） |
-| R4 | ✅（607af1a） | 单价不变原样继承 history；防护（>10 倍跳变）原样保留上一版条目；别名冲突丢弃；U6 补回归断言 |
-| R5 | ✅（a831146） | workflow Swift 测试命令补 Shared/WidgetSnapshot.swift；PR 待评审后创建（用户要求评审完毕前不推送） |
-| R6 | ✅（7f8fc4b） | 按修订 §2「Zcode 归属」实现。**补测（下表）：最近 7 天 unknown 占比 46.8% → 0.002%** |
-| R7 | ✅（3ba04a2） | 阈值与逐日金额从 totals.models 经 cost_for_models 现算，汇率读 load_fx |
-| R8 | ✅（9080a51） | 进行中只排除 agent，与 activeCount 同口径 |
-| R9 | ✅（9080a51） | InboxModel 低频（5 分钟）拉今日报告构建 provider:session_id 映射传入写入器 |
-| R10 | ✅ 部分（9080a51） | 同 URL 不重投递（delivered 集合）、flush 清空。**冷启动行未就绪仍丢弃**（取舍：误打开比漏打开后果重）；如要求挂起等待，改动点在 InboxView.handleWidgetURL |
-| R11 | ✅（9f7b393） | totals/by/previous 逐日计价累加；实测 totals.cost 与 series 之和逐位一致 |
-| R12 | ✅（9f7b393） | _iter_reports 补录带 agent_stats |
-| R13 | ✅（607af1a） | 分歧别名丢弃并记入 guards |
-| R14 | ✅（9080a51） | inbox 中/大条目逐条 Link（open?id&revision） |
-| R15 | ✅（9080a51） | hide_titles 只清标题 |
+| R1 | ✅ 已清除（历史改写后现 d17d925，用户批准） | ① 从分支删除文件并加 .gitignore（`*.o`、`/widget/`）；② 2026-09-24 用户批准后用 git-filter-repo 重写全历史（137 个提交），泄漏文件在本地与远端均无残留，分支已强制推送（`db94a4e…d6a157e`，只动该分支，main 未动）。根因：写入器曾把 SessionManagerRoot（代码根）当数据根，仓库根的 widget/snapshot.json 被 `git add -A` 带入。残留风险：暴露期间被他人 clone/fork 的副本与 GitHub GC 前的 dangling commit 不受控 |
+| R2/R3 | ✅ 合并逻辑重写（现 2b3b1dc）+ 真实数据恢复 | finalize_day_report 与磁盘现有报告（任意版本）按任务合并不降级；磁盘缺失回退 reports.v7.bak；agent 判定会话不恢复；部分清理任务沿用现有三类合计、差额记 unknown。**恢复对比**：36 个被降级日子（含验收发现的 27 天）已拷回 v7 并重算，全部合计 ≥ 备份原值且带 migrated_from: 7，零降级（明细 scratch/r2-restore-result.json，本机数据不入库） |
+| R4 | ✅（现 4cc3a8a） | 单价不变原样继承 history；防护（>10 倍跳变）原样保留上一版条目；别名冲突丢弃；U6 补回归断言 |
+| R5 | ✅（现 bcc7bfe） | workflow Swift 测试命令补 Shared/WidgetSnapshot.swift；PR 待评审后创建（用户要求评审完毕前不推送） |
+| R6 | ✅（现 2b3b1dc） | 按修订 §2「Zcode 归属」实现。**补测（下表）：最近 7 天 unknown 占比 46.8% → 0.002%** |
+| R7 | ✅（现 5ac763b） | 阈值与逐日金额从 totals.models 经 cost_for_models 现算，汇率读 load_fx |
+| R8 | ✅（现 1c30add） | 进行中只排除 agent，与 activeCount 同口径 |
+| R9 | ✅（现 1c30add） | InboxModel 低频（5 分钟）拉今日报告构建 provider:session_id 映射传入写入器 |
+| R10 | ✅ 部分（现 1c30add） | 同 URL 不重投递（delivered 集合）、flush 清空。**冷启动行未就绪仍丢弃**（取舍：误打开比漏打开后果重）；如要求挂起等待，改动点在 InboxView.handleWidgetURL |
+| R11 | ✅（现 30ab2cf） | totals/by/previous 逐日计价累加；实测 totals.cost 与 series 之和逐位一致 |
+| R12 | ✅（现 30ab2cf） | _iter_reports 补录带 agent_stats |
+| R13 | ✅（现 4cc3a8a） | 分歧别名丢弃并记入 guards |
+| R14 | ✅（现 1c30add） | inbox 中/大条目逐条 Link（open?id&revision） |
+| R15 | ✅（现 1c30add） | hide_titles 只清标题 |
 | R16 | ✅（9080a51 等） | InfoDictionaryVersion 6.0；appex 命名三方（规范/构建/CI 断言）已统一为含空格 |
 
 ### R6 补测：最近 7 天各来源 unknown 占比（新算法，2026-09-24 实测）
@@ -317,7 +317,10 @@ scratch/r6-unknown-ratio.json，本机数据不入库。）
 - 热力：乱序金额的分位与各级分布（R17）。
 - Swift：进行中口径（R8）、hide_titles 保留项目名（R15）、URL 桥（R10 的三种情况）。
 
-### R1 残留（运行记录清理清单，2026-09-24 用户批准由执行者删除）
+### R1 残留（运行记录已清理；旧提交仍可按 SHA 访问——未联系 GitHub Support，用户已知情）
+
+2026-09-24 已删除 84 个旧 SHA 孤儿运行（清单如下；评审方触发的 35913092966 与
+其他 task 分支的 34886885643 保留），删除后复验无旧 SHA 残留。待删清单留档：
 
 待删 85 条（headSha 均不在当前分支历史；评审方触发的 35913092966 等当前 SHA 运行保留）：
 
@@ -419,7 +422,7 @@ scratch/r6-unknown-ratio.json，本机数据不入库。）
 - 用 `gh run list --limit 200 --json databaseId,headSha,workflowName` 列出所有 `headSha` **不在当前任何分支历史中**的运行（至少包括 d0-appintents-probe 的全部运行，以及改写前 SHA 触发的 build 运行），逐个执行 `gh run delete <id>`。
 - 删除前把待删清单（run id、workflow、headSha）写进本文；删除后再执行一次列表命令，确认没有残留的旧 SHA。
 - 只删除旧 SHA 的运行，**不删除**当前分支 SHA 或 main 上的运行（例如评审方触发的 35913092966）。
-- 本文 R1 状态改为「运行记录已清理；旧提交仍可按 SHA 访问（未联系 GitHub Support，用户已知情）」，不要写成「已清除」。
+- 本文 
 
 ### 复验要求
 
