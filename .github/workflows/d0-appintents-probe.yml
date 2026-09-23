@@ -96,9 +96,11 @@ jobs:
           PLIST
 
           # 1) 编译为对象文件（-emit-const-values 供元数据提取）
-          xcrun swiftc \
+          # swiftc driver 会吞掉 -emit-const-values；直接用前端 swift-frontend
+          xcrun swift-frontend \
             -module-name ProbeWidgets \
             -parse-as-library \
+            -enable-library-evolution \
             -application-extension \
             -target arm64-apple-macosx14.0 \
             -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
@@ -107,16 +109,17 @@ jobs:
             -c build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets.o
           echo "COMPILE OK"
           ls -la build/d0/
-          find build/d0 -name "*constvals*" | head -5 || true
-          find build/d0 -name "*stringsdata*" | head -5 || true
+          find "$PWD" -name "*.constvals" 2>/dev/null | head -5 || true
+          find "$PWD" -name "*.stringsdata" 2>/dev/null | head -5 || true
 
           # 2) 按 processor USAGE 提取 Metadata.appintents
           PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
           TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
           XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
-          find build/d0 -name "*constvals*" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
-          find build/d0 -name "*stringsdata*" | sed "s|^|$PWD/|" > build/d0/stringsdata.txt || true
+          find "$PWD" -name "*.constvals" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
+          find "$PWD" -name "*.stringsdata" | sed "s|^|$PWD/|" > build/d0/stringsdata.txt || true
+          echo "--- constvals.txt ---"; cat build/d0/constvals.txt || true
           find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/sources.txt
           echo "--- constvals list ---"; cat build/d0/constvals.txt || true
           set +e
