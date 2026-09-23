@@ -89,7 +89,9 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 | `bin/session-manager zcode-focus TASK_ID` | 打开指定 Zcode 任务；`--describe` 仅解析任务元数据 |
 | `bin/session-manager inbox setup` | 安装或更新观察 hooks（幂等，不覆盖既有配置） |
 | `bin/session-manager inbox rows \| sync \| open \| ack \| ack-batch` | 收件箱数据查询与维护 |
-| `bin/session-manager inbox daily-report [--date YYYY-MM-DD] \| --overview` | 生成单日报告或热力图总览（自动补录缺失日期） |
+| `bin/session-manager inbox daily-report [--date YYYY-MM-DD] \| --overview` | 生成单日报告或热力图总览（自动补录缺失日期）；响应附按标价估算的 cost |
+| `bin/session-manager inbox usage --period day\|week\|month\|all [--json]` | 跨周期用量与金额（ISO 周 / 自然月，日/周/月三视图） |
+| `bin/session-manager inbox pricing show \| check \| update \| fx` | 价格表查询、缺口检查、自动拉取与手动汇率 |
 | `bin/session-manager app` | 打开「会话通知」 |
 
 诊断脚本：
@@ -117,10 +119,10 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | 文档 | 类别 | 说明 |
 |---|---|---|
 | [统一收件箱](docs/specs/unified-inbox.md) | 规范 | 使用入口、数据来源、状态语义与已知边界 |
-| [工作日报](docs/specs/daily-report.md) | 规范 | token 统计口径、热力分级、固化与补录语义 |
+| [工作日报](docs/specs/daily-report.md) | 规范 | token 统计口径、逐 model 用量（schema v8）、固化与补录语义 |
 | [CLI 会话绑定](docs/specs/cli-session-binding.md) | 规范 | 受管理启动、存活锁、会话 ID 与前台进程组校验 |
 | [Zcode 原生导航](docs/specs/zcode-native-navigation.md) | 规范 | task ID 查标题、AX 搜索、复制任务路径校验 |
-| [用量金额与跨周期统计](docs/specs/usage-cost.md) | 规范（待实施） | 按 model 计价、价格表三层与自适应拉取、USD/CNY、日/周/月 |
+| [用量金额与跨周期统计](docs/specs/usage-cost.md) | 规范 | 按 model 计价、价格表三层与自适应拉取、USD/CNY、日/周/月（CLI 与日报金额已实施，界面与组件见执行计划） |
 | [桌面组件](docs/specs/desktop-widgets.md) | 规范（待实施） | 快照、刷新、三类组件、URL 跳转与构建要求 |
 | [会话收件箱方案](docs/plans/session-inbox.md) | 设计方案 | 五路接入、通知抓取评估与实现路径 |
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |

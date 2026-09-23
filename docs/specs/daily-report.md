@@ -1,6 +1,6 @@
-# 工作日报 v3（token 三类口径，报告 schema v7）
+# 工作日报 v3（token 三类口径，报告 schema v8）
 
-状态：v3 已实现并通过 102 项 Python 检查（含 15 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。OpenCode 来源于 2026-09-16 接入（schema v5→v6）；2026-09-17 agent 会话过滤 + OpenCode 受管理口径（v6→v7，旧固化报告自动重算，现役 schema v7）。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）；OpenCode 近 3 天独立重算与报告逐位一致（141,744）。
+状态：**报告 schema 已升到 v8**（2026-09-23，逐 model 用量，见[用量金额规范](usage-cost.md)）：六来源产出 model_raw 与四项原始 token，`tasks[].models` 与 `totals.models` 入报告；金额不写入报告，由 `inbox usage` / 日报界面在读取时按价格表派生。v7 → v8 迁移自动执行（先备份 `reports.v7.bak/`，来源被清理时用 v7 内容做 unknown 拆分，不降级）；真实数据三日比对逐位一致（Zcode 在 1.71% 容差内），证据 scratch/2026-09-23-v8-parity.md。此前 v3（schema v7）通过 102 项 Python 检查（含 15 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。OpenCode 来源于 2026-09-16 接入（schema v5→v6）；2026-09-17 agent 会话过滤 + OpenCode 受管理口径（v6→v7，旧固化报告自动重算，现役 schema v7）。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）；OpenCode 近 3 天独立重算与报告逐位一致（141,744）。
 
 ## 度量口径（v3 核心）
 
@@ -47,9 +47,13 @@
 ## CLI
 
 ```sh
-bin/session-manager inbox daily-report [--date YYYY-MM-DD] [--refresh]  # 单日报告（过去日读定稿缓存，--refresh 重扫；今天实时、不落盘）
-bin/session-manager inbox daily-report --overview [--days 182] [--top 5]  # 热力图 + 近 7 天 Top 项目（自动补录）
+bin/session-manager inbox daily-report [--date YYYY-MM-DD] [--refresh]  # 单日报告（过去日读定稿缓存，--refresh 重扫；今天实时、不落盘）；响应中 task / totals / sources / projects / models 各附 cost
+bin/session-manager inbox daily-report --overview [--days 182] [--top 5]  # 热力图 + 近 7 天 Top 项目（自动补录）；days[] 与 today 附 cost，附 week_models（近 7 天 model 合计与金额）
+bin/session-manager inbox usage --period day|week|month|all [--date D] [--json] [--currency USD|CNY]  # 跨周期用量与金额（金额按标价估算；ISO 周/自然月；过去日读定稿缓存，今天实时）
+bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--auto] | fx RATE  # 价格表查询 / 缺口检查 / 拉取（7→14→28→30 天自适应，--auto 只在到期时请求）/ 手动汇率
 ```
+
+金额口径见[用量金额规范](usage-cost.md)：等价金额 ≠ 账单，展示处注脚标明「按标价估算」。
 
 ## 隐私边界
 
@@ -70,6 +74,6 @@ bin/session-manager inbox daily-report --overview [--days 182] [--top 5]  # 热�
 - Claude 依赖 `~/.claude/projects` 转写存在；转写被清理的历史日会降级为〔无 token〕。
 - 热力阈值按当前工作强度校准，工作模式显著变化时可再调整（Python/Swift 两处常量）。
 
-实现：[聚合模块](../../scripts/daily_report.py)、[CLI 接线](../../scripts/inbox.py)、[策略纯函数](../../native/InboxPolicy.swift)、[原生界面与调度](../../native/SessionInbox.swift)、[日报测试](../../tests/test_daily_report.py)、[策略测试](../../tests/InboxPolicyTests.swift)。
+实现：[聚合模块](../../scripts/daily_report.py)、[计价模块](../../scripts/usage_cost.py)、[周期聚合](../../scripts/usage_report.py)、[价格拉取](../../scripts/pricing_fetch.py)、[规范名](../../scripts/model_names.py)、[CLI 接线](../../scripts/inbox.py)、[策略纯函数](../../native/InboxPolicy.swift)、[原生界面与调度](../../native/SessionInbox.swift)、[日报测试](../../tests/test_daily_report.py)、[计价测试](../../tests/test_usage_cost.py)、[拉取测试](../../tests/test_pricing_fetch.py)、[周期测试](../../tests/test_usage_report.py)、[策略测试](../../tests/InboxPolicyTests.swift)。
 
 - 节奏带色块不做 hover 缩放（2026-09-20 用户要求：色块随 hover 放大表现为"移动"）；悬浮提示保留，其余图表 hover 不变。

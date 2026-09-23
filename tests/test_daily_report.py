@@ -2,6 +2,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -97,16 +98,33 @@ class DailyReportTests(unittest.TestCase):
                 ),
             )
 
-    def zcode_requests(self, turn_id, intervals):
+    def zcode_requests(self, turn_id, intervals, *, model=None, tokens=None):
+        """model_usage 夹具（v8 十列 schema）。tokens 给出时逐请求附四项原始值
+        （fresh, cache_write, cache_read, output, reasoning），供对账一致走逐请求路径；
+        缺省全 NULL，对账失败 → 整轮退回轮级，行为与 v7 相同。"""
         runtime = self.home / ".zcode/cli/db/db.sqlite"
         with sqlite3.connect(runtime) as db:
             db.execute(
-                "CREATE TABLE IF NOT EXISTS model_usage (turn_id,started_at,completed_at)"
+                "CREATE TABLE IF NOT EXISTS model_usage (turn_id,session_id,model_id,"
+                "input_tokens,cache_read_input_tokens,cache_creation_input_tokens,"
+                "output_tokens,reasoning_tokens,started_at,completed_at)"
             )
-            for start, end in intervals:
+            for index, (start, end) in enumerate(intervals):
+                raw = tokens[index] if tokens else (None,) * 5
                 db.execute(
-                    "INSERT INTO model_usage VALUES (?,?,?)",
-                    (turn_id, round(start * 1000), round(end * 1000) if end else None),
+                    "INSERT INTO model_usage VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        turn_id,
+                        "sess",
+                        model,
+                        raw[0],
+                        raw[1],
+                        raw[2],
+                        raw[3],
+                        raw[4],
+                        round(start * 1000),
+                        round(end * 1000) if end else None,
+                    ),
                 )
 
     def zcode_parents(self, mapping):
@@ -136,6 +154,19 @@ class DailyReportTests(unittest.TestCase):
             )
         ]
         for kind, moment, usage in lines:
+            if kind == "turn_context":
+                body.append(
+                    json.dumps(
+                        {
+                            "type": "turn_context",
+                            "payload": {"model": usage},
+                            "timestamp": iso(*moment)
+                            if isinstance(moment, tuple)
+                            else moment,
+                        }
+                    )
+                )
+                continue
             payload = {"type": kind}
             if usage is not None:
                 payload["info"] = {"last_token_usage": usage}
@@ -191,19 +222,24 @@ class DailyReportTests(unittest.TestCase):
                     }
                 )
             )
+        (self.home / ".claude/projects/proj").mkdir(parents=True, exist_ok=True)
         if transcript:
             path = self.home / ".claude/projects/proj" / f"{sid}.jsonl"
-            path.parent.mkdir(parents=True, exist_ok=True)
             lines = [
                 json.dumps(
                     {
                         "type": "assistant",
                         "sessionId": sid,
                         "timestamp": iso(*moment),
-                        "message": {"role": "assistant", "usage": usage},
+                        "message": {
+                            "role": "assistant",
+                            "usage": usage,
+                            **({"model": item[2]} if len(item) > 2 and item[2] else {}),
+                        },
                     }
                 )
-                for moment, usage in usage_lines
+                for item in usage_lines
+                for moment, usage in (item[:2],)
             ]
             path.write_text("\n".join(lines) + "\n")
 
@@ -215,13 +251,19 @@ class DailyReportTests(unittest.TestCase):
         lines = [
             json.dumps({"type": "session", "id": sid, "timestamp": iso(self.day, 8)})
         ]
-        for moment, usage in records:
+        for item in records:
+            moment, usage = item[:2]
+            message = {"role": "assistant", "usage": usage}
+            if len(item) > 2 and item[2]:
+                message["model"] = item[2]
+            if len(item) > 3 and item[3] is not None:
+                message["usage"] = {**usage, "cost": {"total": item[3]}}
             lines.append(
                 json.dumps(
                     {
                         "type": "message",
                         "timestamp": iso(*moment),
-                        "message": {"role": "assistant", "usage": usage},
+                        "message": message,
                     }
                 )
             )
@@ -238,9 +280,15 @@ class DailyReportTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         lines = [
             json.dumps(
-                {"type": "usage.record", "usage": usage, "time": round(moment * 1000)}
+                {
+                    "type": "usage.record",
+                    "usage": usage,
+                    "time": round(moment * 1000),
+                    **({"model": item[2]} if len(item) > 2 and item[2] else {}),
+                }
             )
-            for moment, usage in records
+            for item in records
+            for moment, usage in (item[:2],)
         ]
         path.write_text("\n".join(lines) + "\n")
 
@@ -525,13 +573,18 @@ class DailyReportTests(unittest.TestCase):
                 "INSERT OR IGNORE INTO session VALUES (?,?,?,?,?,?)",
                 (sid, title, directory, 0, None, parent),
             )
-            for index, (moment, usage) in enumerate(entries):
+            for index, item in enumerate(entries):
+                moment, usage = item[:2]
                 stamp_ms = round(stamp(self.day, *moment) * 1000)
                 data = {
                     "role": "assistant",
                     "time": {"created": stamp_ms - 1000, "completed": stamp_ms},
                     "tokens": usage,
                 }
+                if len(item) > 2 and item[2]:
+                    data["modelID"] = item[2]
+                if len(item) > 3 and item[3] is not None:
+                    data["cost"] = item[3]
                 db.execute(
                     "INSERT INTO message VALUES (?,?,?,?,?)",
                     (f"msg_{sid}_{index}", sid, stamp_ms, stamp_ms, json.dumps(data)),
@@ -791,7 +844,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(stats[self.day]["tasks"], {"ag-1"})
         self.assertEqual(stats[self.day]["total_tokens"], 600)
         report = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
-        self.assertEqual(report["version"], 7)
+        self.assertEqual(report["version"], 8)
         self.assertEqual(report["agent_excluded"], {"tasks": 1, "total_tokens": 600})
         self.assertEqual([t["session_id"] for t in report["tasks"]], ["sess_u"])
         self.assertIn("1 个 agent 会话", render_markdown(report))
@@ -907,7 +960,7 @@ class DailyReportTests(unittest.TestCase):
             ["0", "895", "6.6k", "457k", "614k", "1M", "55.7M", "143M", "553M", "1B"],
         )
 
-    def test_generate_day_writes_v7_and_markdown(self):
+    def test_generate_day_writes_v8_and_markdown(self):
         self.zcode_index("sess_a", "收件箱日报", "/work/session-manager")
         self.zcode_turn(
             "sess_a",
@@ -919,7 +972,7 @@ class DailyReportTests(unittest.TestCase):
             output=10_000,
         )
         report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report["version"], 7)
+        self.assertEqual(report["version"], 8)
         self.assertEqual(
             (
                 report["totals"]["input_tokens"],
@@ -940,7 +993,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("900k", markdown)
         self.assertIn("收件箱日报", markdown)
         self.assertEqual(
-            load_report(self.store.root, self.day.isoformat())["version"], 7
+            load_report(self.store.root, self.day.isoformat())["version"], 8
         )
         # 过去日已定稿：再次查看直接读缓存，不重扫来源（新增轮次不会出现）。
         self.zcode_turn(
@@ -1086,7 +1139,7 @@ class DailyReportTests(unittest.TestCase):
             600,
         )
         self.assertEqual(
-            load_report(self.store.root, self.day.isoformat())["version"], 7
+            load_report(self.store.root, self.day.isoformat())["version"], 8
         )
         # 过去日读缓存：新增历史轮次不改变固化结果，总览与详情一致；只有 refresh 才重扫来源。
         self.zcode_turn(
@@ -1141,6 +1194,391 @@ class DailyReportTests(unittest.TestCase):
             for row in generate_overview(self.store, self.home, days=30)["days"]
         }
         self.assertEqual(by_date[self.day.isoformat()]["total_tokens"], 600)
+
+    # ---- v8：逐 model 拆分与 v7→v8 迁移（用量金额规范 §2–§3）----
+
+    def test_zcode_reconciled_requests_split_by_model(self):
+        # 对账一致：逐请求计量并按 model 归桶；轮次数每轮只记一次；节奏段取各请求区间。
+        self.zcode_index("sess_a")
+        self.zcode_turn(
+            "sess_a",
+            "t1",
+            stamp(self.day, 10),
+            stamp(self.day, 11),
+            fresh=100,
+            output=25,
+        )
+        self.zcode_requests(
+            "t1",
+            [
+                (stamp(self.day, 10), stamp(self.day, 10, 10)),
+                (stamp(self.day, 10, 40), stamp(self.day, 10, 50)),
+            ],
+            model="GLM-5.3-Flash",
+            tokens=[(50, 0, 0, 10, 0), (50, 0, 0, 15, 0)],
+        )
+        record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
+        self.assertEqual(
+            record["models"],
+            {
+                "glm-5.3-flash": {
+                    "fresh_input": 100,
+                    "cache_write": 0,
+                    "cache_read": 0,
+                    "output": 25,
+                    "native_cost_usd": None,
+                    "raw_names": ["GLM-5.3-Flash"],
+                }
+            },
+        )
+        self.assertEqual((record["total_tokens"], record["turns"]), (125, 1))
+        self.assertEqual(
+            record["segments"],
+            [
+                [stamp(self.day, 10), stamp(self.day, 10, 10)],
+                [stamp(self.day, 10, 40), stamp(self.day, 10, 50)],
+            ],
+        )
+
+    def test_zcode_reconciliation_mismatch_falls_back_to_turn_unknown(self):
+        # 对账不一致：整轮退回轮级数据，model 记 unknown；节奏带仍取逐请求时段。
+        self.zcode_index("sess_a")
+        self.zcode_turn(
+            "sess_a", "t1", stamp(self.day, 10), stamp(self.day, 11), fresh=100
+        )
+        self.zcode_requests(
+            "t1",
+            [
+                (stamp(self.day, 10), stamp(self.day, 10, 10)),
+                (stamp(self.day, 10, 40), stamp(self.day, 10, 50)),
+            ],
+            tokens=[(50, 0, 0, 10, 0), (50, 0, 0, 0, 0)],
+        )
+        record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
+        self.assertEqual(
+            record["models"],
+            {
+                "unknown": {
+                    "fresh_input": 100,
+                    "cache_write": 0,
+                    "cache_read": 0,
+                    "output": 0,
+                    "native_cost_usd": None,
+                }
+            },
+        )
+        self.assertEqual(record["total_tokens"], 100)
+        self.assertEqual(
+            record["segments"],
+            [
+                [stamp(self.day, 10), stamp(self.day, 10, 10)],
+                [stamp(self.day, 10, 40), stamp(self.day, 10, 50)],
+            ],
+        )
+
+    def test_codex_model_from_turn_context_and_unknown_without(self):
+        usage = {
+            "input_tokens": 100,
+            "cache_write_input_tokens": 10,
+            "cached_input_tokens": 20,
+            "output_tokens": 30,
+            "reasoning_output_tokens": 5,
+        }
+        self.codex_rollout(
+            "c1",
+            [
+                ("turn_context", (self.day, 9), "gpt-6-astra"),
+                ("token_count", (self.day, 9, 5), usage),
+            ],
+        )
+        self.codex_rollout("c2", [("token_count", (self.day, 10), usage)])
+        records = scan_buckets(self.store, self.home, self.day, self.day)[self.day]
+        by_sid = {record["session_id"]: record for record in records}
+        self.assertEqual(
+            by_sid["c1"]["models"],
+            {
+                "gpt-6-astra": {
+                    "fresh_input": 100,
+                    "cache_write": 10,
+                    "cache_read": 20,
+                    "output": 35,
+                    "native_cost_usd": None,
+                    "raw_names": ["gpt-6-astra"],
+                }
+            },
+        )
+        self.assertEqual(
+            by_sid["c2"]["models"]["unknown"],
+            {
+                "fresh_input": 100,
+                "cache_write": 10,
+                "cache_read": 20,
+                "output": 35,
+                "native_cost_usd": None,
+            },
+        )
+
+    def test_claude_pi_models_and_native_cost(self):
+        self.claude_session(
+            "cli-1",
+            stamp(self.day, 8),
+            stamp(self.day, 9),
+            usage_lines=[
+                (
+                    (self.day, 9),
+                    {
+                        "input_tokens": 100,
+                        "cache_creation_input_tokens": 10,
+                        "cache_read_input_tokens": 20,
+                        "output_tokens": 30,
+                    },
+                    "MiniMax-M3",
+                )
+            ],
+        )
+        self.pi_session(
+            "pi-1",
+            [
+                (
+                    (self.day, 10),
+                    {
+                        "input": 50,
+                        "cacheWrite": 5,
+                        "cacheRead": 8,
+                        "output": 12,
+                        "reasoning": 3,
+                    },
+                    "glm-5.3-flash",
+                    0.0005,
+                )
+            ],
+        )
+        buckets = scan_buckets(self.store, self.home, self.day, self.day)
+        report = build_report(self.day, buckets[self.day], time.time())
+        self.assertEqual(
+            report["totals"]["models"],
+            {
+                "minimax-m3": {
+                    "fresh_input": 100,
+                    "cache_write": 10,
+                    "cache_read": 20,
+                    "output": 30,
+                    "native_cost_usd": None,
+                },
+                "glm-5.3-flash": {
+                    "fresh_input": 50,
+                    "cache_write": 5,
+                    "cache_read": 8,
+                    "output": 15,
+                    "native_cost_usd": 0.0005,
+                },
+            },
+        )
+
+    def test_kimi_opencode_models_and_native_cost(self):
+        self.kimi_wire(
+            "k1",
+            [
+                (
+                    stamp(self.day, 11),
+                    {
+                        "inputOther": 40,
+                        "inputCacheCreation": 4,
+                        "inputCacheRead": 6,
+                        "output": 9,
+                    },
+                    "MiniMax-M3",
+                )
+            ],
+        )
+        self.opencode_messages(
+            "oc1",
+            [
+                (
+                    (12,),
+                    {
+                        "input": 30,
+                        "output": 5,
+                        "reasoning": 2,
+                        "cache": {"write": 3, "read": 7},
+                    },
+                    "MiniMax-M2.7",
+                    0.007,
+                )
+            ],
+        )
+        buckets = scan_buckets(self.store, self.home, self.day, self.day)
+        report = build_report(self.day, buckets[self.day], time.time())
+        self.assertEqual(report["totals"]["models"]["minimax-m3"]["output"], 9)
+        entry = report["totals"]["models"]["minimax-m2.7"]
+        self.assertEqual(
+            (
+                entry["fresh_input"],
+                entry["cache_write"],
+                entry["cache_read"],
+                entry["output"],
+            ),
+            (30, 3, 7, 7),
+        )
+        self.assertEqual(entry["native_cost_usd"], 0.007)
+
+    def test_unavailable_task_keeps_models_empty(self):
+        self.claude_session(
+            "cli-1",
+            stamp(self.day, 8),
+            stamp(self.day, 9),
+            transcript=False,
+        )
+        record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
+        self.assertEqual(record["fidelity"], "unavailable")
+        self.assertEqual(record["models"], {})
+
+    def test_totals_models_merge_across_tasks_with_raw_names(self):
+        usage = {
+            "input_tokens": 10,
+            "cache_write_input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 1,
+            "reasoning_output_tokens": 0,
+        }
+        self.codex_rollout(
+            "c1",
+            [
+                ("turn_context", (self.day, 9), "zai-coding-plan/gpt-6-astra"),
+                ("token_count", (self.day, 9, 5), usage),
+            ],
+        )
+        self.codex_rollout(
+            "c2",
+            [
+                ("turn_context", (self.day, 10), "GPT-6-Astra"),
+                ("token_count", (self.day, 10, 5), usage),
+            ],
+        )
+        buckets = scan_buckets(self.store, self.home, self.day, self.day)
+        report = build_report(self.day, buckets[self.day], time.time())
+        merged = report["totals"]["models"]["gpt-6-astra"]
+        self.assertEqual(merged["fresh_input"], 20)
+        # raw_names 只在任务级（规范 §3 totals.models 无此字段）。
+        raw_names = sorted(
+            name
+            for record in buckets[self.day]
+            for name in record["models"]["gpt-6-astra"]["raw_names"]
+        )
+        self.assertEqual(raw_names, ["GPT-6-Astra", "zai-coding-plan/gpt-6-astra"])
+
+    def write_v7_report(self, total):
+        day = self.day.isoformat()
+        task = {
+            "provider": "codex",
+            "session_id": "old-1",
+            "title": "旧任务",
+            "project": "/work/x",
+            "first_at": stamp(self.day, 9),
+            "last_at": stamp(self.day, 10),
+            "input_tokens": 100,
+            "cache_tokens": 20,
+            "output_tokens": 30,
+            "total_tokens": total,
+            "turns": 1,
+            "state": "idle",
+            "fidelity": "exact",
+            "segments": [[stamp(self.day, 9), stamp(self.day, 10)]],
+        }
+        totals = {
+            "input_tokens": 100,
+            "cache_tokens": 20,
+            "output_tokens": 30,
+            "total_tokens": total,
+            "tasks": 1,
+            "turns": 1,
+            "sources": {
+                "codex": {
+                    key: task[key]
+                    for key in (
+                        "input_tokens",
+                        "cache_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                    )
+                }
+            },
+            "projects": {
+                "/work/x": {
+                    key: task[key]
+                    for key in (
+                        "input_tokens",
+                        "cache_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                    )
+                }
+            },
+        }
+        if total != 150:
+            totals["total_tokens"] = total
+            task["total_tokens"] = total
+        report = {
+            "version": 7,
+            "date": day,
+            "generated_at": stamp(self.day + timedelta(days=1), 0) + 100,
+            "totals": totals,
+            "tasks": [task],
+        }
+        directory = self.store.root / "reports"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{day}.json").write_text(json.dumps(report))
+        return report
+
+    def test_v7_migration_rewrites_to_unknown_when_sources_gone(self):
+        # U2：v7 存在但来源已清理（v8 合计更少）→ 改用 v7 内容，unknown 拆分，不降级。
+        self.write_v7_report(150)
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        self.assertEqual(report["version"], 8)
+        self.assertEqual(report.get("migrated_from"), 7)
+        self.assertEqual(report["totals"]["total_tokens"], 150)
+        self.assertEqual(
+            report["tasks"][0]["models"],
+            {
+                "unknown": {
+                    "fresh_input": 100,
+                    "cache_write": 0,
+                    "cache_read": 20,
+                    "output": 30,
+                }
+            },
+        )
+        self.assertEqual(
+            report["totals"]["models"]["unknown"],
+            {
+                "fresh_input": 100,
+                "cache_write": 0,
+                "cache_read": 20,
+                "output": 30,
+                "native_cost_usd": None,
+            },
+        )
+        backup = self.store.root / "reports.v7.bak" / f"{self.day.isoformat()}.json"
+        self.assertTrue(backup.exists())
+        self.assertEqual(json.loads(backup.read_text())["version"], 7)
+        # 迁移结果已固化：再次读取命中 v8 缓存。
+        self.assertEqual(
+            load_report(self.store.root, self.day.isoformat())["version"], 8
+        )
+
+    def test_v7_migration_uses_v8_when_not_smaller(self):
+        # U2 另一面：v8 合计不少于 v7 → 直接采用 v8，无 migrated_from；备份仍然发生。
+        self.write_v7_report(10)
+        self.zcode_index("sess_a")
+        self.zcode_turn(
+            "sess_a", "t1", stamp(self.day, 10), stamp(self.day, 10, 30), fresh=100
+        )
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        self.assertEqual(report["version"], 8)
+        self.assertNotIn("migrated_from", report)
+        self.assertEqual(report["totals"]["total_tokens"], 100)
+        self.assertEqual(report["totals"]["models"]["unknown"]["fresh_input"], 100)
+        self.assertTrue((self.store.root / "reports.v7.bak").exists())
 
 
 if __name__ == "__main__":
