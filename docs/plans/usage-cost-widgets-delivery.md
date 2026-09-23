@@ -317,7 +317,98 @@ scratch/r6-unknown-ratio.json，本机数据不入库。）
 - 热力：乱序金额的分位与各级分布（R17）。
 - Swift：进行中口径（R8）、hide_titles 保留项目名（R15）、URL 桥（R10 的三种情况）。
 
-### R1 残留（运行记录由执行者清理；GitHub Support 暂不联系）
+### R1 残留（运行记录清理清单，2026-09-24 用户批准由执行者删除）
+
+待删 85 条（headSha 均不在当前分支历史；评审方触发的 35913092966 等当前 SHA 运行保留）：
+
+| run id | workflow | headSha（已改写） |
+|---|---|---|
+| 35904405416 | d0-appintents-probe | 52b6adf6 |
+| 35904018839 | d0-appintents-probe | d6714cca |
+| 35895608711 | d0-appintents-probe | 031fe3a4 |
+| 35895299096 | d0-appintents-probe | a2e9e5fd |
+| 35894845213 | d0-appintents-probe | b514d6e6 |
+| 35894644914 | d0-appintents-probe | eeed6c48 |
+| 35894133835 | d0-appintents-probe | b434cf3c |
+| 35893983892 | d0-appintents-probe | 56d31037 |
+| 35893817388 | d0-appintents-probe | 410d1987 |
+| 35893707094 | d0-appintents-probe | 706e2293 |
+| 35893624400 | d0-appintents-probe | af8b0ad4 |
+| 35893233935 | d0-appintents-probe | 4a09b027 |
+| 35893053492 | d0-appintents-probe | faebc3f3 |
+| 35892752661 | d0-appintents-probe | 193d124a |
+| 35892590320 | d0-appintents-probe | fb0b1996 |
+| 35892439229 | d0-appintents-probe | 02626367 |
+| 35892277842 | d0-appintents-probe | 70341f1c |
+| 35892081523 | d0-appintents-probe | a5155c56 |
+| 35891931883 | d0-appintents-probe | d25a09e3 |
+| 35891783272 | d0-appintents-probe | 520e3897 |
+| 35891643945 | d0-appintents-probe | b2e6c005 |
+| 35891480909 | d0-appintents-probe | d34fdefa |
+| 35891343016 | d0-appintents-probe | 36112b8a |
+| 35890807435 | d0-appintents-probe | 6c780966 |
+| 35890595980 | d0-appintents-probe | c76deecc |
+| 35890513737 | d0-appintents-probe | a961dcbb |
+| 35889548299 | d0-appintents-probe | 1809cffc |
+| 35889547186 | d0-appintents-probe | 1809cffc |
+| 35889353194 | d0-appintents-probe | 188c0597 |
+| 35889351845 | d0-appintents-probe | 188c0597 |
+| 35889302166 | d0-appintents-probe | 00763f02 |
+| 35887531056 | d0-appintents-probe | 00763f02 |
+| 35534695571 | build | 485228fa |
+| 35534695489 | build | 485228fa |
+| 35534516131 | build | e040966a |
+| 35530935932 | build | 81dfbe3e |
+| 35530932098 | build | 81dfbe3e |
+| 35530792734 | build | a6b52522 |
+| 35530792546 | build | a6b52522 |
+| 35530693448 | build | 8d099bdf |
+| 35528050039 | build | 5ebfe8b1 |
+| 35527932023 | build | 5ebfe8b1 |
+| 35509602095 | build | 8642d6b6 |
+| 35508949639 | build | c850b59a |
+| 35508946249 | build | c850b59a |
+| 35508828353 | build | 1a6b8884 |
+| 35508826794 | build | 1a6b8884 |
+| 35318074122 | build | 7c03839b |
+| 35317833819 | build | d5b6a8d2 |
+| 35317831058 | build | d5b6a8d2 |
+| 35317173682 | build | cbadb5fa |
+| 35317171613 | build | cbadb5fa |
+| 35123163359 | build | e4ad6ce3 |
+| 35123163059 | build | e4ad6ce3 |
+| 34998654793 | build | 39db43f9 |
+| 34997940277 | build | c8000097 |
+| 34997940037 | build | c8000097 |
+| 34997689085 | build | e557fc41 |
+| 34997200939 | build | 48efee93 |
+| 34997197665 | build | 48efee93 |
+| 34983029428 | build | ab65a21b |
+| 34983000857 | build | d514e8cf |
+| 34952757374 | build | 05396a5a |
+| 34952752700 | build | 05396a5a |
+| 34937308764 | build | 868cad7f |
+| 34937306667 | build | 868cad7f |
+| 34936939154 | build | 42ac1aab |
+| 34936814437 | build | 0e26cbb1 |
+| 34936506200 | build | 18a60739 |
+| 34936505907 | build | 18a60739 |
+| 34936501318 | build | 88855686 |
+| 34935877606 | build | 92bd6375 |
+| 34934630465 | build | 907ab0d8 |
+| 34934630146 | build | 907ab0d8 |
+| 34934534600 | build | 52a92e9c |
+| 34934534249 | build | 52a92e9c |
+| 34933644113 | build | 256889a4 |
+| 34933365148 | build | 973ba5d4 |
+| 34889244958 | build | 56d90aef |
+| 34889218183 | build | 56d90aef |
+| 34889101037 | build | 620118f5 |
+| 34888493516 | build | d3aa5d21 |
+| 34887931907 | build | 9c2d16e1 |
+| 34887229344 | build | 43af4916 |
+| 34886885643 | build | f6cc1ca8 |
+
 
 历史改写与强制推送已完成，但**旧提交在 GitHub 上仍能按 SHA 公开访问**：`gh api repos/SnowsonZ/Agent-Notification/commits/f73e41b` 仍返回含 `widget/snapshot.json` 的文件列表，`36112b8` 同理。公开的 Actions 运行记录（d0-appintents-probe 的约 20 次运行）会显示这些旧 SHA，别人顺着就能找到。本文「残留风险：GitHub GC 前的 dangling commit」的说法低估了可访问性：GitHub 不会主动清理这类提交。
 
