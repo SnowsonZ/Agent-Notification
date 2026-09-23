@@ -253,6 +253,32 @@ extension View {
         modifier(ChartHoverEffect(scale: 1, highlight: true))
     }
 }
+// 金额悬浮行（usage-cost.md §7）：`金额：¥12.34（输入 ¥a · 缓存 ¥b · 输出 ¥c）` +
+// 未定价行；金额无值（全未定价）时不加行。
+@MainActor
+func costTipLine(_ cost: WidgetSnapshotMoney?, model: DailyReportModel) -> [String] {
+    guard let cost else { return [] }
+    let rate = model.fxRate
+    let currency = model.currency
+    let amount = { (bucket: [String: Double]) in
+        convertAmount(usd: bucket["USD"] ?? 0, cny: bucket["CNY"] ?? 0, to: currency, rate: rate)
+    }
+    let input = amount(cost.input), cache = amount(cost.cache), output = amount(cost.output)
+    let total = input + cache + output + convertAmount(
+        usd: cost.nativeFallback?["USD"] ?? 0, cny: cost.nativeFallback?["CNY"] ?? 0,
+        to: currency, rate: rate
+    )
+    guard total > 0 else { return [] }
+    var lines = [
+        "金额：\(moneyText(total, currency: currency))（输入 \(moneyText(input, currency: currency)) · "
+            + "缓存 \(moneyText(cache, currency: currency)) · 输出 \(moneyText(output, currency: currency))）"
+    ]
+    if cost.unpricedTokens > 0 {
+        lines.append("未定价：\(tokenText(cost.unpricedTokens)) tokens")
+    }
+    return lines
+}
+
 func classTipLines(input: Int, cache: Int, output: Int) -> [String] {
     // 展示顺序遵循用户模板：缓存 / 输入 / 输出。
     ["缓存：\(tokenText(cache))", "输入：\(tokenText(input))", "输出：\(tokenText(output))"]

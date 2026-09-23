@@ -71,7 +71,13 @@ struct OverviewDay: Decodable, Identifiable {
     let tasks: Int
     let level: Int
     let cost: WidgetSnapshotMoney?
+    let costLevel: Int?
     var id: String { date }
+
+    enum CodingKeys: String, CodingKey {
+        case date, inputTokens, cacheTokens, outputTokens, totalTokens, tasks, level, cost
+        case costLevel = "cost_level"
+    }
 }
 struct TodaySummary: Decodable, Identifiable {
     let date: String
@@ -139,6 +145,10 @@ enum ReportPeriod: String, CaseIterable {
             if oldValue != period { loadUsage(force: false) }
         }
     }
+    // 热力图着色开关：token（默认）或按金额（§7）
+    @Published var heatmapMetric: String {
+        didSet { UserDefaults.standard.set(heatmapMetric, forKey: "reportHeatmapMetric") }
+    }
     @Published var usageMetric: String {
         didSet { UserDefaults.standard.set(usageMetric, forKey: "reportUsageMetric") }
     }
@@ -158,6 +168,7 @@ enum ReportPeriod: String, CaseIterable {
         period = ReportPeriod(rawValue: UserDefaults.standard.string(forKey: "reportPeriod") ?? "") ?? .day
         currency = UserDefaults.standard.string(forKey: "reportCurrency") ?? "CNY"
         usageMetric = UserDefaults.standard.string(forKey: "reportUsageMetric") ?? "cost"
+        heatmapMetric = UserDefaults.standard.string(forKey: "reportHeatmapMetric") ?? "tokens"
         // §4.5：App 启动时与每 6 小时后台执行 pricing update --auto，
         // 是否请求由命令自行判断到期；不阻塞主 run loop。
         runPricingUpdateAuto()

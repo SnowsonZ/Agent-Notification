@@ -268,7 +268,11 @@ struct PeriodReportView: View {
         }
     }
 
-    private func shortDate(_ iso: String) -> String { String(iso.suffix(5)) }
+    // x 轴标签用「天号」短标签（完整日期在悬浮卡里），避免 30 天类别轴全部截断成 "0…"。
+    private func shortDate(_ iso: String) -> String {
+        let day = iso.suffix(2)
+        return String(day.prefix(1) == "0" ? day.dropFirst() : day)
+    }
 
     private func displayName(_ key: String) -> String {
         providerName(key)

@@ -37,6 +37,20 @@ SEGMENT_GAP = 15 * 60  # 逐条时间戳来源：相邻消息间隔不超过 15 
 CLASSES = ("input_tokens", "cache_tokens", "output_tokens")
 
 
+def cost_level(cny_amount, thresholds):
+    """按金额的热力分级（§7）：阈值取近 182 天有消耗日的 50/75/90 分位，
+    由 generate_overview 算出后传入；无阈值（样本不足）时全部 0。"""
+    if cny_amount <= 0 or not thresholds or thresholds[0] <= 0:
+        return 0
+    if cny_amount < thresholds[0]:
+        return 1
+    if cny_amount < thresholds[1]:
+        return 2
+    if cny_amount < thresholds[2]:
+        return 3
+    return 4
+
+
 def heat_level(total_tokens):
     """GitHub 式五级强度（三类 token 合计，按本机 91 个活跃日分布校准）：
     无记录 / <2000万 / <1亿 / <4亿 / ≥4亿。"""
@@ -1400,6 +1414,32 @@ def generate_overview(store, home, *, days=182, top=5):
     )
     day_rows = []
     pricing_tables = PricingTables.load(store.root)
+    cost_rows = []  # (day, report) 先收集，算金额分位阈值后产出 cost_level
+    for offset in range(days):
+        day = first_day + timedelta(days=offset)
+        cost_rows.append((day, live_today if day == today else cached.get(day)))
+    # §7 热力图按金额着色：阈值取近 N 天有消耗日日金额（CNY 视图）的 50/75/90 分位。
+    amounts = []
+    for day, report in cost_rows:
+        cost = (
+            (report or {}).get("totals", {}).get("cost")
+            if isinstance(report, dict)
+            else None
+        )
+        if cost:
+            cny = (
+                float(cost.get("input", {}).get("CNY") or 0)
+                + float(cost.get("cache", {}).get("CNY") or 0)
+                + float(cost.get("output", {}).get("CNY") or 0)
+                + float(cost.get("native_fallback", {}).get("CNY") or 0)
+                + float(cost.get("native_fallback", {}).get("USD") or 0) * 7.10
+            )
+            if cny > 0:
+                amounts.append(cny)
+    thresholds = [0.0, 0.0, 0.0]
+    if len(amounts) >= 8:
+        amounts.sort()
+        thresholds = [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)]
     for offset in range(days):
         day = first_day + timedelta(days=offset)
         text = day.isoformat()
@@ -1416,6 +1456,13 @@ def generate_overview(store, home, *, days=182, top=5):
         day_cost, _, _ = cost_for_models(
             totals.get("models") or {}, day, pricing_tables
         )
+        cny_total = (
+            float(day_cost.get("input", {}).get("CNY") or 0)
+            + float(day_cost.get("cache", {}).get("CNY") or 0)
+            + float(day_cost.get("output", {}).get("CNY") or 0)
+            + float(day_cost.get("native_fallback", {}).get("CNY") or 0)
+            + float(day_cost.get("native_fallback", {}).get("USD") or 0) * 7.10
+        )
         day_rows.append(
             {key: int(totals.get(key) or 0) for key in CLASSES}
             | {
@@ -1424,6 +1471,7 @@ def generate_overview(store, home, *, days=182, top=5):
                 "tasks": int(totals.get("tasks") or 0),
                 "level": heat_level(int(totals.get("total_tokens") or 0)),
                 "cost": day_cost,
+                "cost_level": cost_level(cny_total, thresholds),
             }
         )
     merged_sources, merged_projects, week_models = {}, {}, {}

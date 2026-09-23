@@ -40,9 +40,10 @@ struct DailyReportView: View {
                         if let today = overview.today {
                             TodayChipsView(today: today, overview: overview)
                         }
-                        HeatmapView(overview: overview)
+                        HeatmapView(model: model, overview: overview)
                         if let today = overview.today, let current = reportDate(today.date) {
-                            WeekTrendView(days: trendDays(overview, endingAt: current))
+                            WeekTrendView(days: trendDays(overview, endingAt: current),
+                                          model: model)
                         }
                         HStack(alignment: .top, spacing: 14) {
                             SourceShareView(title: "来源占比 · 近 7 天", sources: overview.weekSources)
@@ -101,7 +102,14 @@ struct DailyReportView: View {
 }
 
 struct HeatmapView: View {
+    @ObservedObject var model: DailyReportModel
     let overview: ReportOverview
+
+    // 着色开关：token 用 level；金额用 cost_level（Python 分位阈值，§7）。
+    private func heatLevelFor(_ day: OverviewDay) -> Int {
+        model.heatmapMetric == "cost" ? day.costLevel ?? 0 : day.level
+    }
+
     var body: some View {
         let columns = heatWeekColumns(overview.days)
         let marks = heatMonthMarks(columns)
@@ -111,6 +119,14 @@ struct HeatmapView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("活跃热力 · 近半年").font(.headline)
+                // §7 按金额着色开关（阈值取有消耗日 CNY 视图金额的 50/75/90 分位，Python 算好 level）
+                Picker("着色", selection: $model.heatmapMetric) {
+                    Text("token").tag("tokens")
+                    Text("金额").tag("cost")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 120)
                 Spacer()
                 Text("活跃 \(activeDays) 天").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 if streak > 1 {
@@ -146,7 +162,7 @@ struct HeatmapView: View {
                                                 // 有记录（或今天）才可点进详情；空白日只是占位。
                                                 NavigationLink(value: day.date) {
                                                     RoundedRectangle(cornerRadius: 3)
-                                                        .fill(heatColor(day.level))
+                                                        .fill(heatColor(heatLevelFor(day)))
                                                         .frame(width: 13, height: 13)
                                                         .overlay {
                                                             if day.date == todayKey {
@@ -160,10 +176,11 @@ struct HeatmapView: View {
                                                 .dailyHoverTip(title: reportDayDisplay(day.date),
                                                                lines: day.totalTokens > 0
                                                                    ? ["合计：\(tokenText(day.totalTokens))", "\(day.tasks) 个任务"]
+                                                                       + costTipLine(day.cost, model: model)
                                                                    : ["暂无记录"])
                                             } else if let day = columns[column][row] {
                                                 RoundedRectangle(cornerRadius: 3)
-                                                    .fill(heatColor(day.level))
+                                                    .fill(heatColor(heatLevelFor(day)))
                                                     .frame(width: 13, height: 13)
                                                     .dailyHoverTip(title: reportDayDisplay(day.date), lines: ["无记录"])
                                             } else {
@@ -305,6 +322,8 @@ struct TodayChipsView: View {
 
 struct WeekTrendView: View {
     let days: [OverviewDay]
+    var usesCostLines = false  // 金额悬浮行需要模型（fx/币种）；总览无 model 时省略
+    var model: DailyReportModel? = nil
     var body: some View {
         let longest = max(days.map(\.totalTokens).max() ?? 1, 1)
         let average = days.isEmpty ? 0 : days.reduce(0) { $0 + $1.totalTokens } / days.count
@@ -359,7 +378,8 @@ struct WeekTrendView: View {
                                                             cache: day.cacheTokens,
                                                             output: day.outputTokens)
                                            + ["合计：\(tokenText(day.totalTokens))",
-                                              "\(day.tasks) 个任务"])
+                                              "\(day.tasks) 个任务"]
+                                           + (model.map { costTipLine(day.cost, model: $0) } ?? []))
                     }
                 }
             }
