@@ -1,0 +1,189 @@
+name: d0-appintents-probe
+
+# D0 构建探针（临时）：在 macos-26（带 Xcode）上摸清 swiftc + appintentsmetadataprocessor
+# 构建配置式组件并产出 Metadata.appintents 的可用命令行。结论记录后本文件删除，不合入主线。
+
+on:
+  push:
+    branches: ['docs/usage-cost-widgets-design']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain inventory
+        run: |
+          set -x
+          xcodebuild -version || true
+          xcrun -f appintentsmetadataprocessor && echo FOUND-PROCESSOR
+          xcrun -f actool && echo FOUND-ACTOOL
+          swiftc --version
+
+      - name: Processor help
+        run: |
+          xcrun appintentsmetadataprocessor --help 2>&1 | head -80 || true
+
+      - name: Build minimal AppIntentConfiguration widget
+        run: |
+          set -euo pipefail
+          mkdir -p build/d0
+          cat > build/d0/ProbeWidget.swift <<'SWIFT'
+          import WidgetKit
+          import SwiftUI
+          import AppIntents
+
+          struct ProbeEntry: TimelineEntry {
+              let date: Date
+              let value: String
+          }
+
+          struct ProbeIntent: WidgetConfigurationIntent {
+              static var title: LocalizedStringResource = "Probe Mode"
+              static var description = IntentDescription("Pick a display mode.")
+
+              @Parameter(title: "Mode", default: "cost")
+              var mode: String
+          }
+
+          struct ProbeProvider: AppIntentTimelineProvider {
+              func placeholder(in context: Context) -> ProbeEntry {
+                  ProbeEntry(date: Date(), value: "placeholder")
+              }
+
+              func snapshot(for configuration: ProbeIntent, in context: Context) -> ProbeEntry {
+                  ProbeEntry(date: Date(), value: configuration.mode)
+              }
+
+              func timeline(for configuration: ProbeIntent, in context: Context) -> Timeline<ProbeEntry> {
+                  Timeline(entries: [ProbeEntry(date: Date(), value: configuration.mode)], policy: .atEnd)
+              }
+          }
+
+          struct ProbeWidget: Widget {
+              var body: WidgetConfiguration {
+                  AppIntentConfiguration(kind: "ProbeWidget", intent: ProbeIntent.self, provider: ProbeProvider()) { entry in
+                      Text(entry.value)
+                          .containerBackground(.fill.tertiary, for: .widget)
+                  }
+                  .configurationDisplayName("Probe")
+                  .description("D0 probe widget.")
+                  .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+              }
+          }
+          SWIFT
+
+          cat > build/d0/Info.plist <<'PLIST'
+          {
+            CFBundleDisplayName = ProbeWidgets;
+            CFBundleExecutable = ProbeWidgets;
+            CFBundleIdentifier = "local.session-manager.probe.widgets";
+            CFBundleName = ProbeWidgets;
+            CFBundlePackageType = "XPC!";
+            CFBundleShortVersionString = "0.0.0";
+            CFBundleVersion = "1";
+            CFBundleSupportedPlatforms = [MacOSX];
+            CFBundleInfoDictionaryVersion = "7.0";
+            DTPlatformName = macosx;
+            DTSDKName = macosx14.0;
+            NSExtension = { NSExtensionPointIdentifier = "com.apple.widgetkit-extension"; };
+          }
+          PLIST
+
+          # 1) 编译为对象文件（-emit-const-values 供元数据提取）
+          xcrun swiftc \
+            -module-name ProbeWidgets \
+            -parse-as-library \
+            -application-extension \
+            -target arm64-apple-macosx14.0 \
+            -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
+            -emit-const-values -Xfrontend -serialize-debugging-options \
+            -c build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets.o
+          echo "COMPILE OK"
+
+          # 2) 尝试提取 Metadata.appintents（多候选参数签名，逐个记录）
+          PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
+          set +e
+          "$PROCESSOR" \
+            --input build/d0/ProbeWidgets.o \
+            --output build/d0/Metadata.appintents \
+            --module-name ProbeWidgets
+          echo "ATTEMPT-A exit=$?"
+          ls -la build/d0/ 2>/dev/null
+          if [ ! -f build/d0/Metadata.appintents ]; then
+            "$PROCESSOR" \
+              --input build/d0/ProbeWidgets.o \
+              --output-dir build/d0 \
+              --module-name ProbeWidgets
+            echo "ATTEMPT-B exit=$?"
+            ls -la build/d0/ 2>/dev/null
+          fi
+          if [ ! -f build/d0/Metadata.appintents ]; then
+            "$PROCESSOR" \
+              build/d0/ProbeWidgets.o \
+              --output build/d0/Metadata.appintents \
+              --module-name ProbeWidgets \
+              --swift-toolchain "$(xcrun -f swiftc | xargs dirname)/.."
+            echo "ATTEMPT-C exit=$?"
+            ls -la build/d0/ 2>/dev/null
+          fi
+          set -e
+
+      - name: Link and sign appex
+        run: |
+          set -euo pipefail
+          # 3) 链接（入口 _NSExtensionMain，探针已验证的硬性要求）
+          xcrun clang++ -target arm64-apple-macosx14.0 \
+            -fobjc-link-runtime -fapplication-extension \
+            -Xlinker -e -Xlinker _NSExtensionMain \
+            -Xlinker -rpath -Xlinker /usr/lib/swift \
+            -framework WidgetKit -framework SwiftUI -framework AppKit \
+            -L"$(xcrun -sdk macosx -show-sdk-path)/usr/lib/swift" \
+            build/d0/ProbeWidgets.o \
+            -o build/d0/ProbeWidgets 2>&1 | head -20 || true
+          # swiftc 直接链接更省事（带 -emit-executable？）——备选：
+          if [ ! -f build/d0/ProbeWidgets ] || [ ! -x build/d0/ProbeWidgets ]; then
+            xcrun swiftc \
+              -module-name ProbeWidgets \
+              -parse-as-library \
+              -application-extension \
+              -target arm64-apple-macosx14.0 \
+              -sdk "$(xcrun -sdk macosx -show-sdk-path)" \
+              -Xlinker -e -Xlinker _NSExtensionMain \
+              -framework WidgetKit -framework SwiftUI \
+              -emit-executable \
+              build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets
+          fi
+          echo "LINK OK"
+          file build/d0/ProbeWidgets
+          nm -u build/d0/ProbeWidgets | grep -i NSExtensionMain || echo "no NSExtensionMain ref (unexpected)"
+
+      - name: Assert Metadata.appintents
+        run: |
+          set -euo pipefail
+          if [ -f build/d0/Metadata.appintents ]; then
+            echo "=== D0 PASS: Metadata.appintents produced ==="
+            file build/d0/Metadata.appintents
+            wc -c build/d0/Metadata.appintents
+            plutil -p build/d0/Metadata.appintents 2>/dev/null | head -20 || head -c 400 build/d0/Metadata.appintents
+          else
+            echo "=== D0 FAIL: no Metadata.appintents ==="
+            ls -laR build/d0
+            exit 1
+          fi
+
+      - name: Dump build transcript for records
+        if: always()
+        run: |
+          echo "--- swiftc driver availability ---"
+          xcrun -f swift-frontend || true
+          echo "--- appintentsmetadataprocessor man/usage ---"
+          PROCESSOR="$(xcrun -f appintentsmetadataprocessor 2>/dev/null || true)"
+          if [ -n "$PROCESSOR" ]; then
+            strings "$PROCESSOR" | grep -E "^--[a-z-]+" | sort -u | head -40 || true
+          fi
