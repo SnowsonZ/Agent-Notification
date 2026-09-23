@@ -18,6 +18,8 @@ struct InboxRow: Decodable, Identifiable, Sendable {
     let openAvailable: Bool
     // 可选：有效来源（评审 R4）。agent 行仅审计可见，通知/待查看/角标按它过滤。
     let origin: String?
+    // 可选：组件快照的今日用量按 (provider, session_id) 匹配今日报告任务（§2）。
+    let sessionID: String?
 }
 struct SourceHealth: Decodable { let status: String; let errors: Int? }
 struct Health: Decodable { let sources: [String: SourceHealth]? }
@@ -91,6 +93,7 @@ enum InboxScope {
         timer = tick
         checkNotificationPermission()
         loadAgents()
+        WidgetSnapshotWriter.shared.refreshUsageIfNeeded()
     }
     var unreadCount: Int {
         rows.filter { inboxNotifyEligible(origin: $0.origin, unread: $0.unread) && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.count
@@ -272,6 +275,7 @@ enum InboxScope {
                     if let count = info.errors, count > 0 { return "\(providerName(name))：\(count) 个历史记录暂未接入" }
                     return "\(providerName(name))：来源暂不可用"
                 }.sorted()
+                WidgetSnapshotWriter.shared.update(rows: rows)
             } catch { self.error = "列表读取失败：" + error.localizedDescription }
         }
     }

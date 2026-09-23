@@ -94,3 +94,128 @@ func rhythmRange(_ segments: [[[Double]]], dayStart: Double) -> (Double, Double)
 }
 // 热力分级阈值只在 Python（daily_report.heat_level）实现，界面直接使用载荷里的 level；
 // Swift 不留第二份实现，避免双语言口径漂移（旧副本阈值曾与 Python 不一致）。
+
+// MARK: - 金额展示（usage-cost.md §5）
+
+// 与 Python money_text 同规则、测试用例相同：None（无可定价 token）→ "—"；
+// 0 → $0.00；0 < |v| < 0.01 → <$0.01 / <¥0.01；其余两位小数千分位。
+func moneyText(_ value: Double?, currency: String) -> String {
+    guard let value else { return "—" }
+    let symbol = currency == "USD" ? "$" : "¥"
+    if abs(value) < 1e-9 { return "\(symbol)0.00" }
+    if abs(value) < 0.01 { return "<\(symbol)0.01" }
+    let parts = String(format: "%.2f", abs(value)).split(separator: ".")
+    var whole = String(parts[0])
+    var grouped = ""
+    while whole.count > 3 {
+        let cut = whole.index(whole.endIndex, offsetBy: -3)
+        grouped = "," + whole[cut...] + grouped
+        whole = String(whole[..<cut])
+    }
+    let sign = value < 0 ? "-" : ""
+    let fraction = parts.count > 1 ? String(parts[1]) : "00"
+    return "\(sign)\(symbol)\(whole + grouped).\(fraction)"
+}
+
+// 展示换算（usage-cost.md §5）：CNY 视图 = USD×rate + CNY；USD 视图 = USD + CNY/rate。
+func convertAmount(usd: Double, cny: Double, to currency: String, rate: Double) -> Double {
+    currency == "CNY" ? usd * rate + cny : usd + cny / rate
+}
+
+// MARK: - 组件快照刷新（desktop-widgets.md §3）
+
+enum WidgetKind: String, CaseIterable {
+    case inbox, recent, usage
+}
+
+struct WidgetRefreshDecision: Equatable {
+    var writeSnapshot = false
+    var reload: Set<WidgetKind> = []
+}
+
+enum WidgetRefreshPolicy {
+    // 分区签名：条目 id:revision:state 用 | 连接（§3 签名内容）。
+    static func signature(_ items: [(id: String, revision: Int, state: String)]) -> String {
+        items.map { "\($0.id):\($0.revision):\($0.state)" }.joined(separator: "|")
+    }
+
+    struct Inputs {
+        var inboxSignature: String
+        var recentSignature: String
+        var prefsSignature: String  // prefs + fx 的值本身
+        var last: (inbox: String, recent: String, prefs: String)?
+        var lastRecentReload: TimeInterval
+        var lastUsageReload: TimeInterval
+        var now: TimeInterval
+        var usageEvery: TimeInterval = 15 * 60
+        var recentMinReload: TimeInterval = 60
+    }
+
+    // 签名没变就不写文件、不 reload；recent 的 reload 最小间隔 60 秒，间隔内的
+    // 变化合并到下一次（快照仍立即写，只是不触发组件 timeline 重载）；
+    // prefs/fx 变化 reload 全部 kind；usage 按时间到期刷新。
+    static func evaluate(_ input: Inputs) -> WidgetRefreshDecision {
+        var decision = WidgetRefreshDecision()
+        let last = input.last
+        let inboxChanged = input.inboxSignature != last?.inbox
+        let recentChanged = input.recentSignature != last?.recent
+        let prefsChanged = input.prefsSignature != last?.prefs
+        decision.writeSnapshot = inboxChanged || recentChanged || prefsChanged
+        if prefsChanged {
+            decision.reload = Set(WidgetKind.allCases)
+            return decision
+        }
+        if inboxChanged { decision.reload.insert(.inbox) }
+        if recentChanged, input.now - input.lastRecentReload >= input.recentMinReload {
+            decision.reload.insert(.recent)
+        }
+        if input.now - input.lastUsageReload >= input.usageEvery {
+            decision.reload.insert(.usage)
+            decision.writeSnapshot = true
+        }
+        return decision
+    }
+}
+
+// MARK: - 组件 URL 跳转（desktop-widgets.md §5）
+
+// host 白名单 + 参数校验；任一条件不满足返回 nil，调用方只写不含参数原文的诊断日志。
+enum WidgetURLRouter {
+    enum Action: Equatable {
+        case open(id: String, revision: Int?)
+        case report(period: String)
+        case inbox
+    }
+
+    static let scheme = "agentnotification"
+    static let periods: Set<String> = ["day", "week", "month"]
+
+    static func parse(_ url: URL?, knownIds: Set<String>) -> Action? {
+        guard let url,
+              url.scheme?.lowercased() == scheme,
+              let host = url.host?.lowercased(),
+              !host.isEmpty
+        else { return nil }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func query(_ name: String) -> String? {
+            items.first { $0.name == name }?.value
+        }
+        switch host {
+        case "open":
+            guard let id = query("id"), knownIds.contains(id) else { return nil }
+            var revision: Int?
+            if let raw = query("revision") {
+                guard let value = Int(raw), value >= 0 else { return nil }
+                revision = value
+            }
+            return .open(id: id, revision: revision)
+        case "report":
+            guard let period = query("period"), periods.contains(period) else { return nil }
+            return .report(period: period)
+        case "inbox":
+            return .inbox
+        default:
+            return nil
+        }
+    }
+}

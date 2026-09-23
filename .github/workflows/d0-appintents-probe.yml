@@ -66,7 +66,7 @@ jobs:
           }
 
           struct ProbeWidget: Widget {
-              var body: WidgetConfiguration {
+              var body: some WidgetConfiguration {
                   AppIntentConfiguration(kind: "ProbeWidget", intent: ProbeIntent.self, provider: ProbeProvider()) { entry in
                       Text(entry.value)
                           .containerBackground(.fill.tertiary, for: .widget)
@@ -105,31 +105,46 @@ jobs:
             -emit-const-values -Xfrontend -serialize-debugging-options \
             -c build/d0/ProbeWidget.swift -o build/d0/ProbeWidgets.o
           echo "COMPILE OK"
+          ls -la build/d0/
+          find build/d0 -name "*.constvals" -o -name "*.swiftconstvals" | head -5 || true
 
-          # 2) 尝试提取 Metadata.appintents（多候选参数签名，逐个记录）
+          # 2) 按 processor USAGE 提取 Metadata.appintents
           PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
+          TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
+          SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
+          XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
+          find build/d0 -name "*.constvals" -o -name "*.swiftconstvals" | sed "s|^|$PWD/|" > build/d0/constvals.txt || true
+          find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/sources.txt
+          echo "--- constvals list ---"; cat build/d0/constvals.txt || true
           set +e
           "$PROCESSOR" \
-            --input build/d0/ProbeWidgets.o \
             --output build/d0/Metadata.appintents \
-            --module-name ProbeWidgets
-          echo "ATTEMPT-A exit=$?"
+            --toolchain-dir "$TOOLCHAIN_DIR" \
+            --module-name ProbeWidgets \
+            --sdk-root "$SDK_ROOT" \
+            --xcode-version "$XCODE_BUILD" \
+            --platform-family macos \
+            --deployment-target 14.0 \
+            --target-triple arm64-apple-macosx14.0 \
+            --source-file-list build/d0/sources.txt \
+            --swift-const-vals-list build/d0/constvals.txt
+          echo "ATTEMPT-usage exit=$?"
           ls -la build/d0/ 2>/dev/null
           if [ ! -f build/d0/Metadata.appintents ]; then
+            # 备选：stringsdata 形态（-g）
+            find build/d0 -name "*.stringsdata" | sed "s|^|$PWD/|" > build/d0/stringsdata.txt || true
             "$PROCESSOR" \
-              --input build/d0/ProbeWidgets.o \
-              --output-dir build/d0 \
-              --module-name ProbeWidgets
-            echo "ATTEMPT-B exit=$?"
-            ls -la build/d0/ 2>/dev/null
-          fi
-          if [ ! -f build/d0/Metadata.appintents ]; then
-            "$PROCESSOR" \
-              build/d0/ProbeWidgets.o \
               --output build/d0/Metadata.appintents \
+              --toolchain-dir "$TOOLCHAIN_DIR" \
               --module-name ProbeWidgets \
-              --swift-toolchain "$(xcrun -f swiftc | xargs dirname)/.."
-            echo "ATTEMPT-C exit=$?"
+              --sdk-root "$SDK_ROOT" \
+              --xcode-version "$XCODE_BUILD" \
+              --platform-family macos \
+              --deployment-target 14.0 \
+              --target-triple arm64-apple-macosx14.0 \
+              --source-file-list build/d0/sources.txt \
+              --stringsdata-file "$(head -1 build/d0/stringsdata.txt)"
+            echo "ATTEMPT-stringsdata exit=$?"
             ls -la build/d0/ 2>/dev/null
           fi
           set -e
