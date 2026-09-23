@@ -199,6 +199,37 @@ jobs:
             exit 1
           fi
 
+      - name: Processor input variants
+        if: always()
+        run: |
+          set +e
+          PROCESSOR="$(xcrun -f appintentsmetadataprocessor)"
+          TOOLCHAIN_DIR="$(dirname "$(dirname "$PROCESSOR")")"
+          SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
+          XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
+          COMMON=(--toolchain-dir "$TOOLCHAIN_DIR" --module-name ProbeWidgets --sdk-root "$SDK_ROOT"
+            --xcode-version "$XCODE_BUILD" --platform-family macos --deployment-target 14.0
+            --target-triple arm64-apple-macosx14.0)
+          # c1: scl 直接给 .swift 源文件（processor 可能自行解析）
+          find build/d0 -name "*.swift" | sed "s|^|$PWD/|" > build/d0/scl-swift.txt
+          "$PROCESSOR" --output build/d0/meta-c1.appintents "${COMMON[@]}" \
+            --source-file-list build/d0/sources.txt --swift-const-vals-list build/d0/scl-swift.txt
+          echo "C1 exit=$?"; ls -la build/d0/meta-c1.appintents 2>/dev/null
+          # c2: scl 给 .o 文件（const values 可能嵌进 .o section）
+          find build/d0 -name "*.o" | sed "s|^|$PWD/|" > build/d0/scl-o.txt
+          "$PROCESSOR" --output build/d0/meta-c2.appintents "${COMMON[@]}" \
+            --source-file-list build/d0/sources.txt --swift-const-vals-list build/d0/scl-o.txt
+          echo "C2 exit=$?"; ls -la build/d0/meta-c2.appintents 2>/dev/null
+          # c3: stringsdata-file 给 .o
+          "$PROCESSOR" --output build/d0/meta-c3.appintents "${COMMON[@]}" \
+            --source-file-list build/d0/sources.txt --stringsdata-file "$PWD/build/d0/ProbeWidgets.o"
+          echo "C3 exit=$?"; ls -la build/d0/meta-c3.appintents 2>/dev/null
+          echo "=== strings context ==="
+          FE="$(xcrun -f swift-frontend)"
+          strings "$FE" | grep -iE "constvals" | sort -u | head -10 || true
+          strings "$FE" | grep -E "const.values" | sort -u | head -10 || true
+          set -e
+
       - name: Discover real emit params from frontend binary
         if: always()
         run: |
