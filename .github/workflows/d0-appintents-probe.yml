@@ -257,7 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           APP=$(find build/d0derived -name "ProbeWidgets.appex" -type d | head -1)
-          if [ -f "$APP/Contents/Resources/Metadata.appintents" ]; then
+          if [ -e "$APP/Contents/Resources/Metadata.appintents" ]; then
             echo "=== D0 PASS via xcodebuild: Metadata.appintents produced ==="
             wc -c "$APP/Contents/Resources/Metadata.appintents"
             ls -la "$APP/Contents/MacOS/"
