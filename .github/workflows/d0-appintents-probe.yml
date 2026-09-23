@@ -240,7 +240,7 @@ jobs:
       - name: xcodebuild the appex
         run: |
           set -euo pipefail
-          xcodebuild -project build/d0proj/Probe.xcodeproj -target ProbeWidgets \
+          xcodebuild -project build/d0proj/Probe.xcodeproj -scheme ProbeWidgets \
             -configuration Release -sdk macosx -derivedDataPath build/d0derived \
             CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY= build
           echo "=== find metadata & constvalues ==="
