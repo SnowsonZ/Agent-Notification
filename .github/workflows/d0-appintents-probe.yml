@@ -205,6 +205,13 @@ jobs:
           set +e
           FE="$(xcrun -f swift-frontend)"
           SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
+          # d0: 前端 emit-module 模式（const values 是模块编译的附属产物）
+          "$FE" -module-name ProbeWidgets -parse-as-library -application-extension \
+            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
+            -emit-const-values-path build/d0/d0.constvals -serialize-debugging-options \
+            -emit-module-path build/d0/ProbeWidgets.swiftmodule \
+            build/d0/ProbeWidget.swift
+          echo "D0M exit=$?"; ls -la build/d0/*.constvals 2>/dev/null && head -c 300 build/d0/d0.constvals 2>/dev/null
           # d1: 前端无 -c（sema/类型检查模式）+ const-values-path
           "$FE" -module-name ProbeWidgets -parse-as-library -application-extension \
             -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
