@@ -170,111 +170,214 @@ def compile_liquid_glass_icon() -> bool:
     return True
 
 
+def _write_widget_project(
+    project_dir: Path, sources: list[Path], info_plist: Path
+) -> None:
+    """生成最小 widget appex 工程（D0 探针结论：手动 swiftc + processor 在
+    Xcode 26/Swift 6.3 上产不出 const values，只有 xcodebuild 的构建系统会
+    以正确参数产出 .swiftconstvalues 并驱动 appintentsmetadataprocessor）。"""
+    file_refs, build_files, source_paths, source_children = [], [], [], []
+    for index, source in enumerate(sources):
+        ref, build = f"F1{index:04d}", f"B1{index:04d}"
+        file_refs.append(
+            f"\t\t{ref} /* {source.name} */ = {{isa = PBXFileReference; "
+            f'lastKnownFileType = sourcecode.swift; path = "{source}"; '
+            f'sourceTree = "<absolute>"; }};'
+        )
+        build_files.append(
+            f"\t\t{build} /* {source.name} in Sources */ = {{isa = PBXBuildFile; "
+            f"fileRef = {ref}; }};"
+        )
+        source_paths.append(f"\t\t\t\t{build},")
+        source_children.append(f"\t\t\t\t{ref},")
+    pbx = (
+        """// !$*UTF8*$!
+    {
+    \tarchiveVersion = 1;
+    \tclasses = {
+    \t};
+    \tobjectVersion = 56;
+    \tobjects = {
+
+    /* Begin PBXBuildFile section */
+    """
+        + "\n".join(build_files)
+        + """
+    /* End PBXBuildFile section */
+
+    /* Begin PBXFileReference section */
+    """
+        + "\n".join(file_refs)
+        + """
+    \t\tF10000 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "PLACEHOLDER_PLIST"; sourceTree = "<absolute>"; };
+    \t\tF19999 /* AgentNotificationWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentNotificationWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+    /* End PBXFileReference section */
+
+    /* Begin PBXFrameworksBuildPhase section */
+    P10002 /* Frameworks */ = {
+    \t\tisa = PBXFrameworksBuildPhase;
+    \t\tbuildActionMask = 2147483647;
+    \t\tfiles = (
+    \t\t);
+    \t\trunOnlyForDeploymentPostprocessing = 0;
+    \t};
+    /* End PBXFrameworksBuildPhase section */
+
+    /* Begin PBXGroup section */
+    G10001 = {
+    \t\tisa = PBXGroup;
+    \t\tchildren = (
+    \t\t\t\tG10002,
+    \t\t\t\tF19999,
+    \t\t);
+    \t\tsourceTree = "<group>";
+    \t};
+    G10002 = {
+    \t\tisa = PBXGroup;
+    \t\tchildren = (
+    """
+        + "\n".join(source_children)
+        + """
+    \t\t\t\tF10000,
+    \t\t);
+    \t\tname = Sources;
+    \t\tsourceTree = "<group>";
+    \t};
+    /* End PBXGroup section */
+
+    /* Begin PBXNativeTarget section */
+    T10001 /* AgentNotificationWidgets */ = {
+    \t\tisa = PBXNativeTarget;
+    \t\tbuildConfigurationList = C10001;
+    \t\tbuildPhases = (
+    \t\t\t\tP10001,
+    \t\t\t\tP10002,
+    \t\t);
+    \t\tdependencies = (
+    \t\t);
+    \t\tname = AgentNotificationWidgets;
+    \t\tproductName = AgentNotificationWidgets;
+    \t\tproductReference = F19999;
+    \t\tproductType = "com.apple.product-type.app-extension";
+    \t};
+    /* End PBXNativeTarget section */
+
+    /* Begin PBXProject section */
+    PR1001 /* Project object */ = {
+    \t\tisa = PBXProject;
+    \t\tattributes = {
+    \t\t\t\tLastSwiftUpdateCheck = 1600;
+    \t\t\t\tLastUpgradeCheck = 1600;
+    \t\t};
+    \t\tbuildConfigurationList = C10003;
+    \t\tdevelopmentRegion = en;
+    \t\tknownRegions = (
+    \t\t\t\ten,
+    \t\t\t\tBase,
+    \t\t);
+    \t\tmainGroup = G10001;
+    \t\tproductRefGroup = G10001;
+    \t\tprojectDirPath = "PLACEHOLDER_PROJECT";
+    \t\tprojectRoot = "";
+    \t\ttargets = (
+    \t\t\t\tT10001,
+    \t\t);
+    \t};
+    /* End PBXProject section */
+
+    /* Begin PBXSourcesBuildPhase section */
+    P10001 /* Sources */ = {
+    \t\tisa = PBXSourcesBuildPhase;
+    \t\tbuildActionMask = 2147483647;
+    \t\tfiles = (
+    """
+        + "\n".join(source_paths)
+        + """
+    \t\t);
+    \t\trunOnlyForDeploymentPostprocessing = 0;
+    \t};
+    /* End PBXSourcesBuildPhase section */
+
+    /* Begin XCBuildConfiguration section */
+    C10002 /* Release */ = {
+    \t\tisa = XCBuildConfiguration;
+    \t\tbuildSettings = {
+    \t\t\t\tCODE_SIGNING_ALLOWED = NO;
+    \t\t\t\tCODE_SIGN_IDENTITY = "";
+    \t\t\t\tCURRENT_PROJECT_VERSION = BUNDLE_VERSION_PLACEHOLDER;
+    \t\t\t\tGENERATE_INFOPLIST_FILE = NO;
+    \t\t\t\tINFOPLIST_FILE = "PLACEHOLDER_PLIST";
+    \t\t\t\tMARKETING_VERSION = "BUNDLE_SHORT_VERSION_PLACEHOLDER";
+    \t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = local.session-manager.inbox.widgets;
+    \t\t\t\tPRODUCT_NAME = "$(TARGET_NAME)";
+    \t\t\t\tSDKROOT = macosx;
+    \t\t\t\tSKIP_INSTALL = YES;
+    \t\t\t\tSWIFT_ENABLE_EMIT_CONST_VALUES = YES;
+    \t\t\t\tSWIFT_VERSION = 5.0;
+    \t\t\t\tMACOSX_DEPLOYMENT_TARGET = 14.0;
+    \t\t};
+    \t\tname = Release;
+    \t};
+    C10001 /* Build configuration list for PBXNativeTarget */ = {
+    \t\tisa = XCConfigurationList;
+    \t\tbuildConfigurations = (
+    \t\t\t\tC10002,
+    \t\t);
+    \t\tdefaultConfigurationIsVisible = 0;
+    \t\tdefaultConfigurationName = Release;
+    \t};
+    C10004 /* Release */ = {
+    \t\tisa = XCBuildConfiguration;
+    \t\tbuildSettings = {
+    \t\t};
+    \t\tname = Release;
+    \t};
+    C10003 /* Build configuration list for PBXProject */ = {
+    \t\tisa = XCConfigurationList;
+    \t\tbuildConfigurations = (
+    \t\t\t\tC10004,
+    \t\t);
+    \t\tdefaultConfigurationIsVisible = 0;
+    \t\tdefaultConfigurationName = Release;
+    \t};
+    /* End XCBuildConfiguration section */
+    \t};
+    \trootObject = PR1001 /* Project object */;
+    }
+    """
+    )
+    pbx = (
+        pbx.replace("PLACEHOLDER_PLIST", str(info_plist))
+        .replace("PLACEHOLDER_PROJECT", str(project_dir))
+        .replace("BUNDLE_VERSION_PLACEHOLDER", BUNDLE_VERSION)
+        .replace("BUNDLE_SHORT_VERSION_PLACEHOLDER", BUNDLE_SHORT_VERSION)
+    )
+    (project_dir / "Widgets.xcodeproj").mkdir(parents=True, exist_ok=True)
+    (project_dir / "Widgets.xcodeproj" / "project.pbxproj").write_text(pbx)
+
+
 def build_widgets() -> bool:
     """组件 appex（desktop-widgets.md §6）：构建 + plist + entitlements + ad-hoc 签名。
 
-    返回 True = 配置式（appintentsmetadataprocessor 提取 Metadata.appintents 成功）；
-    False = 降级静态组件（工具缺失，W8 的本机形态）。命令行与探针结论一致：
-    docs/research/2026-09-23-widget-adhoc-probe.md 与 D0 探针记录。
+    返回 True = 配置式（Metadata.appintents 提取成功）；False = 降级静态组件。
+    D0 探针结论（2026-09-23）：手动 swiftc + appintentsmetadataprocessor 在
+    Xcode 26/Swift 6.3 上无法产出 const values，配置式构建只能走 xcodebuild
+    （执行计划预案 A：配置式组件只在 Xcode 环境构建）；CLT 环境走降级静态。
     """
-    processor = subprocess.run(
-        ["xcrun", "--find", "appintentsmetadataprocessor"],
-        capture_output=True,
-        text=True,
-        check=False,
+    xcode = subprocess.run(
+        ["xcodebuild", "-version"], capture_output=True, text=True, check=False
     )
-    configured = processor.returncode == 0
-    sdk_root = subprocess.run(
-        ["xcrun", "-sdk", "macosx", "-show-sdk-path"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    configured = xcode.returncode == 0
     appex = contents / "PlugIns/Agent Notification Widgets.appex"
     shutil.rmtree(appex, ignore_errors=True)  # 两种形态共用目录：清掉上一轮产物
     exe_dir = appex / "Contents/MacOS"
     resources = appex / "Contents/Resources"
-    exe_dir.mkdir(parents=True, exist_ok=True)
     resources.mkdir(parents=True, exist_ok=True)
+    module = "AgentNotificationWidgets"
     sources = sorted(str(path) for path in (root / "native/Widget").glob("*.swift"))
     sources += sorted(str(path) for path in (root / "native/Shared").glob("*.swift"))
-    module = "AgentNotificationWidgets"
-    target = "arm64-apple-macosx14.0"
-    common = [
-        "xcrun",
-        "swiftc",
-        "-module-name",
-        module,
-        "-parse-as-library",
-        "-application-extension",
-        "-target",
-        target,
-        "-sdk",
-        sdk_root,
-    ]
-    # 多文件 -c 不能带 -o：在 exe_dir 内编译，产物（每源文件一个 .o）就地留下。
-    objects = [exe_dir / (Path(source).stem + ".o") for source in sources]
-    if configured:
-        # 条件编译 + 常量值导出（AppIntents 元数据提取输入）
-        subprocess.run(
-            common
-            + [
-                "-D",
-                "WIDGET_APPINTENTS",
-                "-enable-testing",
-                "-emit-const-values",
-                "-Xfrontend",
-                "-serialize-debugging-options",
-                "-c",
-                *sources,
-            ],
-            check=True,
-            cwd=exe_dir,
-        )
-    else:
-        print(
-            "appintentsmetadataprocessor unavailable (needs Xcode); building static fallback widgets"
-        )
-        subprocess.run(common + ["-c", *sources], check=True, cwd=exe_dir)
-    # 入口必须 _NSExtensionMain（探针：缺了组件一被拉起就崩溃）
-    subprocess.run(
-        common
-        + [
-            "-Xlinker",
-            "-e",
-            "-Xlinker",
-            "_NSExtensionMain",
-            "-framework",
-            "WidgetKit",
-            "-framework",
-            "SwiftUI",
-            "-framework",
-            "AppKit",
-            *[obj.name for obj in objects],
-            "-o",
-            module,
-        ],
-        check=True,
-        cwd=exe_dir,
-    )
-    for obj in objects:
-        obj.unlink()
-    info = {
-        "CFBundleDisplayName": "会话通知组件",
-        "CFBundleExecutable": module,
-        "CFBundleIdentifier": "local.session-manager.inbox.widgets",
-        "CFBundleName": module,
-        "CFBundlePackageType": "XPC!",
-        "CFBundleShortVersionString": BUNDLE_SHORT_VERSION,
-        "CFBundleVersion": BUNDLE_VERSION,
-        "CFBundleSupportedPlatforms": ["MacOSX"],
-        "CFBundleInfoDictionaryVersion": "7.0",
-        "DTPlatformName": "macosx",
-        "DTSDKName": "macosx14.0",
-        "LSMinimumSystemVersion": "14.0",
-        "NSExtension": {"NSExtensionPointIdentifier": "com.apple.widgetkit-extension"},
-    }
-    (appex / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
+    sources = [str(path) for path in sources]
+
     # entitlements 只有两项：沙盒 + 快照目录只读例外（§6）。
     # 文件放 build 临时目录：放进 bundle 会被 codesign 当作未签名的子组件拒绝。
     entitlements = root / "build/AgentNotificationWidgets.entitlements"
@@ -288,56 +391,135 @@ def build_widgets() -> bool:
             }
         )
     )
+
     if configured:
-        toolchain_dir = str(Path(processor.stdout.strip()).parents[2])
-        xcode_build = subprocess.run(
-            ["xcodebuild", "-version"], capture_output=True, text=True, check=False
-        )
-        build_number = ""
-        for line in xcode_build.stdout.splitlines():
-            if line.startswith("Build version"):
-                build_number = line.split()[-1]
-        if build_number:
-            constvals = sorted(Path(exe_dir).glob("*.constvals"))
-            listing = resources / "constvals.txt"
-            listing.write_text("".join(str(path) + chr(10) for path in constvals))
-            source_list = resources / "sources.txt"
-            source_list.write_text("".join(str(path) + chr(10) for path in sources))
-            subprocess.run(
-                [
-                    processor.stdout.strip(),
-                    "--output",
-                    str(resources / "Metadata.appintents"),
-                    "--toolchain-dir",
-                    toolchain_dir,
-                    "--module-name",
-                    module,
-                    "--sdk-root",
-                    sdk_root,
-                    "--xcode-version",
-                    build_number,
-                    "--platform-family",
-                    "macos",
-                    "--deployment-target",
-                    "14.0",
-                    "--target-triple",
-                    target,
-                    "--source-file-list",
-                    str(source_list),
-                    "--swift-const-vals-list",
-                    str(listing),
-                ],
-                check=True,
+        # 预案 A：xcodebuild 构建（build system 正确产出 const values 与元数据）。
+        project_dir = root / "build/widgets-project"
+        shutil.rmtree(project_dir, ignore_errors=True)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        info_plist = project_dir / "Info.plist"
+        info_plist.write_bytes(
+            plistlib.dumps(
+                {
+                    "CFBundleDisplayName": "会话通知组件",
+                    "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+                    "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+                    "CFBundleName": module,
+                    "CFBundlePackageType": "XPC!",
+                    "CFBundleShortVersionString": BUNDLE_SHORT_VERSION,
+                    "CFBundleVersion": BUNDLE_VERSION,
+                    "CFBundleSupportedPlatforms": ["MacOSX"],
+                    "LSMinimumSystemVersion": "14.0",
+                    "NSExtension": {
+                        "NSExtensionPointIdentifier": "com.apple.widgetkit-extension"
+                    },
+                }
             )
-            listing.unlink()
-            source_list.unlink()
-        else:
+        )
+        _write_widget_project(
+            project_dir, [Path(source) for source in sources], info_plist
+        )
+        subprocess.run(
+            [
+                "xcodebuild",
+                "-project",
+                str(project_dir / "Widgets.xcodeproj"),
+                "-scheme",
+                "AgentNotificationWidgets",
+                "-configuration",
+                "Release",
+                "-sdk",
+                "macosx",
+                "-derivedDataPath",
+                str(root / "build/widgets-derived"),
+                "CODE_SIGNING_ALLOWED=NO",
+                "CODE_SIGN_IDENTITY=",
+                "build",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        built = next(
+            (root / "build/widgets-derived").rglob("AgentNotificationWidgets.appex")
+        )
+        shutil.rmtree(exe_dir, ignore_errors=True)
+        shutil.copytree(built, appex)
+        if not (resources / "Metadata.appintents").exists():
             configured = False
-            print("xcodebuild -version unavailable; falling back to static widgets")
-    if configured and not (resources / "Metadata.appintents").is_file():
-        configured = False
+            print(
+                "xcodebuild produced no Metadata.appintents; treating build as static fallback"
+            )
+    else:
         print(
-            "Metadata.appintents missing after extraction; treating build as static fallback"
+            "xcodebuild unavailable (Command Line Tools only); building static fallback widgets"
+        )
+        exe_dir.mkdir(parents=True, exist_ok=True)
+        target = "arm64-apple-macosx14.0"
+        sdk_root = subprocess.run(
+            ["xcrun", "-sdk", "macosx", "-show-sdk-path"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        common = [
+            "xcrun",
+            "swiftc",
+            "-module-name",
+            module,
+            "-parse-as-library",
+            "-application-extension",
+            "-target",
+            target,
+            "-sdk",
+            sdk_root,
+        ]
+        # 多文件 -c 不能带 -o：在 exe_dir 内编译，产物（每源文件一个 .o）就地留下。
+        objects = [exe_dir / (Path(source).stem + ".o") for source in sources]
+        subprocess.run(common + ["-c", *sources], check=True, cwd=exe_dir)
+        # 入口必须 _NSExtensionMain（探针：缺了组件一被拉起就崩溃）
+        subprocess.run(
+            common
+            + [
+                "-Xlinker",
+                "-e",
+                "-Xlinker",
+                "_NSExtensionMain",
+                "-framework",
+                "WidgetKit",
+                "-framework",
+                "SwiftUI",
+                "-framework",
+                "AppKit",
+                *[obj.name for obj in objects],
+                "-o",
+                module,
+            ],
+            check=True,
+            cwd=exe_dir,
+        )
+        for obj in objects:
+            obj.unlink()
+        appex_info = appex / "Contents/Info.plist"
+        appex_info.write_bytes(
+            plistlib.dumps(
+                {
+                    "CFBundleDisplayName": "会话通知组件",
+                    "CFBundleExecutable": module,
+                    "CFBundleIdentifier": "local.session-manager.inbox.widgets",
+                    "CFBundleName": module,
+                    "CFBundlePackageType": "XPC!",
+                    "CFBundleShortVersionString": BUNDLE_SHORT_VERSION,
+                    "CFBundleVersion": BUNDLE_VERSION,
+                    "CFBundleSupportedPlatforms": ["MacOSX"],
+                    "CFBundleInfoDictionaryVersion": "7.0",
+                    "DTPlatformName": "macosx",
+                    "DTSDKName": "macosx14.0",
+                    "LSMinimumSystemVersion": "14.0",
+                    "NSExtension": {
+                        "NSExtensionPointIdentifier": "com.apple.widgetkit-extension"
+                    },
+                }
+            )
         )
     subprocess.run(
         [

@@ -18,252 +18,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate minimal widget xcodeproj
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python3 -m venv scratch/iterm-probe-venv
+          scratch/iterm-probe-venv/bin/python -m pip install --upgrade pip
+          scratch/iterm-probe-venv/bin/python -m pip install -r requirements.txt
+
+      - name: Build standalone app (configurable widgets via xcodebuild)
+        run: python3 scripts/build_inbox_app.py --standalone
+
+      - name: Assert widget extension (D0 gate)
         run: |
           set -euo pipefail
-          mkdir -p build/d0proj
-          cat > build/d0proj/ProbeWidget.swift <<'SWIFT'
-          import WidgetKit
-          import SwiftUI
-          import AppIntents
-
-          struct ProbeEntry: TimelineEntry {
-              let date: Date
-              let value: String
-          }
-
-          struct ProbeIntent: WidgetConfigurationIntent {
-              static var title: LocalizedStringResource = "Probe Mode"
-              static var description = IntentDescription("Pick a display mode.")
-
-              @Parameter(title: "Mode", default: "cost")
-              var mode: String
-          }
-
-          struct ProbeProvider: AppIntentTimelineProvider {
-              func placeholder(in context: Context) -> ProbeEntry {
-                  ProbeEntry(date: Date(), value: "placeholder")
-              }
-
-              func snapshot(for configuration: ProbeIntent, in context: Context) -> ProbeEntry {
-                  ProbeEntry(date: Date(), value: configuration.mode)
-              }
-
-              func timeline(for configuration: ProbeIntent, in context: Context) -> Timeline<ProbeEntry> {
-                  Timeline(entries: [ProbeEntry(date: Date(), value: configuration.mode)], policy: .atEnd)
-              }
-          }
-
-          struct ProbeWidget: Widget {
-              var body: some WidgetConfiguration {
-                  AppIntentConfiguration(kind: "ProbeWidget", intent: ProbeIntent.self, provider: ProbeProvider()) { entry in
-                      Text(entry.value)
-                          .containerBackground(.fill.tertiary, for: .widget)
-                  }
-                  .configurationDisplayName("Probe")
-                  .description("D0 probe widget.")
-                  .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
-              }
-          }
-          SWIFT
-          cat > build/d0proj/Info.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleDisplayName</key><string>ProbeWidgets</string>
-            <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-            <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-            <key>CFBundleName</key><string>ProbeWidgets</string>
-            <key>CFBundlePackageType</key><string>XPC!</string>
-            <key>CFBundleShortVersionString</key><string>0.0.0</string>
-            <key>CFBundleVersion</key><string>1</string>
-            <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
-            <key>NSExtension</key><dict><key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string></dict>
-          </dict>
-          </plist>
-          PLIST
-          python3 <<'PYB'
-          import os
-          project = os.path.abspath("build/d0proj")
-          pbx = """// !$*UTF8*$!
-          {
-          	archiveVersion = 1;
-          	classes = {
-          	};
-          	objectVersion = 56;
-          	objects = {
-
-          /* Begin PBXBuildFile section */
-          B00001 /* ProbeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00001; };
-          /* End PBXBuildFile section */
-
-          /* Begin PBXFileReference section */
-          F00001 /* ProbeWidget.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ProbeWidget.swift; sourceTree = "<group>"; };
-          F00002 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-          F00003 /* ProbeWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ProbeWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-          /* End PBXFileReference section */
-
-          /* Begin PBXFrameworksBuildPhase section */
-          P00002 /* Frameworks */ = {
-          	isa = PBXFrameworksBuildPhase;
-          	buildActionMask = 2147483647;
-          	files = (
-          	);
-          	runOnlyForDeploymentPostprocessing = 0;
-          };
-          /* End PBXFrameworksBuildPhase section */
-
-          /* Begin PBXGroup section */
-          G00001 = {
-          	isa = PBXGroup;
-          	children = (
-          		G00002,
-          		F00003,
-          	);
-          	sourceTree = "<group>";
-          };
-          G00002 = {
-          	isa = PBXGroup;
-          	children = (
-          		F00001,
-          		F00002,
-          	);
-          	path = %PROJECT%;
-          	sourceTree = "<absolute>";
-          };
-          /* End PBXGroup section */
-
-          /* Begin PBXNativeTarget section */
-          T00001 /* ProbeWidgets */ = {
-          	isa = PBXNativeTarget;
-          	buildConfigurationList = C00001;
-          	buildPhases = (
-          		P00001,
-          		P00002,
-          	);
-          	dependencies = (
-          	);
-          	name = ProbeWidgets;
-          	productName = ProbeWidgets;
-          	productReference = F00003;
-          	productType = "com.apple.product-type.app-extension";
-          };
-          /* End PBXNativeTarget section */
-
-          /* Begin PBXProject section */
-          PR0001 /* Project object */ = {
-          	isa = PBXProject;
-          	attributes = {
-          		LastSwiftUpdateCheck = 1600;
-          		LastUpgradeCheck = 1600;
-          	};
-          	buildConfigurationList = C00003;
-          	developmentRegion = en;
-          	knownRegions = (
-          		en,
-          		Base,
-          	);
-          	mainGroup = G00001;
-          	productRefGroup = G00001;
-          	projectDirPath = %PROJECT%;
-          	projectRoot = "";
-          	targets = (
-          		T00001,
-          	);
-          };
-          /* End PBXProject section */
-
-          /* Begin PBXSourcesBuildPhase section */
-          P00001 /* Sources */ = {
-          	isa = PBXSourcesBuildPhase;
-          	buildActionMask = 2147483647;
-          	files = (
-          		B00001,
-          	);
-          	runOnlyForDeploymentPostprocessing = 0;
-          };
-          /* End PBXSourcesBuildPhase section */
-
-          /* Begin XCBuildConfiguration section */
-          C00002 /* Release */ = {
-          	isa = XCBuildConfiguration;
-          	buildSettings = {
-          		CODE_SIGNING_ALLOWED = NO;
-          		CODE_SIGN_IDENTITY = "";
-          		COMBINE_HIDPI_IMAGES = YES;
-          		CURRENT_PROJECT_VERSION = 1;
-          		GENERATE_INFOPLIST_FILE = NO;
-          		INFOPLIST_FILE = %PROJECT%/Info.plist;
-          		LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks");
-          		MARKETING_VERSION = 0.0.0;
-          		PRODUCT_BUNDLE_IDENTIFIER = local.session-manager.probe.widgets;
-          		PRODUCT_NAME = "$(TARGET_NAME)";
-          		SDKROOT = macosx;
-          		SKIP_INSTALL = YES;
-          		SWIFT_ENABLE_EMIT_CONST_VALUES = YES;
-          		SWIFT_VERSION = 5.0;
-          		MACOSX_DEPLOYMENT_TARGET = 14.0;
-          	};
-          	name = Release;
-          };
-          C00001 /* Build configuration list for PBXNativeTarget */ = {
-          	isa = XCConfigurationList;
-          	buildConfigurations = (
-          		C00002,
-          	);
-          	defaultConfigurationIsVisible = 0;
-          	defaultConfigurationName = Release;
-          };
-          C00004 /* Release */ = {
-          	isa = XCBuildConfiguration;
-          	buildSettings = {
-          	};
-          	name = Release;
-          };
-          C00003 /* Build configuration list for PBXProject */ = {
-          	isa = XCConfigurationList;
-          	buildConfigurations = (
-          		C00004,
-          	);
-          	defaultConfigurationIsVisible = 0;
-          	defaultConfigurationName = Release;
-          };
-          /* End XCBuildConfiguration section */
-          	};
-          	rootObject = PR0001 /* Project object */;
-          }
-          """.replace("%PROJECT%", project)
-          os.makedirs(f"{project}/Probe.xcodeproj", exist_ok=True)
-          with open(f"{project}/Probe.xcodeproj/project.pbxproj", "w") as f:
-              f.write(pbx)
-          print("pbxproj written")
-          PYB
-          ls -la build/d0proj/Probe.xcodeproj/
-
-      - name: xcodebuild the appex
-        run: |
-          set -euo pipefail
-          xcodebuild -project build/d0proj/Probe.xcodeproj -scheme ProbeWidgets \
-            -configuration Release -sdk macosx -derivedDataPath build/d0derived \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY= build
-          echo "=== find metadata & constvalues ==="
-          find build/d0derived -name "Metadata.appintents" -o -name "*.swiftconstvalues" | head -10
-          APP=$(find build/d0derived -name "ProbeWidgets.appex" -type d | head -1)
-          echo "appex: $APP"
-          ls -la "$APP/Contents/Resources/" 2>/dev/null || true
-
-      - name: Assert Metadata.appintents
-        run: |
-          set -euo pipefail
-          APP=$(find build/d0derived -name "ProbeWidgets.appex" -type d | head -1)
-          if [ -e "$APP/Contents/Resources/Metadata.appintents" ]; then
-            echo "=== D0 PASS via xcodebuild: Metadata.appintents produced ==="
-            wc -c "$APP/Contents/Resources/Metadata.appintents"
-            ls -la "$APP/Contents/MacOS/"
-            nm -u "$APP/Contents/MacOS/"* | grep -i NSExtensionMain || echo "note: no _NSExtensionMain ref"
-          else
-            echo "=== D0 FAIL via xcodebuild ==="
-            find build/d0derived -type f | head -30
-            exit 1
-          fi
+          APP="build/Agent Notification.app"
+          APPLEX="$APP/Contents/PlugIns/Agent Notification Widgets.appex"
+          EXE="$APPLEX/Contents/MacOS/AgentNotificationWidgets"
+          test -x "$EXE"
+          test -e "$APPLEX/Contents/Resources/Metadata.appintents"
+          echo "=== D0 PASS: Metadata.appintents produced via build_inbox_app.py ==="
+          plutil -extract CFBundlePackageType raw "$APPLEX/Contents/Info.plist" | grep -qx "XPC!"
+          plutil -extract CFBundleIdentifier raw "$APPLEX/Contents/Info.plist" | grep -qx "local.session-manager.inbox.widgets"
+          plutil -extract NSExtension.NSExtensionPointIdentifier raw "$APPLEX/Contents/Info.plist" | grep -qx "com.apple.widgetkit-extension"
+          plutil -extract CFBundleShortVersionString raw "$APPLEX/Contents/Info.plist" | grep -qx "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+          plutil -extract CFBundleVersion raw "$APPLEX/Contents/Info.plist" | grep -qx "$(plutil -extract CFBundleVersion raw "$APP/Contents/Info.plist")"
+          nm -u "$EXE" | grep -q "_NSExtensionMain"
+          ENTITLEMENTS="$(codesign -d --entitlements :- "$APPLEX" 2>/dev/null)"
+          echo "$ENTITLEMENTS" | grep -q "com.apple.security.app-sandbox"
+          echo "$ENTITLEMENTS" | grep -q "temporary-exception.files.home-relative-path.read-only"
+          [ "$(echo "$ENTITLEMENTS" | grep -o '<key>' | wc -l | tr -d ' ')" = "2" ]
+          codesign --verify --strict "$APPLEX"
+          plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$APP/Contents/Info.plist" | grep -qx "agentnotification"
+          echo "=== ALL D1 ASSERTIONS PASS ==="
