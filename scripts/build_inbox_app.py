@@ -437,8 +437,12 @@ def build_widgets() -> bool:
                 "build",
             ],
             check=True,
-            stdout=subprocess.DEVNULL,
         )
+        log = subprocess.run(
+            ["find", str(root / "build/widgets-derived"), "-name", "*.swiftconstvalues"],
+            capture_output=True, text=True,
+        )
+        print(f"swiftconstvalues files: {log.stdout.strip() or '(none)'}")
         built = next(
             (root / "build/widgets-derived").rglob("AgentNotificationWidgets.appex")
         )
