@@ -178,7 +178,7 @@ def _write_widget_project(
     以正确参数产出 .swiftconstvalues 并驱动 appintentsmetadataprocessor）。"""
     file_refs, build_files, source_paths, source_children = [], [], [], []
     for index, source in enumerate(sources):
-        ref, build = f"F1{index:04d}", f"B1{index:04d}"
+        ref, build = f"F1{index + 1:04d}", f"B1{index:04d}"
         file_refs.append(
             f"\t\t{ref} /* {source.name} */ = {{isa = PBXFileReference; "
             f'lastKnownFileType = sourcecode.swift; path = "{source}"; '
@@ -209,7 +209,7 @@ def _write_widget_project(
     """
         + "\n".join(file_refs)
         + """
-    \t\tF10000 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "PLACEHOLDER_PLIST"; sourceTree = "<absolute>"; };
+    \t\tF10099 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = "PLACEHOLDER_PLIST"; sourceTree = "<absolute>"; };
     \t\tF19999 /* AgentNotificationWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentNotificationWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
     /* End PBXFileReference section */
 
@@ -238,7 +238,7 @@ def _write_widget_project(
     """
         + "\n".join(source_children)
         + """
-    \t\t\t\tF10000,
+    \t\t\t\tF10099,
     \t\t);
     \t\tname = Sources;
     \t\tsourceTree = "<group>";
@@ -440,7 +440,7 @@ def build_widgets() -> bool:
         )
         log = subprocess.run(
             ["find", str(root / "build/widgets-derived"), "-name", "*.swiftconstvalues"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, check=False,
         )
         print(f"swiftconstvalues files: {log.stdout.strip() or '(none)'}")
         built = next(
