@@ -199,6 +199,26 @@ jobs:
             exit 1
           fi
 
+      - name: Frontend sema-mode constvals
+        if: always()
+        run: |
+          set +e
+          FE="$(xcrun -f swift-frontend)"
+          SDK_ROOT="$(xcrun -sdk macosx -show-sdk-path)"
+          # d1: 前端无 -c（sema/类型检查模式）+ const-values-path
+          "$FE" -module-name ProbeWidgets -parse-as-library -application-extension \
+            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
+            -emit-const-values-path build/d0/d1.constvals -serialize-debugging-options \
+            build/d0/ProbeWidget.swift
+          echo "D1 exit=$?"; ls -la build/d0/d1.constvals 2>/dev/null && head -c 200 build/d0/d1.constvals
+          # d2: driver 无 -c + const-values-path
+          xcrun swiftc -module-name ProbeWidgets -parse-as-library -application-extension \
+            -target arm64-apple-macosx14.0 -sdk "$SDK_ROOT" -enable-testing \
+            -emit-const-values-path build/d0/d2.constvals -Xfrontend -serialize-debugging-options \
+            build/d0/ProbeWidget.swift
+          echo "D2 exit=$?"; ls -la build/d0/d2.constvals 2>/dev/null && head -c 200 build/d0/d2.constvals
+          set -e
+
       - name: Processor input variants
         if: always()
         run: |
