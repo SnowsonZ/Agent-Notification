@@ -443,7 +443,7 @@ def build_widgets() -> bool:
             (root / "build/widgets-derived").rglob("AgentNotificationWidgets.appex")
         )
         shutil.rmtree(exe_dir, ignore_errors=True)
-        shutil.copytree(built, appex)
+        shutil.copytree(built, appex, dirs_exist_ok=True)
         if not (resources / "Metadata.appintents").exists():
             configured = False
             print(
