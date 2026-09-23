@@ -67,13 +67,18 @@ final class WidgetURLBridge {
     static let shared = WidgetURLBridge()
     private var pending: [URL] = []
     func deliver(_ url: URL) {
+        // R10：同一 URL 只投递一次（通知与 flush 都会触发处理，不能重放）。
+        if pending.contains(url) || delivered.contains(url) { return }
+        delivered.insert(url)
         pending.append(url)
         NotificationCenter.default.post(name: .widgetURLOpen, object: url)
     }
     func flush(to handler: (URL) -> Void) {
-        for url in pending { handler(url) }
+        let queued = pending
         pending.removeAll()
+        for url in queued { handler(url) }
     }
+    private var delivered: Set<URL> = []
 }
 
 // Dock 未读角标：dockTile.badgeLabel 在本应用不渲染（见 InboxModel.updateDockBadge 注），

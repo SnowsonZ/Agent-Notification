@@ -339,14 +339,17 @@ struct InboxWidgetView: View {
                 Spacer()
                 Text("进行中 \(snapshot.inbox.running)").font(.caption2).foregroundStyle(.secondary)
             }
+            // R14：中/大尺寸逐条 Link（§5），点击直接打开对应会话。
             ForEach(snapshot.inbox.pendingItems.prefix(3), id: \.id) { item in
-                HStack(spacing: 5) {
-                    Text(widgetProviderName(item.provider))
-                        .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
-                    Text(item.title.isEmpty ? item.project : item.title)
-                        .font(.caption).lineLimit(1)
-                    Spacer()
-                    Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
+                Link(destination: itemDestination(item)) {
+                    HStack(spacing: 5) {
+                        Text(widgetProviderName(item.provider))
+                            .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
+                        Text(item.title.isEmpty ? item.project : item.title)
+                            .font(.caption).lineLimit(1)
+                        Spacer()
+                        Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
+                    }
                 }
             }
             if snapshot.inbox.pendingItems.isEmpty {
@@ -377,15 +380,22 @@ struct InboxWidgetView: View {
     }
 
     private func itemRow(_ item: WidgetSnapshot.Inbox.Item) -> some View {
-        HStack(spacing: 5) {
-            Text(widgetProviderName(item.provider))
-                .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
-            Text(item.title.isEmpty ? item.project : item.title)
-                .font(.caption).lineLimit(1)
-            Spacer()
-            Text(item.state).font(.caption2).foregroundStyle(.tertiary)
-            Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
+        Link(destination: itemDestination(item)) {
+            HStack(spacing: 5) {
+                Text(widgetProviderName(item.provider))
+                    .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
+                Text(item.title.isEmpty ? item.project : item.title)
+                    .font(.caption).lineLimit(1)
+                Spacer()
+                Text(item.state).font(.caption2).foregroundStyle(.tertiary)
+                Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
+            }
         }
+    }
+
+    private func itemDestination(_ item: WidgetSnapshot.Inbox.Item) -> URL {
+        URL(string: "agentnotification://open?id=\(item.id)&revision=\(item.revision)")
+            ?? URL(string: "agentnotification://inbox")!
     }
 
     private func relative(_ at: Double) -> String {

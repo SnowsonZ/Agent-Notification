@@ -72,6 +72,11 @@ enum InboxScope {
     private var notificationInFlight = Set<String>()
     private var notificationRetry: [String: Date] = [:]
     private var lastDockBadge = -1
+    // R9：最近任务的今日用量（provider:session_id → (tokens, money)），
+    // 低频（5 分钟）拉今日报告刷新；快照写入器按它填充 today_tokens/today_cost。
+    @Published var todayUsage: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)] = [:]
+    private var todayUsageFetchedAt: TimeInterval = 0
+    private var todayUsageLoading = false
     let root: String
     private var timer: Timer?
     private var lastFullScanAt: Date?
@@ -93,6 +98,7 @@ enum InboxScope {
         timer = tick
         checkNotificationPermission()
         loadAgents()
+        loadTodayUsage()
         WidgetSnapshotWriter.shared.refreshUsageIfNeeded()
     }
     var unreadCount: Int {
@@ -145,6 +151,40 @@ enum InboxScope {
         if let dir = ruleProject { arguments += ["--rule-project", dir] }
         action(arguments, isOpen: false)
     }
+    /// R9：今日报告任务级用量映射（5 分钟节拍；今天实时计算，成本可控）。
+    func loadTodayUsage(force: Bool = false) {
+        let now = Date().timeIntervalSince1970
+        guard !todayUsageLoading, force || now - todayUsageFetchedAt >= 300 else { return }
+        todayUsageLoading = true
+        todayUsageFetchedAt = now
+        let directory = root
+        Task {
+            let result = await Task.detached {
+                Self.call(root: directory, arguments: ["daily-report"])
+            }.value
+            todayUsageLoading = false
+            guard result.0 == 0 else { return }
+            do {
+                let report = try Self.dailyDecoder.decode(DayReport.self, from: result.1)
+                var mapping: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)] = [:]
+                for task in report.tasks {
+                    mapping["\(task.provider):\(task.sessionId)"] = (
+                        tokens: task.totalTokens > 0 ? task.totalTokens : nil,
+                        cost: task.cost
+                    )
+                }
+                todayUsage = mapping
+                WidgetSnapshotWriter.shared.update(rows: rows, todayUsage: mapping)
+            } catch {}
+        }
+    }
+
+    nonisolated static let dailyDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
+    }()
+
     func loadAgents() {
         guard !loadingAgents else { return }
         loadingAgents = true
@@ -275,7 +315,7 @@ enum InboxScope {
                     if let count = info.errors, count > 0 { return "\(providerName(name))：\(count) 个历史记录暂未接入" }
                     return "\(providerName(name))：来源暂不可用"
                 }.sorted()
-                WidgetSnapshotWriter.shared.update(rows: rows)
+                WidgetSnapshotWriter.shared.update(rows: rows, todayUsage: todayUsage)
             } catch { self.error = "列表读取失败：" + error.localizedDescription }
         }
     }

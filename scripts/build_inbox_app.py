@@ -516,7 +516,7 @@ def build_widgets() -> bool:
                     "CFBundleShortVersionString": BUNDLE_SHORT_VERSION,
                     "CFBundleVersion": BUNDLE_VERSION,
                     "CFBundleSupportedPlatforms": ["MacOSX"],
-                    "CFBundleInfoDictionaryVersion": "7.0",
+                    "CFBundleInfoDictionaryVersion": "6.0",
                     "DTPlatformName": "macosx",
                     "DTSDKName": "macosx14.0",
                     "LSMinimumSystemVersion": "14.0",
