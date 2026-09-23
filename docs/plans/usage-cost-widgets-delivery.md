@@ -108,8 +108,12 @@ W 编号不属于本里程碑。
 - 悬浮提示金额行（§7 悬浮卡）；热力图按金额着色开关（§7）；x 轴日期标签截断优化。
 - D4 组件界面视觉细化（当前为基础可读版）；W1/W7/W9 与配置面板的用户 UI 验收。
 
-### 待 CI 验证（1 轮）
+### CI 验证 ✅（2026-09-24，run 35904405416）
 
-- 配置式组件构建：`build_inbox_app.py --standalone` 在 macos-26（Xcode 26）产出
-  Metadata.appintents，并全部 D1 断言（plist 键/版本同步/_NSExtensionMain/entitlements 两项/
-  URL scheme）通过。本地无 Xcode（缺 xcodebuild 与 appintentsmetadataprocessor），无法自验。
+- 配置式组件构建：`build_inbox_app.py --standalone` 在 macos-26（Xcode 26.6）产出
+  Metadata.appintents（processor 日志 `Writing Metadata.appintents`），D1 全部断言通过
+  （plist 键/版本同步/_NSExtensionMain/entitlements 恰好两项/URL scheme）→ **W8 双形态达成**。
+- 临时探针 workflow 已删除（D0 结论沉淀于本节）。主构建（PR/main）含同一组断言。
+- 集成根因补记：首版集成失败因生成工程缺 `SWIFT_ACTIVE_COMPILATION_CONDITIONS =
+  WIDGET_APPINTENTS`，条件编译排除全部 AppIntents 符号（CI 日志证实仅 Shared 产出
+  constvalues）；补条件后一次通过。
