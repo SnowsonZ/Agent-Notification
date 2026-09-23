@@ -408,36 +408,71 @@ def _zcode_data(home):
             continue
         turn_four = four(row[3:8])
         parts = [request_part(request) for request in (requests or {}).get(row[8], [])]
-        # 对账：请求侧四项之和与轮级逐项相等、且各请求区间有效才逐请求记录；
-        # 否则整轮退回轮级数据（model=unknown），activity 仍取逐请求时段。
-        sums = (
-            [sum(part[1][index] for part in parts) for index in range(4)]
-            if parts
-            else None
-        )
-        usable = all(
-            part[2] > 0 and (part[3] is None or part[3] >= part[2]) for part in parts
-        )
-        if sums is not None and list(turn_four) == sums and usable:
-            for index, (model_id, req_four, req_start, req_end) in enumerate(parts):
-                turns.append(
-                    (
-                        target,
-                        req_start,
-                        req_end or now,
-                        *req_four,
-                        model_id,
-                        count_turn and index == 0,  # 轮次数每轮只记一次
-                        [(req_start, req_end or now)],
-                    )
-                )
-            continue
+        # model 归属（规范 §2「Zcode 归属」2026-09-24 修订）：token 一律以轮级为准
+        # （轮级 token 普遍大于逐请求之和，差额是未挂在该 turn_id 下的请求，逐项严格
+        # 对账在真实数据上约 2/3 的轮失败）；model_usage 只用于确定 model。
+        #   单一 model：整轮四项归它；多 model：按请求四项占比逐项拆分轮级 token，
+        #   取整误差归占比最大的 model；无 model_usage：unknown。
         activity = [
             (part[2], part[3] or now)
             for part in parts
             if part[2] > 0 and (part[3] or now) >= part[2]
         ] or None
-        turns.append((target, start, end, *turn_four, None, count_turn, activity))
+        if not parts:
+            turns.append((target, start, end, *turn_four, None, count_turn, activity))
+            continue
+        request_sums = {}  # canonical -> 逐请求四项之和
+        for model_id, req_four, _req_start, _req_end in parts:
+            key = canonical(model_id)
+            bucket = request_sums.setdefault(key, [0, 0, 0, 0])
+            for index in range(4):
+                bucket[index] += req_four[index]
+        if len(request_sums) == 1:
+            model_key = next(iter(request_sums))
+            raw_models = [
+                part[0] for part in parts if canonical(part[0]) == model_key
+            ]
+            turns.append(
+                (target, start, end, *turn_four, raw_models[0], count_turn, activity)
+            )
+            continue
+        # 多 model：逐项按占比拆分轮级 token，取整误差归占比最大的 model。
+        largest = max(
+            request_sums, key=lambda key: sum(request_sums[key])
+        )
+        total_sums = [
+            sum(bucket[index] for bucket in request_sums.values()) or 1
+            for index in range(4)
+        ]
+        allocations = {
+            key: [
+                int(turn_four[index] * bucket[index] / total_sums[index])
+                for index in range(4)
+            ]
+            for key, bucket in request_sums.items()
+        }
+        for index in range(4):
+            remainder = turn_four[index] - sum(
+                allocations[key][index] for key in allocations
+            )
+            allocations[largest][index] += remainder
+        raw_by_key = {}
+        for model_id, _req_four, _req_start, _req_end in parts:
+            raw_by_key.setdefault(canonical(model_id), model_id)
+        for key, values in allocations.items():
+            if not any(values):
+                continue  # 占比为零的 model 不产生记录（token 全在其它 model）。
+            turns.append(
+                (
+                    target,
+                    start,
+                    end,
+                    *values,
+                    raw_by_key.get(key) or key,
+                    count_turn and key == largest,  # 轮次数每轮只记一次
+                    activity,
+                )
+            )
     return turns, titles, tokenized
 
 
@@ -823,7 +858,7 @@ def scan_buckets(store, home, first_day, last_day, agent_stats=None):
                     entry = agent_stats.setdefault(
                         day, {"tasks": set(), "total_tokens": 0.0}
                     )
-                    entry["tasks"].add(sid)
+                    entry["tasks"].add((provider, sid))
                     entry["total_tokens"] += tokens
                     break
         return True
@@ -1327,38 +1362,122 @@ def _backup_v7_reports(root):
                 (directory / source.name).write_bytes(source.read_bytes())
 
 
-def _rewrite_v7_as_v8(legacy):
-    """v8 合计少于 v7（来源事后被清理）时改用 v7 内容，不得降级：
-    版本改 8、标记 migrated_from，每个有 token 的任务拆成 unknown model。"""
-    totals = legacy["totals"]
-    merged = {}
-    for record in legacy.get("tasks", []):
-        if not int(record.get("total_tokens") or 0):
-            continue
-        record["models"] = {
-            UNKNOWN: {
-                "fresh_input": int(record.get("input_tokens") or 0),
-                "cache_write": 0,
-                "cache_read": int(record.get("cache_tokens") or 0),
-                "output": int(record.get("output_tokens") or 0),
-            }
+def _task_key(record):
+    return record.get("provider"), record.get("session_id")
+
+
+def _task_total(record):
+    return (
+        int(record.get("input_tokens") or 0)
+        + int(record.get("cache_tokens") or 0)
+        + int(record.get("output_tokens") or 0)
+    )
+
+
+def _v7_unknown_models(record):
+    """v7 任务 → unknown 拆分（§3.1.3）。"""
+    return {
+        UNKNOWN: {
+            "fresh_input": int(record.get("input_tokens") or 0),
+            "cache_write": 0,
+            "cache_read": int(record.get("cache_tokens") or 0),
+            "output": int(record.get("output_tokens") or 0),
         }
-        _merge_models(merged, record["models"])
-    totals["models"] = merged
-    legacy["version"] = REPORT_VERSION
-    legacy["migrated_from"] = REPORT_V7
-    return legacy
+    }
 
 
-def finalize_day_report(root, day, report):
-    """过去日报告落盘前的 v7→v8 迁移关口（规范 §3.1）：先备份 v7；
-    重扫出的 v8 合计少于 v7 就改用 v7 内容改写，其余直接采用 v8。今天的报告不参与。"""
-    legacy = _read_report_version(root, day.isoformat(), REPORT_V7)
+def _merge_day_tasks(report, base, excluded_sessions):
+    """重扫报告与磁盘现有报告按 (provider, session_id) 合并，不降级（§3.1.3/4）。
+
+    - 重扫中存在的任务：采用重扫记录；其三类合计小于现有报告时，沿用现有三类
+      合计，差额记 unknown。
+    - 只在现有报告存在的任务：恢复（v7 任务拆 unknown 并标记 restored_from；
+      判定为 agent 的会话不恢复——正当排除，重扫注脚已含）。
+    返回 (merged_records, restored_v7)。"""
+    base_map = {_task_key(record): record for record in base.get("tasks") or []}
+    rescan_map = {_task_key(record): record for record in report.get("tasks") or []}
+    merged, restored = [], False
+    for key, record in rescan_map.items():
+        old = base_map.get(key)
+        if old is None or _task_total(old) <= _task_total(record):
+            merged.append(record)
+            continue
+        # 来源部分被清理：三类合计沿用现有报告，差额记 unknown。
+        merged_record = dict(record)
+        diff = {
+            "fresh_input": max(int(old.get("input_tokens") or 0) - int(record.get("input_tokens") or 0), 0),
+            "cache_write": 0,
+            "cache_read": max(int(old.get("cache_tokens") or 0) - int(record.get("cache_tokens") or 0), 0),
+            "output": max(int(old.get("output_tokens") or 0) - int(record.get("output_tokens") or 0), 0),
+        }
+        models = dict(merged_record.get("models") or {})
+        unknown = models.get(UNKNOWN) or {
+            "fresh_input": 0, "cache_write": 0, "cache_read": 0, "output": 0
+        }
+        for name in MODEL_KEYS:
+            unknown[name] = int(unknown.get(name) or 0) + diff[name]
+        models[UNKNOWN] = unknown
+        merged_record["models"] = models
+        merged_record["input_tokens"] = int(old.get("input_tokens") or 0)
+        merged_record["cache_tokens"] = int(old.get("cache_tokens") or 0)
+        merged_record["output_tokens"] = int(old.get("output_tokens") or 0)
+        merged_record["total_tokens"] = _task_total(old)
+        merged.append(merged_record)
+    for key, old in base_map.items():
+        if key in rescan_map:
+            continue
+        if key in excluded_sessions:
+            continue  # 判定为 agent：正当排除，不恢复。
+        record = dict(old)
+        is_v7 = old.get("version") == REPORT_V7 or "models" not in old
+        if is_v7:
+            record["models"] = _v7_unknown_models(old)
+            record["restored_from"] = REPORT_V7
+        if _task_total(record) > 0 or record.get("fidelity") == "unavailable":
+            merged.append(record)
+        if is_v7:
+            restored = True
+    merged.sort(
+        key=lambda item: (-item.get("total_tokens", 0), item.get("provider", ""), item.get("session_id", ""))
+    )
+    return merged, restored
+
+
+def _merge_day_report(report, base, excluded_sessions):
+    """合并任务并用 build_report 重算 totals；返回 (new_report, restored_v7)。"""
+    merged, restored = _merge_day_tasks(report, base, excluded_sessions)
+    if not restored and len(merged) == len(report.get("tasks") or []) and base.get("version") == REPORT_VERSION:
+        # 没有恢复发生且任务集不变：直接用重扫报告。
+        return report, False
+    restored_flag = restored or any("restored_from" in record for record in merged)
+    new_report = build_report(
+        parse_day(report["date"]), merged, report.get("generated_at") or time.time()
+    )
+    new_report["generated_at"] = report.get("generated_at") or new_report["generated_at"]
+    if restored_flag:
+        new_report["migrated_from"] = REPORT_V7
+    return new_report, restored_flag
+
+
+def finalize_day_report(
+    root, day, report, *, excluded_sessions=frozenset(), store=None, home=None
+):
+    """过去日报告落盘关口：按任务合并且不降级（规范 §3.1.3/4，长期约束）。
+
+    与磁盘上该日的现有报告（任意版本）合并；磁盘缺失时回退 reports.v7.bak/。
+    excluded_sessions 是本次扫描被判为 agent 的 (provider, session_id) 集合。
+    今天的报告不参与。"""
+    day_text = day.isoformat()
+    current = _read_report_version(root, day_text, REPORT_VERSION)
+    legacy = _read_report_version(root, day_text, REPORT_V7)
     if legacy is not None:
         _backup_v7_reports(root)
-        legacy_total = int(legacy.get("totals", {}).get("total_tokens") or 0)
-        if legacy_total > int(report["totals"]["total_tokens"]):
-            report = _rewrite_v7_as_v8(legacy)
+    base = current or legacy
+    if base is None:
+        backup = _read_report_version(Path(root) / "reports.v7.bak", day_text, REPORT_V7)
+        base = backup
+    if base is not None:
+        report, _restored = _merge_day_report(report, base, excluded_sessions)
     _write_report(root, report)
     return report
 

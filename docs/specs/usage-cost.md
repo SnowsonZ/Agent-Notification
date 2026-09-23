@@ -1,6 +1,6 @@
 # 用量金额与跨周期统计（规范）
 
-状态：**终版设计，待实施**（2026-09-23 定稿）。实施步骤与分工见 [执行计划](../plans/usage-cost-widgets-execution.md)；设计取舍背景见 [方案](../plans/usage-cost-report.md)（与本文冲突时以本文为准）。
+状态：**终版设计，实施中**（2026-09-23 定稿；2026-09-24 验收后修订 §2 Zcode 归属、§3.1 合并规则、§4.4 别名与历史，修订处均标注日期）。实施步骤与分工见 [执行计划](../plans/usage-cost-widgets-execution.md)；设计取舍背景见 [方案](../plans/usage-cost-report.md)（与本文冲突时以本文为准）。
 关联：[工作日报](daily-report.md)（本规范将其报告 schema 从 v7 升到 v8）、[桌面组件](desktop-widgets.md)（使用本规范的 `inbox usage` 输出）。
 
 ## 1. 范围与口径
@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|---|
 | Claude | assistant 消息 | `message.model` | `input_tokens` | `cache_creation_input_tokens` | `cache_read_input_tokens` | `output_tokens` |
 | Codex | `token_count` 增量 | 该增量之前最近一条 `turn_context.payload.model`；之前没有则为 `unknown` | `last_token_usage.input_tokens` | `cache_write_input_tokens` | `cached_input_tokens` | `output_tokens + reasoning_output_tokens` |
-| Zcode | `model_usage` 逐请求 | `model_id` | `input_tokens − cache_read_input_tokens`（下限为 0） | `cache_creation_input_tokens` | `cache_read_input_tokens` | `output_tokens + reasoning_tokens` |
+| Zcode | `turn_usage` 逐轮（2026-09-24 修订） | 该轮 `model_usage.model_id`（规则见下方「Zcode 归属」） | `input_tokens − cache_read_input_tokens`（下限为 0） | `cache_creation_input_tokens` | `cache_read_input_tokens` | `output_tokens + reasoning_tokens` |
 | Pi | assistant 消息 | `message.model` | `usage.input` | `usage.cacheWrite` | `usage.cacheRead` | `usage.output + usage.reasoning` |
 | Kimi | `usage.record` | `model` | `inputOther` | `inputCacheCreation` | `inputCacheRead` | `output` |
 | OpenCode | assistant 消息 | `modelID` | `tokens.input` | `tokens.cache.write` | `tokens.cache.read` | `tokens.output + tokens.reasoning` |
@@ -27,10 +27,12 @@
 规则：
 
 - 三类 token 由四项推出：输入 = `fresh_input + cache_write`，缓存 = `cache_read`，输出 = `output`。**v8 的三类合计必须与 v7 逐位一致**；Zcode 例外，保持现有跨零点分摊容差 <2.2%。
-- **Zcode 对账**：按 turn 汇总 `model_usage` 的三类 token，与该 turn 的 `turn_usage` 比较。
-  - 一致：使用逐请求记录，每个请求按各自的 `started_at → completed_at` 区间分摊到天。
-  - 不一致或没有 `model_usage` 表：该 turn 退回轮级数据，model 记为 `unknown`。
-  - 所有状态的请求都计入，包括出错、取消和重试。
+- **Zcode 归属**（2026-09-24 修订，原「逐项严格对账」在真实数据上约 2/3 的轮失败：轮级 token 普遍大于该轮 `model_usage` 之和，差额是未挂在该 turn_id 下的请求）：
+  - **token 数量一律以 `turn_usage` 为准**，三类合计与 v7 同源；`model_usage` 只用于确定 model 归属，不再作为计量来源。
+  - 该轮 `model_usage` 只出现一个 model（大小写不敏感）：整轮四项 token 归给这个 model。本机 2026-09 共 1132 轮，全部属于这种情况。
+  - 出现多个 model：按各 model 在该轮 `model_usage` 中的四项 token 占比，逐项拆分轮级 token；取整误差归给占比最大的 model，保证拆分后合计与轮级相等。
+  - 该轮没有 `model_usage` 记录，或表不存在：记为 `unknown`。
+  - 归日仍按轮区间分摊（与 v7 相同）；活动段 `segments` 的计算不变。
   - 子代理归属父任务的规则不变。
 - **Pi、OpenCode 的原生 cost**：`usage.cost.total` 与 `cost` 都按美元解析，随 model 累加到 `native_cost_usd`，只用于对账和兜底（见 §4.3）。
 - 读取范围不变：只读 model 名和数值字段，不新增正文读取。
@@ -72,11 +74,12 @@
 
 1. 首次遇到 v7 报告时，把 `reports/` 下所有 v7 文件复制一份到 `reports.v7.bak/`。只做一次，目录已存在就跳过。
 2. 对过去日重扫，生成 v8 报告。
-3. 如果 v8 的 `totals.total_tokens` < v7 的 `totals.total_tokens`（说明来源已被清理），就**改用 v7 报告内容**，并做如下改写：
-   - 版本号改为 8，标记 `migrated_from: 7`。
-   - 每个有 token 的任务写入 `models = {"unknown": {"fresh_input": input_tokens, "cache_write": 0, "cache_read": cache_tokens, "output": output_tokens}}`，并同步汇总到 `totals.models`。
-   - `unknown` 永远不定价。
-4. 如果 v8 ≥ v7，直接采用 v8。
+3. **按任务合并，不按整天取舍**（2026-09-24 修订。原规则按整天合计比较：只要合计变小就整天回退到 v7。但合计变小也可能是会话事后被改判为 agent 拉起，这样会把已排除的 agent 会话算回来，并让全天 model 变成 unknown）。以 `(provider, session_id)` 为键：
+   - 重扫中存在的任务：采用 v8 记录。
+   - 只在 v7 中存在的任务（来源已被清理）：保留 v7 记录，改写为 `models = {"unknown": {"fresh_input": input_tokens, "cache_write": 0, "cache_read": cache_tokens, "output": output_tokens}}`，并标记 `restored_from: 7`。**但如果该会话按当前有效来源判定为 agent，就不恢复**，计入 `agent_excluded`。
+   - 同一任务 v8 的三类合计小于 v7（来源部分被清理）：采用 v7 的三类合计，与 v8 的差额记为 `unknown`。
+   - totals 按合并后的任务重新汇总；只要有恢复发生，报告顶层就标记 `migrated_from: 7`。`unknown` 永远不定价。
+4. **不降级是长期约束，不只在迁移时生效**：任何重写过去日报告的路径（`--refresh`、以后再升 schema、`inbox usage` 补录），都按第 3 步的规则与磁盘上的现有报告（任意版本）合并，现有报告缺失时再用 `reports.v7.bak/` 中的同日文件。重扫结果永远不能让某个任务丢失 token，只有改判为 agent 属于正当减少。
 5. 今天的报告照常实时计算，不参与迁移。
 
 ## 4. 价格表
@@ -127,7 +130,7 @@
 转换规则：
 
 - 只保留 `mode ∈ {chat, responses}` 且有 `input_cost_per_token` 的条目。
-- 键名处理：先转小写；如果含 `/`，再同时生成去掉前缀的别名。
+- 键名处理：先转小写；如果含 `/`，同时生成去掉前缀的别名。**别名只有在所有指向它的条目四项单价完全相同时才保留**；有分歧的别名全部丢弃，并记入 `pricing check`（2026-09-24 修订：上游有 226 个此类别名，同名不同渠道价格不一，按文件顺序取价不可接受）。
 - 字段映射（每 token 单价 × 1e6）：
   - `input_cost_per_token` → input
   - `output_cost_per_token` → output
@@ -136,13 +139,13 @@
 - 币种固定为 USD，只保留 §4.1 定义的字段。
 - 阶梯价字段（`*_above_*_tokens`）忽略，首版按基础档计价。
 
-**防护规则**（出现以下情况时，该条目沿用旧值，并把原因记入 `last_error`）：
+**防护规则**（出现以下情况时，该条目**原样保留上一版 fetched.json 中的条目**，包括其 `history`，并把原因记入 `last_error`；上一版没有这个条目时才丢弃）：
 
 - 响应不是 https 200 JSON，或解析失败：整次拉取算失败。
 - 单价为负数，或不是有限数。
 - 与旧值相比，任一单价变化超过 10 倍。
 
-**价格历史**：拉取结果中某个 model 的单价发生变化时，先把旧价追加进该条目的 `history`（`until` 为本次生效日期），再写入新价。所以历史金额不会因为上游调价而被改写。
+**价格历史**：拉取结果中某个 model 的单价发生变化时，先把旧价追加进该条目的 `history`（`until` 为本次生效日期），再写入新价。所以历史金额不会因为上游调价而被改写。**单价不变时，新条目必须原样继承旧条目的 `history`**，否则历史会在下一次拉取时丢失，而且会被误判为内容变化（2026-09-24 修订）。
 
 ### 4.5 自适应拉取节奏（用户确认）
 
@@ -251,7 +254,7 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 |---|---|---|
 | U1 | v8 三类合计与 v7 逐位一致（Zcode 保持现有容差） | 用本机真实数据抽 3 个过去日，由独立脚本对比，证据放 `scratch/` |
 | U2 | 迁移不降级 | 夹具：v7 报告存在但来源已删；迁移后合计等于 v7，出现 `migrated_from: 7` 和 `unknown` model，备份目录存在 |
-| U3 | 六个来源的 model 与四项拆分正确 | 每个来源一份夹具测试，包括 Codex 缺少 turn_context 时记为 unknown、Zcode 对账不一致时回退 |
+| U3 | 六个来源的 model 与四项拆分正确 | 每个来源一份夹具测试，包括 Codex 缺少 turn_context 时记为 unknown；Zcode 覆盖单 model 整轮归属、多 model 按占比拆分（拆分后合计等于轮级）、无 model_usage 记 unknown。真实数据：最近 7 天各来源 `unknown` 的 token 占比写进 PR |
 | U4 | 规范名 | `GLM-5.3-Flash`、`zai-coding-plan/glm-5.3-flash` 合并；日期后缀被去掉；不做相似度匹配 |
 | U5 | 查找顺序、历史价格、未定价 | 覆盖层 > 国产官方 > 公开价格；跨调价日的金额分别按新旧价计算；未知 model 进入 `unpriced_tokens` |
 | U6 | 拉取节奏状态机 | 序列「变、同、同、同、同、同、同」对应间隔 7,7,14,14,28,28,30；失败后次日重试且状态不变；10 倍防护生效 |

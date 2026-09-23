@@ -70,14 +70,25 @@ def _iter_reports(store, home, first_day, last_day, shared=None):
     if pending:
         missing = [day for day in pending if day not in shared["live"]]
         if missing:
-            buckets = scan_buckets(store, home, min(missing), max(missing))
+            agent_stats = {}  # R12：补录路径也要带 agent 统计（agent_excluded 注脚）
+            buckets = scan_buckets(
+                store, home, min(missing), max(missing), agent_stats=agent_stats
+            )
             for day in missing:
                 records = buckets.get(day, [])
-                report = build_report(day, records, time.time())
+                excluded = set(agent_stats.get(day, {}).get("tasks", set()))
+                report = build_report(
+                    day,
+                    records,
+                    time.time(),
+                    agent_excluded=agent_stats.get(day),
+                )
                 if day < today:
                     # 过去日（含无消耗日）固化，避免每次调用重复扫描无报告窗口；
-                    # 走迁移关口：该日存在 v7 时按 §3.1 备份并对比。
-                    finalize_day_report(store.root, day, report)
+                    # 落盘走合并关口（§3.1.3/4：按任务合并且不降级）。
+                    finalize_day_report(
+                        store.root, day, report, excluded_sessions=excluded
+                    )
                     shared["reports"][day] = report
                 shared["live"][day] = report
         for day in pending:

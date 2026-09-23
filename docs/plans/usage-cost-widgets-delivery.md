@@ -178,3 +178,52 @@ W 编号不属于本里程碑。
 - `build_inbox_app.py` 的 `CFBundleShortVersionString` / `CFBundleVersion` 两处同源
   （已收敛为同一变量），改版本只动 `BUNDLE_SHORT_VERSION` / `BUNDLE_VERSION`。
 - 打 tag 即触发远端发布。
+
+
+## 验收发现（2026-09-24，评审方）
+
+结论：**不通过，暂不合并**。基线为 `db94a4e`。检查方式：全量 Python 测试（257 项通过）、ruff（通过）、按 CI 命令编译 Swift 策略测试、代码审读，以及在本机真实数据上运行 CLI 和脚本复现。组件界面没有做 UI 验收，因为下面的阻断项修复前做了也没有意义。
+
+其中 R3、R6 以及 R4 的一部分，根源在评审方的原规范，已直接修订 [usage-cost.md](../specs/usage-cost.md)（修订处标有 2026-09-24）。实现请按修订后的条文。
+
+### 阻断（修复后才能合并）
+
+| # | 问题 | 证据 | 修复要求 |
+|---|---|---|---|
+| R1 | **真实用户数据和编译产物进入了公开仓库**：`widget/snapshot.json`（真实快照，含 30 条待查看和 8 条最近任务的会话标题与本机项目路径），以及 `ProbeWidgets.o`、`WidgetSnapshot.o`、`Widgets.o`（约 2MB），由 `f73e41b`（快照）和 `36112b8`（.o）提交，分支已推送到公开仓库 `SnowsonZ/Agent-Notification` | `git show f73e41b --stat`；`gh repo view` 显示 PUBLIC | 由用户决定是否改写历史并强制推送（评审方不代为执行）。至少要从分支删除这些文件；`.gitignore` 增加 `*.o` 与 `/widget/`；另外查清为什么快照会写到仓库根目录（文件是 camelCase 键名，是旧版写入器的产物） |
+| R2 | **过去日报告被降级**：本机有 27 个过去日的 v8 合计小于 v7 备份，而且没有 `migrated_from`。例如 8/24 从 584.7M 降到 271.5M，8/02 从 13.4M 降到 0。这些报告的生成时间都是 09-24 01:54（约 7 秒内重写了 181 天）；此时 `reports/` 中已没有 v7 文件，保护条件不成立 | 用 `reports.v7.bak/` 对比 `reports/` 的脚本（评审记录）；`finalize_day_report` 只和 `reports/` 下的 v7 文件比较 | 按修订后的规范 §3.1 第 3、4 步实现：按任务合并，并在所有重写路径上长期保证不降级。修复后，用 `reports.v7.bak/` 把这 27 天恢复回来，并附恢复前后的对比 |
+| R3 | **9/21 全天被改写为 v7 内容**（`migrated_from: 7`，全部 model 都是 `unknown`，当天 180M+ token 无法计价）。原因是原规范按整天合计比较；合计变小也可能来自会话被改判为 agent | `reports/2026-09-21.json` | 同 R2（规范已修订为按任务合并，改判为 agent 的会话不恢复） |
+| R4 | **价格历史丢失**：调价后的下一次拉取就把 `history` 清空，调价前的日子改按新价计算；清空还被判为内容变化，间隔重置为 7 天。**防护变成删除**：单价跳变超过 10 倍时，条目从 fetched.json 中消失，而不是沿用旧值 | 评审复现：序列 p1→p2→p2 时第 3 次 `history=None, changed=True`；跳变后 `entry after jump: None` | 按修订后的规范 §4.4：单价不变时继承 `history`；触发防护时原样保留上一版条目。U6 需补这两条回归测试 |
+| R5 | **CI 主构建从未运行，且会失败**：这个分支没有 PR，`build` workflow 不会被触发，只跑过临时 D0 探针；Swift 策略测试步骤仍是 `swiftc native/InboxPolicy.swift tests/InboxPolicyTests.swift`，缺 `native/Shared/WidgetSnapshot.swift`，报 `cannot find 'convertAmount'`。交付说明中「Swift 策略测试通过（CI 同口径）」与事实不符 | 按 CI 命令本地编译即复现 | 更新 workflow 的编译命令；开 PR（或在分支上手动触发 workflow）跑通完整 `build`，附上 run 链接 |
+
+### 严重（功能未达成）
+
+| # | 问题 | 证据 | 修复要求 |
+|---|---|---|---|
+| R6 | **大量 token 无法计价**：最近三天 Zcode 有 61%、Codex 有 52% 的 token 落进 `unknown`（其中 Codex 部分来自 R3 的 9/21）；本周整体 46.8% 未定价，金额被严重低估。交付说明给出的回退率 9.51% 是全历史平均，掩盖了近期情况。Zcode 的原因是逐项严格对账在约 2/3 的轮上失败（轮级 token 普遍大于逐请求之和，差额是未挂在该 turn_id 下的请求） | 9/23 共 28 轮：一致 9 轮，不一致 19 轮；本月 1132 轮全部只用单一 model | 按修订后的规范 §2「Zcode 归属」实现：token 以轮级为准，model 由 `model_usage` 确定。PR 附最近 7 天各来源 `unknown` 的占比 |
+| R7 | **按金额着色的热力图整片空白**：阈值取自报告中的 `totals.cost`，但定稿报告按设计不存金额，所以 182 天的 `cost_level` 全是 0；另外阈值计算把汇率写死为 7.10 | `inbox daily-report --overview` 的 cost_level 分布为 `{0: 182}` | 阈值改用 `cost_for_models(totals.models)` 逐日现算，汇率读取 `load_fx` |
+| R8 | **组件「进行中」数量恒为 0**：`runningRows` 多加了 `inboxNotifyEligible` 条件（要求未读），而运行中的会话一般还不是未读；App 的进行中计数（`activeCount`）没有这个条件 | 当时有 1 条运行中会话（未读为 0），快照 `running=0` | 进行中只排除 agent，其余与 `activeCount` 同口径；加单测 |
+| R9 | **最近任务的今日 token 与金额从未填充**：`InboxModels.swift:278` 调用 `update(rows:)` 时没有传入 `todayUsage`，快照中 8 条 `today_tokens` 全部为 null。交付说明中「含今日 token 与金额」与事实不符 | 真实快照 | 由今日报告（或 `usage --period day` 的任务级数据）按 `provider:session_id` 构建映射后传入 |
+| R10 | **组件点击会被重放**：`WidgetURLBridge.deliver` 在发出通知后没有清空 `pending`，下次收件箱窗口 `onAppear` 调用 `flush` 时会再执行一次，也就是重复打开会话。**冷启动时的点击可能被丢弃**：`flush` 时行数据可能还没加载，id 校验失败后静默返回（待 UI 验证） | 代码审读（`SessionInbox.swift` 中的 `WidgetURLBridge`、`InboxViews.swift` 的 onAppear） | 每个 URL 只执行一次；行数据未就绪时先挂起，等首批行加载完成后再校验执行；为「已处理的 URL 不重放」和「冷启动」补测试 |
+
+### 一般
+
+- **R11 周期金额没有按天取价**：`usage_report.collect` 的 totals、by 各维度和 previous，都是先把整期 model 加总，再用单一日期（anchor 或 prev_first）计价，违反规范 §5「取该天适用的价格」；期内有调价时，合计不等于 series 之和。应改为逐日计价后累加。
+- **R12 `inbox usage` 补录过去日时不带 agent 统计**：`_iter_reports` 调用 `scan_buckets` 时没传 `agent_stats`，由 usage 首次生成的定稿报告会永久缺少 `agent_excluded` 注脚。
+- **R13 公开价格表的别名冲突**：上游有 226 个只能靠别名命中、且各条目价格不一致的名字。当前命中取决于文件顺序（目前实际用到的模型都命中了主键，暂未出错）。按修订后的规范 §4.4 处理。
+- **R14 inbox 组件的条目不可单独点击**：中、大尺寸只有整卡 `widgetURL` 跳到收件箱，没有按规范 §5 做逐条 `Link` 打开原会话（recent 组件有逐条链接）。
+- **R15 `hide_titles` 也清空了项目名**：规范要求打开后仍显示来源和项目名，只隐藏标题。
+- **R16 细节**：appex 的 `CFBundleInfoDictionaryVersion` 为 `7.0`（应为 `6.0`）；appex 文件名 `Agent Notification Widgets.appex` 与规范写的 `AgentNotificationWidgets.appex` 不一致（CI 断言已按实际名称写，可以保留，但规范需同步）。
+
+### 已核实无问题
+
+- 价格查找顺序、每百万单价换算、CNY/USD 换算、`money_text` 双端用例；真实模型都命中主键，国产模型命中官方层。
+- 自适应节奏状态机的主序列（7,7,14,14,28,28,30）；`--auto` 未到期时跳过。
+- `inbox usage --period all --json` 用时 0.26 秒；日、周、月的 totals、series、by.harness、by.model 的金额与 token 互相一致。
+- 组件 appex：bundle id、`_NSExtensionMain` 入口、entitlements 恰好两项、签名有效，pluginkit 已注册；主程序 URL scheme 已注册。
+- URL 解析器：host 白名单与参数校验；诊断日志不含参数原文。
+- App 后台价格拉取不阻塞主线程。
+
+### 复验要求
+
+修复后开 PR，让 `build` workflow 完整运行。PR 描述中逐条对应 R1–R16，写明修复方式与证据；R2、R6 需附真实数据前后对比。复验通过后，再进行 W1、W4、W7、W9 与配置面板的用户 UI 验收。

@@ -98,10 +98,12 @@ class DailyReportTests(unittest.TestCase):
                 ),
             )
 
-    def zcode_requests(self, turn_id, intervals, *, model=None, tokens=None):
+    def zcode_requests(
+        self, turn_id, intervals, *, model=None, tokens=None, models=None
+    ):
         """model_usage 夹具（v8 十列 schema）。tokens 给出时逐请求附四项原始值
-        （fresh, cache_write, cache_read, output, reasoning），供对账一致走逐请求路径；
-        缺省全 NULL，对账失败 → 整轮退回轮级，行为与 v7 相同。"""
+        （fresh, cache_write, cache_read, output, reasoning）；models 给出时逐请求
+        指定 model_id（与 tokens 等长），用于多 model 拆分场景。"""
         runtime = self.home / ".zcode/cli/db/db.sqlite"
         with sqlite3.connect(runtime) as db:
             db.execute(
@@ -111,12 +113,13 @@ class DailyReportTests(unittest.TestCase):
             )
             for index, (start, end) in enumerate(intervals):
                 raw = tokens[index] if tokens else (None,) * 5
+                per_model = models[index] if models else model
                 db.execute(
                     "INSERT INTO model_usage VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         turn_id,
                         "sess",
-                        model,
+                        per_model,
                         raw[0],
                         raw[1],
                         raw[2],
@@ -841,7 +844,7 @@ class DailyReportTests(unittest.TestCase):
             self.store, self.home, self.day, self.day, agent_stats=stats
         )[self.day]
         self.assertEqual([r["session_id"] for r in records], ["sess_u"])
-        self.assertEqual(stats[self.day]["tasks"], {"ag-1"})
+        self.assertEqual(stats[self.day]["tasks"], {("codex", "ag-1")})
         self.assertEqual(stats[self.day]["total_tokens"], 600)
         report = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
         self.assertEqual(report["version"], 8)
@@ -879,7 +882,7 @@ class DailyReportTests(unittest.TestCase):
             self.store, self.home, self.day, self.day, agent_stats=stats
         )[self.day]
         self.assertEqual(records, [])
-        self.assertEqual(stats[self.day]["tasks"], {"cli-ov"})
+        self.assertEqual(stats[self.day]["tasks"], {("claude", "cli-ov")})
 
     def test_origin_rule_overrides_report_scope(self):
         # 目录规则读时覆盖：行标 agent + 规则 user → 计入；行 user + 规则 agent → 排除。
@@ -926,7 +929,7 @@ class DailyReportTests(unittest.TestCase):
             self.store, self.home, self.day, self.day, agent_stats=stats
         )[self.day]
         self.assertEqual([r["session_id"] for r in records], ["rule-user"])
-        self.assertEqual(sorted(stats[self.day]["tasks"]), ["rule-agent"])
+        self.assertEqual(sorted(stats[self.day]["tasks"]), [("codex", "rule-agent")])
 
     def test_heat_level_total_token_thresholds(self):
         values = (
@@ -1276,6 +1279,48 @@ class DailyReportTests(unittest.TestCase):
             ],
         )
 
+    def test_zcode_multi_model_splits_by_request_share(self):
+        # 多 model：轮级四项按各 model 请求四项占比逐项拆分，误差归占比最大者；
+        # token 合计仍以轮级为准（规范 §2「Zcode 归属」2026-09-24 修订）。
+        self.zcode_index("sess_a")
+        self.zcode_turn(
+            "sess_a",
+            "t1",
+            stamp(self.day, 10),
+            stamp(self.day, 11),
+            fresh=300,
+            output=100,
+        )  # 轮级四项 = (300, 0, 0, 100)
+        self.zcode_requests(
+            "t1",
+            [
+                (stamp(self.day, 10), stamp(self.day, 10, 20)),
+                (stamp(self.day, 10, 30), stamp(self.day, 10, 40)),
+            ],
+            models=["model-a", "model-b"],
+            tokens=[(90, 0, 0, 12, 0), (30, 0, 0, 4, 0)],  # 占比 a:b = 3:1
+        )
+        record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
+        models = record["models"]
+        # 逐项拆分：输入 300*3/4=225（a）、75（b）；输出 100*3/4=75、25。合计守恒。
+        self.assertEqual(models["model-a"]["fresh_input"], 225)
+        self.assertEqual(models["model-b"]["fresh_input"], 75)
+        self.assertEqual(models["model-a"]["output"], 75)
+        self.assertEqual(models["model-b"]["output"], 25)
+        self.assertEqual(
+            sum(entry["fresh_input"] + entry["output"] for entry in models.values()),
+            400,
+        )
+        self.assertEqual(record["total_tokens"], 400)
+
+    def test_zcode_turn_without_model_usage_is_unknown(self):
+        # 该轮没有 model_usage 记录：整轮 unknown（token 仍以轮级为准）。
+        self.zcode_index("sess_a")
+        self.zcode_turn("sess_a", "t1", stamp(self.day, 10), stamp(self.day, 10, 30), fresh=88)
+        record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
+        self.assertEqual(record["models"]["unknown"]["fresh_input"], 88)
+        self.assertEqual(record["total_tokens"], 88)
+
     def test_codex_model_from_turn_context_and_unknown_without(self):
         usage = {
             "input_tokens": 100,
@@ -1565,21 +1610,6 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(
             load_report(self.store.root, self.day.isoformat())["version"], 8
         )
-
-    def test_v7_migration_uses_v8_when_not_smaller(self):
-        # U2 另一面：v8 合计不少于 v7 → 直接采用 v8，无 migrated_from；备份仍然发生。
-        self.write_v7_report(10)
-        self.zcode_index("sess_a")
-        self.zcode_turn(
-            "sess_a", "t1", stamp(self.day, 10), stamp(self.day, 10, 30), fresh=100
-        )
-        report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report["version"], 8)
-        self.assertNotIn("migrated_from", report)
-        self.assertEqual(report["totals"]["total_tokens"], 100)
-        self.assertEqual(report["totals"]["models"]["unknown"]["fresh_input"], 100)
-        self.assertTrue((self.store.root / "reports.v7.bak").exists())
-
 
 if __name__ == "__main__":
     unittest.main()
