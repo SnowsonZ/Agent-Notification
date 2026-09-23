@@ -129,3 +129,52 @@ W 编号不属于本里程碑。
 - 集成根因补记：首版集成失败因生成工程缺 `SWIFT_ACTIVE_COMPILATION_CONDITIONS =
   WIDGET_APPINTENTS`，条件编译排除全部 AppIntents 符号（CI 日志证实仅 Shared 产出
   constvalues）；补条件后一次通过。
+
+
+## 验收须知（交接给验收方）
+
+验收范围：上方各里程碑验收对照表中标注「用户 UI」的项（W1、W4 端到端、W7、W9、配置面板），
+以及日报界面（日/周/月、币种切换、金额与 CLI 一致性）。发现的问题请记录到本文档对应
+里程碑下（标注「验收发现」+ 日期），不要直接改代码——分支等 review，避免验收发现与修复
+混在同一 diff 里。
+
+### 环境与形态（先读，避免误判）
+
+1. **本机开发包的组件是降级静态版**（本机只有 Command Line Tools，无 Xcode）：组件库有
+   三个组件、能显示快照数据，但**没有配置面板是预期行为**。配置式组件（周期/视角/度量/
+   币种配置）只存在于 CI 构建的 standalone 包（已验证可产出，见上文 CI 验证）。
+2. **重新构建 App 后辅助功能授权会被 macOS 重置**（本机已知坑）：验收 W4「点击跳转」前，
+   先到 系统设置 → 隐私与安全性 → 辅助功能 重新勾选「会话通知」（或
+   `tccutil reset Accessibility local.session-manager.inbox` 后重授）。否则 Zcode 跳转
+   会弹授权悬浮窗，容易被误判为跳转失败。
+3. 重新构建（`python3 scripts/build_inbox_app.py`）前必须先退出正在运行的「会话通知」，
+   否则构建脚本会拒绝覆盖可执行文件。
+4. 验收中 App 异常时先看两处诊断：`~/.local/state/session-manager/widget/usage-error.txt`
+   （usage 拉取失败原因）与 `~/Library/Logs/DiagnosticReports/`（组件崩溃 *.ips）。
+
+### 验收入口
+
+- 交互：菜单栏图标 → 日报窗口工具栏按钮 → 顶部「日/周/月」+「CNY/USD」分段；
+  周期导航「‹ 上一期 · 本期 · 下一期 ›」在周/月视图顶部。
+- 组件：组件库搜「会话通知」，inbox / usage / recent 三个 kind 各放一个尺寸，
+  与快照文件 `~/.local/state/session-manager/widget/snapshot.json`（0600）对照。
+- CLI 交叉核对（W5）：
+  `bin/session-manager inbox usage --period week --json` 的数字应与组件、日报界面一致。
+
+### 已知边界（设计决定，不是缺陷）
+
+- 快照 fx 键名为 `usd_cny`（解码策略兼容，规范示例为 `USD_CNY`）；组件与 App 读写
+  同一文件、语义一致。
+- 金额行只出现在：当日详情汇总卡、热力格悬浮、7 天趋势柱悬浮、周/月视图汇总卡；
+  日总览页（今日卡）没有金额行。
+- 周/月视图 x 轴是天号短标签，完整日期看悬浮卡。
+- `k3`、`kimi-for-coding` 显示未定价是有意的：查不到可溯源的官方定价页，按纪律留空
+  （PR 偏离清单有记录），不要在验收中当作 bug。
+- 周环比的「上期」同样来自 `inbox usage`（previous 字段），上期为 0 时不显示环比。
+
+### 发版前提醒（review 时处理）
+
+- 版本号变更必须先经用户确认（AGENTS.md 约束）。
+- `build_inbox_app.py` 的 `CFBundleShortVersionString` / `CFBundleVersion` 两处同源
+  （已收敛为同一变量），改版本只动 `BUNDLE_SHORT_VERSION` / `BUNDLE_VERSION`。
+- 打 tag 即触发远端发布。
