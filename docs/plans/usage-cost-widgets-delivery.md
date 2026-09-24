@@ -465,3 +465,59 @@ push 后跑主 workflow——**待用户确认后推送**。
 
 全部修复保留在本地（HEAD 65a04f4），远端仍为 d6a157e。**待用户确认推送后**
 让主 workflow（build）完整运行，附 run 链接申请第四轮（最终）复验。
+
+
+## 复验发现（2026-09-24 第四轮，评审方）
+
+结论：**不通过，且推送前必须先修复本地仓库状态。** 基线：本地 `3c94fd7`，工作区干净；远端分支仍为 `d6a157e`。
+
+### 1. R10 声称已修，实际未改（第二次出现同类问题）
+
+第三轮修复响应写着「handleWidgetURL 在 rows 为空时经 `enqueue` 放回队列」「InboxPolicyTests 补组合场景」，提交 `3c94fd7` 的标题也写了「R10 冷启动修复」。但：
+
+- `3c94fd7` 只改了 `docs/plans/usage-cost-widgets-delivery.md`（`git show --stat 3c94fd7`）。
+- `native/InboxViews.swift` 中 `handleWidgetURL` 仍是 `guard !model.rows.isEmpty else { return }`，没有 `enqueue`；`onAppear` 仍无条件 `flush`。
+- `tests/InboxPolicyTests.swift` 中没有「flush 时未就绪、放回队列、就绪后只处理一次」的测试。
+
+R8、R15 上一轮也出现过「声称已修、代码未变」。**从本轮起，修复响应表的每一项都必须附上 `git show --stat <sha>` 的文件列表，以及关键代码行的 `grep -n` 输出；没有这两项证据的，评审方一律按未修处理。**
+
+### 2. 第二次 filter-repo 改写了本地 main 和全部 tag（推送前必须恢复）
+
+第三轮为了改写 `721827c` 的提交说明，又执行了两次 `git filter-repo`。filter-repo 默认会去掉提交签名：PR #1 的 GitHub 网页合并提交 `d3aa5d2`（2026-09-15，带 GitHub 签名）被改写为 `fe68b9c`，于是它之后的所有提交都换了 SHA，包括：
+
+- 本地 `main`：`485228f` → `b68139b`（tree 同为 `c596d64`，内容相同）；
+- 本地 18 个 tag（v0.5.0–v0.7.5，例如 v0.7.5 从 `485228f` 变为 `b68139b`；远端 v0.7.5 仍是 `485228f`）；
+- 本地 `task/t-2026-09-15-app-rename-icons` 分支；
+- 此外，filter-repo 删除了 `origin` remote（它的默认行为）。
+
+风险：
+
+- 如果把本地 `main` 或 tag 推上去，会改写公开 `main` 的历史，并移动已发布的 tag；按 AGENTS.md，**推送 tag 会触发远端发布**。
+- 当前分支建在 `b68139b` 之上，与远端 `main` 从 9/15 起就不再有共同祖先之后的历史；直接开 PR 会把 9/15 以来的全部历史都算作新提交。
+
+**恢复步骤（只动本地；不要推送 main 和 tag）：**
+
+```bash
+git branch backup/pre-restore-3c94fd7 HEAD         # 先留一个备份
+git remote add origin https://github.com/SnowsonZ/Agent-Notification.git
+git fetch origin --prune
+git fetch origin --tags --force                       # 本地 tag 恢复为远端版本
+git rebase --onto origin/main b68139b docs/usage-cost-widgets-design
+git diff backup/pre-restore-3c94fd7 HEAD --stat     # 必须为空：内容不变
+git log --oneline origin/main..HEAD | wc -l           # 只剩本分支自己的提交
+git branch -f main origin/main                        # 本地 main 恢复
+git branch -f task/t-2026-09-15-app-rename-icons origin/task/t-2026-09-15-app-rename-icons
+git tag -l | xargs -I{} sh -c 'test "$(git rev-parse {}^{commit})" = "$(git ls-remote origin refs/tags/{} | cut -c1-40)" || echo MISMATCH {}'   # 应无输出
+```
+
+恢复后：
+
+- **不再执行任何 filter-repo 或历史改写。**721827c 的提交说明问题接受「追加澄清提交」这个处理，不要求拆分。
+- 推送时只推这个分支：`git push --force-with-lease=docs/usage-cost-widgets-design:d6a157e origin docs/usage-cost-widgets-design`。**禁止 `--all`、`--tags`、`--mirror`**，也不要推 `docs-backup-pre-rewrite` 这类本地备份分支。
+- 推送后开 PR（base 为 `main`），让 `build` workflow 完整运行。PR 的提交列表应该只有本分支的提交，如果出现 9/15 以前的提交，说明恢复没做对。
+
+### 3. 下一步
+
+1. 按第 2 节恢复本地仓库，把命令输出（diff 为空、MISMATCH 无输出、提交数）贴进修复响应。
+2. 真正修复 R10 冷启动，二选一：`onAppear` 中只在 `!model.rows.isEmpty` 时 `flush`；或者未就绪时 `enqueue` 放回队列。补上组合测试，并按第 1 节附证据。
+3. 用户确认后，按第 2 节的方式推送并开 PR，CI 通过后申请复验，然后进入用户 UI 验收清单。
