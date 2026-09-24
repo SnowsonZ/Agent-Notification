@@ -191,6 +191,21 @@ import Foundation
             coldHandled.append(url)
         }
         precondition(coldHandled == [urlA] && coldQueue.pending.isEmpty)
+        // 金额伴随指标（2026-09-24 USD-only）：USD + CNY/rate，含无值语义。
+        do {
+            let money = WidgetSnapshotMoney(
+                input: ["USD": 1.0, "CNY": 7.10], cache: [:], output: [:],
+                unpricedTokens: 0, nativeFallback: nil)
+            precondition(usdTotal(money, rate: 7.10) == 2.0)
+            precondition(usdTotal(nil, rate: 7.10) == nil)
+            precondition(usdText(2.0) == "$2.00")
+            precondition(usdText(nil) == "—")
+            // 旧快照 fallback 带 metric 键：新结构解码忽略多余键（配置精简迁移）。
+            let legacy = Data(#"{"currency":"CNY","hideTitles":false,"fallback":{"period":"day","dimension":"harness","metric":"cost"}}"#.utf8)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            precondition((try? decoder.decode(WidgetSnapshot.Prefs.self, from: legacy)) != nil)
+        }
         print("widget URL bridge state machine checks passed")
         print("Pagination, notification, daily report policy checks passed")
     }

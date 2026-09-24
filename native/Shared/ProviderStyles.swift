@@ -55,3 +55,14 @@ func modelIconId(_ modelName: String) -> String? {
     if name.contains("gemini") { return "agy" }
     return nil
 }
+
+// 三类 token 色（日报与组件同一份，2026-09-24 重设计）：
+// 输入=#0A84FF、缓存=#64D2FF、输出=#FF9F0A；不再随主题强调色漂移。
+enum TokenClass { case input, cache, output }
+func tokenClassColor(_ cls: TokenClass) -> Color {
+    switch cls {
+    case .input: return Color(red: 0.039, green: 0.518, blue: 1.0)
+    case .cache: return Color(red: 0.392, green: 0.824, blue: 1.0)
+    case .output: return Color(red: 1.0, green: 0.624, blue: 0.039)
+    }
+}

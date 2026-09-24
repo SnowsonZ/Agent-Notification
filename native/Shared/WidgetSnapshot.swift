@@ -66,6 +66,15 @@ func widgetMoneyTotal(_ cost: WidgetSnapshotMoney, currency: String, rate: Doubl
     return total
 }
 
+// 金额伴随指标（USD-only，2026-09-24）：有 token 统计处的旁注金额；
+// 无可定价 token 时返回 nil（显示 —）。App 与组件共用。
+func usdText(_ value: Double?) -> String { moneyText(value, currency: "USD") }
+func usdTotal(_ cost: WidgetSnapshotMoney?, rate: Double) -> Double? {
+    guard let cost else { return nil }
+    let total = widgetMoneyTotal(cost, currency: "USD", rate: rate)
+    return total > 0 ? total : nil
+}
+
 struct WidgetSnapshotMoney: Codable, Equatable {
     var input: [String: Double]
     var cache: [String: Double]
@@ -215,10 +224,9 @@ struct WidgetSnapshot: Codable, Equatable {
         struct Fallback: Codable, Equatable {
             var period: String
             var dimension: String
-            var metric: String
 
             enum CodingKeys: String, CodingKey {
-                case period, dimension, metric
+                case period, dimension
             }
         }
     }

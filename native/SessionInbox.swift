@@ -192,6 +192,8 @@ struct TrayIcon: View {
         Window("日报", id: "dailyReport") { DailyReportView(model: reportModel) }
             .defaultSize(width: 600, height: 780)
             .windowResizability(.contentMinSize)
+        Window("组件默认设置", id: "widgetSettings") { WidgetSettingsView() }
+            .windowResizability(.contentSize)
         MenuBarExtra {
             TrayMenu(model: model)
         } label: {

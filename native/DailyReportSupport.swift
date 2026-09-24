@@ -81,17 +81,6 @@ func heatMonthMarks(_ columns: [[OverviewDay?]], calendar: Calendar = .current) 
     return result
 }
 
-enum TokenClass { case input, cache, output }
-func tokenClassColor(_ cls: TokenClass) -> Color {
-    switch cls {
-    // 全端统一三类色（2026-09-24 重设计，与桌面组件同一份）：
-    // 输入=#0A84FF、缓存=#64D2FF、输出=#FF9F0A；不再随主题强调色漂移。
-    // 缓存通常占九成以上，青色仍能与其余两端区分。
-    case .input: return Color(red: 0.039, green: 0.518, blue: 1.0)
-    case .cache: return Color(red: 0.392, green: 0.824, blue: 1.0)
-    case .output: return Color(red: 1.0, green: 0.624, blue: 0.039)
-    }
-}
 // 日报自定义悬浮：多行卡片，鼠标进入即显（不走系统 tooltip 的长延迟通道）。
 // 黑色 80% 不透明底、白色文字（用户指定），尺寸随内容自适应、文本不折行。
 struct HoverTipCard: View {
@@ -278,14 +267,6 @@ func costTipLine(_ cost: WidgetSnapshotMoney?, rate: Double) -> [String] {
     return lines
 }
 
-// 金额伴随指标（USD-only）：有 token 统计处的旁注金额；无可定价 token 时返回 nil（显示 —）。
-@MainActor
-func usdTotal(_ cost: WidgetSnapshotMoney?, rate: Double) -> Double? {
-    guard let cost else { return nil }
-    let total = widgetMoneyTotal(cost, currency: "USD", rate: rate)
-    return total > 0 ? total : nil
-}
-func usdText(_ value: Double?) -> String { moneyText(value, currency: "USD") }
 
 func classTipLines(input: Int, cache: Int, output: Int) -> [String] {
     // 展示顺序遵循用户模板：缓存 / 输入 / 输出。

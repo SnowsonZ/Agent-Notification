@@ -1,6 +1,5 @@
 import WidgetKit
 import SwiftUI
-import Charts
 #if WIDGET_APPINTENTS
 import AppIntents
 #endif
@@ -13,6 +12,8 @@ import AppIntents
 // 构建环境有 appintentsmetadataprocessor 时 -D WIDGET_APPINTENTS 编配置式；
 // 缺失时（仅 CLT 的本机）编降级静态组件，读取快照里的 prefs.fallback（§4、W8）。
 // 组件不自行计算任何口径：数字全部来自快照，金额文字用共享的 moneyText。
+// 2026-09-24 重设计：token 为主线、金额（USD）是伴随指标；配置精简为 周期·视角；
+// 官方来源图标（WidgetIcons.swift，native/agent-icons 资源由构建脚本复制进 appex）。
 
 // 沙盒内 NSHomeDirectory() 是容器目录，按真实 uid 取 home（探针结论
 // docs/research/2026-09-23-widget-adhoc-probe.md）。
@@ -104,13 +105,12 @@ struct InboxWidget: Widget {
     }
 }
 
-// MARK: - usage kind（配置式：周期 / 视角 / 度量 / 币种；降级：读 prefs.fallback）
+// MARK: - usage kind（配置式：周期 / 视角；降级：读 prefs.fallback）
+// 2026-09-24 重设计：度量与币种配置取消——token 恒为主线、金额（USD）恒为伴随。
 
 struct UsageConfiguration: Equatable {
     var period = "day"
     var dimension = "harness"
-    var metric = "cost"
-    var currency: String? = nil  // nil = 跟随 App（§4 配置默认值）
 }
 
 struct UsageEntry: TimelineEntry {
@@ -129,9 +129,7 @@ struct UsageSnapshotProvider {
         let defaults = UserDefaults.standard
         return UsageConfiguration(
             period: defaults.string(forKey: "widgetFallbackPeriod") ?? "day",
-            dimension: defaults.string(forKey: "widgetFallbackDimension") ?? "harness",
-            metric: defaults.string(forKey: "widgetFallbackMetric") ?? "cost",
-            currency: nil
+            dimension: defaults.string(forKey: "widgetFallbackDimension") ?? "harness"
         )
     }
 }
@@ -155,38 +153,15 @@ enum UsageDimensionKind: String, AppEnum {
     ]
 }
 
-enum UsageMetricKind: String, AppEnum {
-    case cost, tokens
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "度量"
-    static var caseDisplayRepresentations: [UsageMetricKind: DisplayRepresentation] = [
-        .cost: "金额", .tokens: "token"
-    ]
-}
-
-enum UsageCurrencyKind: String, AppEnum {
-    case app, usd = "USD", cny = "CNY"
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "币种"
-    static var caseDisplayRepresentations: [UsageCurrencyKind: DisplayRepresentation] = [
-        .app: "跟随 App", .usd: "USD", .cny: "CNY"
-    ]
-}
-
 struct UsageIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "用量视图"
-    static var description = IntentDescription("选择周期、视角、度量与币种。")
+    static var description = IntentDescription("选择周期与视角；token 为主线，金额（USD）伴随展示。")
 
     @Parameter(title: "周期", default: .day) var period: UsagePeriodKind
     @Parameter(title: "视角", default: .harness) var dimension: UsageDimensionKind
-    @Parameter(title: "度量", default: .cost) var metric: UsageMetricKind
-    @Parameter(title: "币种", default: .app) var currency: UsageCurrencyKind
 
     var resolved: UsageConfiguration {
-        UsageConfiguration(
-            period: period.rawValue,
-            dimension: dimension.rawValue,
-            metric: metric.rawValue,
-            currency: currency == .app ? nil : currency.rawValue
-        )
+        UsageConfiguration(period: period.rawValue, dimension: dimension.rawValue)
     }
 }
 
@@ -211,7 +186,7 @@ struct UsageWidget: Widget {
             UsageWidgetView(entry: entry)
         }
         .configurationDisplayName("用量金额")
-        .description("按 API 标价估算的 token 消耗与金额")
+        .description("token 消耗与估算金额（USD）")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -277,7 +252,7 @@ struct RecentWidget: Widget {
     }
 }
 
-// MARK: - 组件视图（D4 细化视觉；数据全部来自快照，金额走共享 moneyText）
+// MARK: - 组件视图（数据全部来自快照；金额 USD-only；官方图标见 WidgetIcons.swift）
 
 struct UsageStaleHint: View {
     let box: WidgetSnapshotBox
@@ -289,6 +264,15 @@ struct UsageStaleHint: View {
             Text(updated).font(.caption2).foregroundStyle(.secondary)
         }
     }
+}
+
+// 环比文字：涨红降绿（花钱视角），与日报同一语义。
+@ViewBuilder
+func usageDeltaText(_ change: Double) -> some View {
+    let up = change >= 0
+    Text((up ? "▲ " : "▼ ") + String(format: "%.0f%%", abs(change) * 100))
+        .font(.system(size: 9, weight: .semibold)).monospacedDigit()
+        .foregroundStyle(up ? Color(red: 1.0, green: 0.271, blue: 0.227) : Color(red: 0.188, green: 0.820, blue: 0.345))
 }
 
 struct InboxWidgetView: View {
@@ -320,10 +304,11 @@ struct InboxWidgetView: View {
                 Text("待查看").font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
-            HStack {
+            HStack(spacing: 5) {
                 Text("进行中 \(snapshot.inbox.running)").font(.caption2).foregroundStyle(.secondary)
                 Spacer()
                 if let first = snapshot.inbox.pendingItems.first {
+                    AgentWidgetIcon(id: first.provider, size: 13)
                     Text(widgetProviderName(first.provider)).font(.caption2).foregroundStyle(.tertiary)
                 }
             }
@@ -331,7 +316,7 @@ struct InboxWidgetView: View {
         }
     }
 
-    // 中：最近 3 条待处理（图标位=来源名、标题、状态、相对时间）
+    // 中：最近 3 条待处理（官方图标、标题、状态、相对时间）
     private func medium(_ snapshot: WidgetSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -342,9 +327,8 @@ struct InboxWidgetView: View {
             // R14：中/大尺寸逐条 Link（§5），点击直接打开对应会话。
             ForEach(snapshot.inbox.pendingItems.prefix(3), id: \.id) { item in
                 Link(destination: itemDestination(item)) {
-                    HStack(spacing: 5) {
-                        Text(widgetProviderName(item.provider))
-                            .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
+                    HStack(spacing: 6) {
+                        AgentWidgetIcon(id: item.provider, size: 15)
                         Text(item.title.isEmpty ? item.project : item.title)
                             .font(.caption).lineLimit(1)
                         Spacer()
@@ -381,9 +365,8 @@ struct InboxWidgetView: View {
 
     private func itemRow(_ item: WidgetSnapshot.Inbox.Item) -> some View {
         Link(destination: itemDestination(item)) {
-            HStack(spacing: 5) {
-                Text(widgetProviderName(item.provider))
-                    .font(.caption2).foregroundStyle(.tertiary).frame(width: 52, alignment: .leading)
+            HStack(spacing: 6) {
+                AgentWidgetIcon(id: item.provider, size: 15)
                 Text(item.title.isEmpty ? item.project : item.title)
                     .font(.caption).lineLimit(1)
                 Spacer()
@@ -412,9 +395,6 @@ struct UsageWidgetView: View {
     let entry: UsageEntry
 
     private var snapshot: WidgetSnapshot? { entry.box.snapshot }
-    private var currency: String {
-        entry.configuration.currency ?? snapshot?.prefs.currency ?? "CNY"
-    }
     private var rate: Double { snapshot?.fx.usdCny ?? 7.10 }
 
     private var usage: WidgetUsagePayload? { snapshot?.usage[entry.configuration.period] }
@@ -428,16 +408,12 @@ struct UsageWidgetView: View {
         }
     }
 
-    private var tokenTotal: Int? {
-        guard let usage, usage.totals.totalTokens > 0 else { return nil }
-        return usage.totals.totalTokens
+    private var tokenTotalText: String {
+        guard let usage, usage.totals.totalTokens > 0 else { return "—" }
+        return tokenText(usage.totals.totalTokens)
     }
 
-    private var money: Double? {
-        guard let cost = usage?.totals.cost else { return nil }
-        let total = widgetMoneyTotal(cost, currency: currency, rate: rate)
-        return total > 0 ? total : nil
-    }
+    private var money: Double? { usdTotal(usage?.totals.cost, rate: rate) }
 
     private var environmentChange: Double? {
         guard let usage, let previous = usage.previous else { return nil }
@@ -462,127 +438,160 @@ struct UsageWidgetView: View {
         .widgetURL(URL(string: "agentnotification://report?period=" + entry.configuration.period))
     }
 
-    // 小：所选度量大字 + 另一度量小字 + 环比箭头
+    // 小：token 大字（中上）+ 金额伴随行（放大、无标签）+ 环比
     private func small(_ usage: WidgetUsagePayload) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(primaryValue(usage))
-                    .font(.system(size: 26, weight: .bold))
-                    .minimumScaleFactor(0.6)
-                if let change = environmentChange {
-                    Image(systemName: change >= 0 ? "arrow.up.right" : "arrow.down.right")
-                        .font(.caption2).foregroundStyle(change >= 0 ? Color.secondary : Color.green)
-                }
-            }
-            Text(secondaryValue(usage)).font(.caption2).foregroundStyle(.secondary)
-            Spacer()
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(periodLabel(usage.period)).font(.caption2).foregroundStyle(.secondary)
+                Text("用量").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                 Spacer()
-                UsageStaleHint(box: entry.box)
+                Text(periodLabel(usage.period)).font(.caption2).foregroundStyle(.tertiary)
             }
+            Text(tokenTotalText)
+                .font(.system(size: 27, weight: .bold)).minimumScaleFactor(0.7)
+                .padding(.top, 18)
+            Text(usdText(money))
+                .font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                .padding(.top, 4)
+            if let change = environmentChange {
+                usageDeltaText(change).padding(.top, 8)
+            }
+            Spacer(minLength: 0)
+            UsageStaleHint(box: entry.box)
         }
     }
 
-    // 中：左侧合计，右侧所选视角 Top 4 横向条
+    // 中：左侧合计（上对齐），右侧所选视角 Top 4（图标 + token + $）
     private func medium(_ usage: WidgetUsagePayload) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(primaryValue(usage))
-                    .font(.system(size: 24, weight: .bold)).minimumScaleFactor(0.6)
-                Text(secondaryValue(usage)).font(.caption2).foregroundStyle(.secondary)
-                Spacer()
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("用量 · " + periodLabel(usage.period))
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                Text(tokenTotalText)
+                    .font(.system(size: 23, weight: .bold)).minimumScaleFactor(0.7)
+                    .padding(.top, 12)
+                Text(usdText(money))
+                    .font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                    .padding(.top, 5)
+                if let change = environmentChange {
+                    usageDeltaText(change).padding(.top, 6)
+                }
+                Spacer(minLength: 0)
                 UsageStaleHint(box: entry.box)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(alignment: .leading, spacing: 5) {
-                let rows = dimensionRows
-                let top = rows.prefix(4)
-                let other = rows.dropFirst(4)
-                ForEach(Array(top), id: \.key) { row in
-                    barRow(row, total: usage.totals.totalTokens)
+            .frame(width: 96, alignment: .leading)
+            VStack(alignment: .leading, spacing: 0) {
+                let rows = dimensionRows.filter { $0.totalTokens > 0 && $0.key != "__other__" }
+                    .sorted { $0.totalTokens > $1.totalTokens }
+                if rows.isEmpty {
+                    Text("暂无来源数据").font(.caption2).foregroundStyle(.tertiary)
                 }
-                if !other.isEmpty {
-                    barRow(
-                        WidgetUsagePayload.By.Row(
-                            key: "其他",
-                            name: nil,
-                            totalTokens: other.reduce(0) { $0 + $1.totalTokens },
-                            cost: .empty
-                        ),
-                        total: usage.totals.totalTokens
-                    )
+                ForEach(rows.prefix(4), id: \.key) { row in
+                    HStack(spacing: 6) {
+                        dimensionIcon(row.key)
+                        Text(displayName(row.key))
+                            .font(.caption2).lineLimit(1)
+                        Spacer(minLength: 6)
+                        Text(tokenText(row.totalTokens))
+                            .font(.caption2.weight(.semibold)).monospacedDigit()
+                        Text(usdText(usdTotal(row.cost, rate: rate)))
+                            .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                            .frame(minWidth: 52, alignment: .trailing)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // 大：中尺寸内容 + 周期内逐天柱图（Swift Charts）
+    // 大：中尺寸内容 + 周期内逐天三类堆叠柱 + 口径注脚
     private func large(_ usage: WidgetUsagePayload) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            medium(usage)
-                .frame(maxHeight: 120)
-            if let series = usage.series, !series.isEmpty {
-                Chart(series) { row in
-                    BarMark(
-                        x: .value("日期", shortDay(row.date)),
-                        y: .value("token", Double(row.totalTokens))
-                    )
-                    .foregroundStyle(Color.accentColor.opacity(0.7))
-                    .cornerRadius(2)
-                }
-                .chartXAxis(.hidden)
-                .frame(height: 80)
-            }
-        }
-    }
-
-    private func barRow(_ row: WidgetUsagePayload.By.Row, total: Int) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
             HStack {
-                Text(displayName(row.key)).font(.caption2).lineLimit(1)
+                Text("用量 · " + periodLabel(usage.period))
+                    .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                 Spacer()
-                Text(moneyText(moneyOrNil(row.cost), currency: currency))
-                    .font(.caption2).foregroundStyle(.tertiary)
+                Text("token · 来源").font(.caption2).foregroundStyle(.tertiary)
             }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.15))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.accentColor.opacity(0.7))
-                        .frame(width: max(2, proxy.size.width * share(row.totalTokens, total)))
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(tokenTotalText).font(.system(size: 24, weight: .bold)).minimumScaleFactor(0.7)
+                Text(usdText(money)).font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                Spacer()
+                if let change = environmentChange {
+                    usageDeltaText(change)
                 }
             }
-            .frame(height: 5)
+            if let series = usage.series, !series.isEmpty {
+                Text("近 7 天 · 三类").font(.system(size: 9)).foregroundStyle(.tertiary)
+                miniBars(series)
+                Text("来源 Top 4").font(.system(size: 9)).foregroundStyle(.tertiary).padding(.top, 4)
+                let rows = dimensionRows.filter { $0.totalTokens > 0 && $0.key != "__other__" }
+                    .sorted { $0.totalTokens > $1.totalTokens }
+                ForEach(rows.prefix(4), id: \.key) { row in
+                    HStack(spacing: 6) {
+                        dimensionIcon(row.key)
+                        Text(displayName(row.key)).font(.caption2).lineLimit(1)
+                        Spacer(minLength: 6)
+                        GeometryReader { proxy in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.15))
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(Color.accentColor.opacity(0.7))
+                                    .frame(width: max(2, proxy.size.width * share(row.totalTokens, total: usage.totals.totalTokens)))
+                            }
+                        }
+                        .frame(height: 5)
+                        Text(tokenText(row.totalTokens))
+                            .font(.caption2.weight(.semibold)).monospacedDigit()
+                        Text(usdText(usdTotal(row.cost, rate: rate)))
+                            .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                            .frame(minWidth: 56, alignment: .trailing)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+            HStack {
+                Text("金额为估算值 · USD · 汇率 \(String(format: "%.2f", rate))")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                Spacer()
+                UsageStaleHint(box: entry.box)
+            }
         }
     }
 
-    private func primaryValue(_ usage: WidgetUsagePayload) -> String {
-        if entry.configuration.metric == "tokens" {
-            return tokenTotal.map { tokenText($0) } ?? "—"
+    // 逐天三类堆叠迷你柱（手绘，替换 Swift Charts）：自上而下 输出/缓存/输入。
+    private func miniBars(_ series: [WidgetUsagePayload.SeriesRow]) -> some View {
+        let longest = max(series.map(\.totalTokens).max() ?? 1, 1)
+        return HStack(alignment: .bottom, spacing: 5) {
+            ForEach(series) { row in
+                let total = max(row.totalTokens, 1)
+                let barHeight = max(4, CGFloat(row.totalTokens) / CGFloat(longest) * 52)
+                VStack(spacing: 0) {
+                    ForEach([(row.outputTokens ?? 0, tokenClassColor(.output)),
+                             (row.cacheTokens ?? 0, tokenClassColor(.cache)),
+                             (row.inputTokens ?? 0, tokenClassColor(.input))], id: \.0) { pair in
+                        Rectangle().fill(pair.1)
+                            .frame(height: barHeight * CGFloat(pair.0) / CGFloat(total))
+                    }
+                }
+                .frame(height: barHeight)
+            }
         }
-        return moneyText(money, currency: currency)
+        .frame(height: 52, alignment: .bottom)
     }
 
-    private func secondaryValue(_ usage: WidgetUsagePayload) -> String {
-        entry.configuration.metric == "tokens"
-            ? "金额 \(moneyText(money, currency: currency))"
-            : "\(tokenTotal.map { tokenText($0) } ?? "—") tokens"
+    @ViewBuilder
+    private func dimensionIcon(_ key: String) -> some View {
+        if entry.configuration.dimension == "model" {
+            ModelWidgetIcon(name: key)
+        } else if entry.configuration.dimension == "project" {
+            Image(systemName: "folder.fill").font(.system(size: 10)).foregroundStyle(.tertiary)
+        } else {
+            AgentWidgetIcon(id: key, size: 14)
+        }
     }
 
-    private func moneyOrNil(_ cost: WidgetSnapshotMoney) -> Double? {
-        let total = widgetMoneyTotal(cost, currency: currency, rate: rate)
-        return total > 0 ? total : nil
-    }
-
-    private func share(_ tokens: Int, _ total: Int) -> Double {
+    private func share(_ tokens: Int, total: Int) -> Double {
         total > 0 ? Double(tokens) / Double(total) : 0
-    }
-
-    private func shortDay(_ iso: String) -> String {
-        let day = iso.suffix(2)
-        return String(day.prefix(1) == "0" ? day.dropFirst() : day)
     }
 
     private func periodLabel(_ period: String) -> String {
@@ -590,7 +599,13 @@ struct UsageWidgetView: View {
     }
 
     private func displayName(_ key: String) -> String {
-        widgetProviderNames[key] ?? key
+        if entry.configuration.dimension == "project" {
+            return (key as NSString).lastPathComponent
+        }
+        if entry.configuration.dimension == "model" {
+            return key
+        }
+        return widgetProviderName(key)
     }
 }
 
@@ -619,23 +634,24 @@ struct RecentWidgetView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(items, id: \.id) { item in
                         Link(destination: destination(item)) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                HStack(spacing: 4) {
-                                    Text(widgetProviderName(item.provider))
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                    if !item.title.isEmpty || !item.project.isEmpty {
-                                        Text(item.title.isEmpty ? item.project : item.title)
-                                            .font(.caption).lineLimit(1)
-                                    }
-                                    Spacer()
+                            HStack(alignment: .top, spacing: 7) {
+                                AgentWidgetIcon(id: item.provider, size: 15)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.title.isEmpty ? item.project : item.title)
+                                        .font(.caption).lineLimit(1)
                                     Text(relative(item.at)).font(.caption2).foregroundStyle(.tertiary)
                                 }
+                                Spacer(minLength: 8)
                                 if let tokens = item.todayTokens {
                                     let money = item.todayCost.flatMap {
-                                        widgetMoneyTotal($0, currency: "CNY", rate: entry.box.snapshot?.fx.usdCny ?? 7.10)
+                                        usdTotal($0, rate: entry.box.snapshot?.fx.usdCny ?? 7.10)
                                     }
-                                    Text(tokenText(tokens) + (money.map { " · " + moneyText($0, currency: "CNY") } ?? ""))
-                                        .font(.caption2).foregroundStyle(.tertiary)
+                                    VStack(alignment: .trailing, spacing: 1) {
+                                        Text(tokenText(tokens))
+                                            .font(.caption2.weight(.semibold)).monospacedDigit()
+                                        Text(usdText(money))
+                                            .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
+                                    }
                                 }
                             }
                         }
@@ -656,7 +672,7 @@ struct RecentWidgetView: View {
     private func relative(_ at: Double) -> String {
         let interval = Date().timeIntervalSince1970 - at
         if interval < 60 { return "刚刚" }
-        if interval < 3600 { return "\(Int(interval / 60))分钟前" }
+        if interval < 3600 { return "\(Int(interval / 3600))分钟前" }
         if interval < 86400 { return "\(Int(interval / 3600))小时前" }
         return "\(Int(interval / 86400))天前"
     }

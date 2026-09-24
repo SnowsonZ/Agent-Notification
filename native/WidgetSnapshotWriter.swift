@@ -26,10 +26,12 @@ final class WidgetSnapshotWriter {
         self.root = root
     }
 
-    private var currency: String {
-        UserDefaults.standard.string(forKey: "widgetCurrency") ?? "CNY"
-    }
+    // 金额口径（2026-09-24）：组件只展示 USD，不再有币种配置；快照里的 currency
+    // 字段保留（schema 稳定），恒写 "USD"。
+    private let currency = "USD"
     private var hideTitles: Bool { UserDefaults.standard.bool(forKey: "widgetHideTitles") }
+    private var fallbackPeriod: String { UserDefaults.standard.string(forKey: "widgetFallbackPeriod") ?? "day" }
+    private var fallbackDimension: String { UserDefaults.standard.string(forKey: "widgetFallbackDimension") ?? "harness" }
 
     // MARK: 数据入口（InboxModel 每 3 秒 tick 调用）
 
@@ -85,7 +87,8 @@ final class WidgetSnapshotWriter {
         let recentSignature = WidgetRefreshPolicy.signature(
             recentItems.map { (id: $0.id, revision: $0.revision, state: $0.state) }
         )
-        let prefsSignature = "\(currency)|\(hideTitles)|\(fx.usdCny)|\(fx.asOf)|\(usageAt)"
+        // 签名含组件默认设置：设置面板改周期/视角/隐藏标题后，快照与 reload 跟随。
+        let prefsSignature = "\(currency)|\(hideTitles)|\(fx.usdCny)|\(fx.asOf)|\(usageAt)|\(fallbackPeriod)|\(fallbackDimension)"
 
         let decision = WidgetRefreshPolicy.evaluate(
             WidgetRefreshPolicy.Inputs(
@@ -182,9 +185,8 @@ final class WidgetSnapshotWriter {
                 currency: currency,
                 hideTitles: hideTitles,
                 fallback: WidgetSnapshot.Prefs.Fallback(
-                    period: UserDefaults.standard.string(forKey: "widgetFallbackPeriod") ?? "day",
-                    dimension: UserDefaults.standard.string(forKey: "widgetFallbackDimension") ?? "harness",
-                    metric: UserDefaults.standard.string(forKey: "widgetFallbackMetric") ?? "cost"
+                    period: fallbackPeriod,
+                    dimension: fallbackDimension
                 )
             ),
             fx: fx,
