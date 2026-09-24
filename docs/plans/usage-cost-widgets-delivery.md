@@ -567,3 +567,25 @@ R10 修复（c76cf24）与仓库恢复保留在本地。**待用户确认后**�
 `git push --force-with-lease=docs/usage-cost-widgets-design:d6a157e origin docs/usage-cost-widgets-design`
 （只推该分支，禁 --all/--tags/--mirror），随后开 PR（base main，提交列表应只有
 本分支 54+2 个提交）让 build 完整运行。
+
+
+## 复验发现（2026-09-24 第五轮，评审方）
+
+结论：**代码层面通过；本地仓库已恢复。可以推送并开 PR，剩 CI 主构建一项待确认。** 基线：本地 `bfb66eb`（远端分支仍为 `d6a157e`）。
+
+### 已验证
+
+| 项 | 结果 |
+|---|---|
+| 仓库恢复 | `origin` 已恢复；本地 `main` = `origin/main` = `485228f`；18 个 tag 与远端逐个比对无差异；分支建在 `origin/main` 之上，`origin/main..HEAD` 共 56 个提交，最早一个是设计文档提交，没有 9/15 以前的历史；仓库中没有 `*.o` 或 `widget/` 文件 |
+| R10 冷启动 | `c76cf24` 改了 `native/InboxViews.swift`、`native/SessionInbox.swift`、`tests/InboxPolicyTests.swift`；`handleWidgetURL` 在行数据未就绪时 `enqueue` 放回队列，待行数据加载后由 `flush` 补处理；组合测试已覆盖 |
+| 全量检查 | Python 267 项通过（`-W error::ResourceWarning`）、ruff 通过、按 CI 命令编译 Swift 策略测试通过 |
+
+R1–R19 至此全部关闭（R1 的残留风险按用户知情口径保留：旧提交仍可按 SHA 访问）。
+
+### 下一步
+
+1. **用户确认后推送**，只推本分支：`git push --force-with-lease=docs/usage-cost-widgets-design:d6a157e origin docs/usage-cost-widgets-design`。禁止 `--tags`、`--all`、`--mirror`。
+2. 开 PR（base 为 `main`），核对 PR 的提交列表只有本分支的 56 个提交。
+3. `build` workflow 完整通过后，把 run 链接补到本文，并通知评审方确认 CI。
+4. CI 通过后，由用户按上文「用户 UI 验收清单」执行 UI 验收。
