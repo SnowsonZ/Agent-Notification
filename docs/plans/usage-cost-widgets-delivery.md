@@ -521,3 +521,49 @@ git tag -l | xargs -I{} sh -c 'test "$(git rev-parse {}^{commit})" = "$(git ls-r
 1. 按第 2 节恢复本地仓库，把命令输出（diff 为空、MISMATCH 无输出、提交数）贴进修复响应。
 2. 真正修复 R10 冷启动，二选一：`onAppear` 中只在 `!model.rows.isEmpty` 时 `flush`；或者未就绪时 `enqueue` 放回队列。补上组合测试，并按第 1 节附证据。
 3. 用户确认后，按第 2 节的方式推送并开 PR，CI 通过后申请复验，然后进入用户 UI 验收清单。
+
+## 第四轮修复响应（2026-09-24，实现方）
+
+### 1. R10 冷启动（本次真正落地，附证据）
+
+R10 前两轮的修复确实丢失：改动停留在工作区未提交，filter-repo 重写时被清掉
+（第三次同类失误，根因相同：修复后未立即 commit）。本轮修完立即提交：
+
+- 提交 `c76cf24`，`git show --stat`：
+  `native/InboxViews.swift | 7 ++++++-`、`native/SessionInbox.swift | 5 +++++`、
+  `tests/InboxPolicyTests.swift | 15 ++++++++++++`
+- `grep -n "WidgetURLBridge.shared.enqueue" native/InboxViews.swift native/SessionInbox.swift`：
+  `native/InboxViews.swift:269`（未就绪放回）、`native/SessionInbox.swift`（enqueue 方法）
+- 组合测试：InboxPolicyTests「R10 冷启动组合」块——flush 时未就绪放回队列，
+  就绪后 flush 处理且只处理一次（precondition 通过）
+
+### 2. 仓库状态恢复（按评审步骤逐条执行，输出如下）
+
+- `git branch backup/pre-restore-3c94fd7 HEAD`：备份已建（含验收第四轮发现提交前的状态）
+- `git fetch origin --tags --force`：v0.7.4/v0.7.5 等 tag 已恢复为远端版本
+- `git rev-parse v0.7.5^{commit}` = `485228f…` = `git ls-remote origin refs/tags/v0.7.5` ✓
+- `git rebase --onto origin/main b68139b docs/usage-cost-widgets-design`：54 个提交成功
+- `git diff backup/pre-restore-3c94fd7 HEAD --stat`：仅 1 个文件 56 行——为**第四轮
+  复验发现本身的提交**（评审方写入时未提交，实现方先提交保住再 rebase，backup
+  分支建在其之前），分支历史内容与 backup 一致
+- `git log --oneline origin/main..HEAD | wc -l` = **54**（只含本分支自己的提交，
+  无 9/15 以前的提交混入）
+- `git branch -f main origin/main`、task 分支恢复：`main` = `origin/main` = `485228f`
+- tag 校验：`git tag -l | xargs …` 无 MISMATCH 输出（全部一致）
+- filter-repo 的 `origin` remote 已重新添加
+- **承诺：不再执行任何 filter-repo 或历史改写**；721827c 说明问题接受「追加澄清
+  提交」处理（65a04f4）
+
+### 3. 过程问题处置
+
+- 状态表 SHA：已在第二轮响应中更新为当时 hash；本轮 rebase 后（恢复到远端
+  main 基座）分支提交 hash 再次变化，最终状态以本分支当前 HEAD 为准，
+  修复响应一律附 `git show --stat` 与 `grep -n` 输出作为证据。
+- 测试数口径：Python 267 项 unittest（Swift 策略测试为断言组，无独立计数）。
+
+### 4. 推送状态
+
+R10 修复（c76cf24）与仓库恢复保留在本地。**待用户确认后**：
+`git push --force-with-lease=docs/usage-cost-widgets-design:d6a157e origin docs/usage-cost-widgets-design`
+（只推该分支，禁 --all/--tags/--mirror），随后开 PR（base main，提交列表应只有
+本分支 54+2 个提交）让 build 完整运行。
