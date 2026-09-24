@@ -269,7 +269,7 @@ scratch/r6-unknown-ratio.json，本机数据不入库。）
 - R1 历史改写已完成（用户批准）：远端 `docs/usage-cost-widgets-design` = 重写后历史
   （`d6a157e`，含全部 R1–R16 修复）；原 hash（f73e41b/36112b8/db94a4e 等）全部作废，
   引用旧 hash 的地方（含本文档验收发现一节）以提交 message/日期对应理解。
-- 下一步：评审通过后创建 PR 触发完整 `build` workflow（PR 描述引用修复响应表）。
+- PR #6 已创建并推送：主 `build` workflow 完整通过（run 35942056318，https://github.com/SnowsonZ/Agent-Notification/actions/runs/35942056318，含 Assert widget extension 断言与 Swift 策略测试）。
 
 
 ## 复验发现（2026-09-24 第二轮，评审方）
