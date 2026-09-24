@@ -10,3 +10,5 @@ build/
 .zcode/
 .agents/
 .pytest_cache/
+*.o
+/widget/

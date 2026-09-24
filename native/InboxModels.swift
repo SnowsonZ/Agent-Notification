@@ -18,6 +18,8 @@ struct InboxRow: Decodable, Identifiable, Sendable {
     let openAvailable: Bool
     // 可选：有效来源（评审 R4）。agent 行仅审计可见，通知/待查看/角标按它过滤。
     let origin: String?
+    // 可选：组件快照的今日用量按 (provider, session_id) 匹配今日报告任务（§2）。
+    let sessionID: String?
 }
 struct SourceHealth: Decodable { let status: String; let errors: Int? }
 struct Health: Decodable { let sources: [String: SourceHealth]? }
@@ -70,6 +72,11 @@ enum InboxScope {
     private var notificationInFlight = Set<String>()
     private var notificationRetry: [String: Date] = [:]
     private var lastDockBadge = -1
+    // R9：最近任务的今日用量（provider:session_id → (tokens, money)），
+    // 低频（5 分钟）拉今日报告刷新；快照写入器按它填充 today_tokens/today_cost。
+    @Published var todayUsage: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)] = [:]
+    private var todayUsageFetchedAt: TimeInterval = 0
+    private var todayUsageLoading = false
     let root: String
     private var timer: Timer?
     private var lastFullScanAt: Date?
@@ -91,6 +98,8 @@ enum InboxScope {
         timer = tick
         checkNotificationPermission()
         loadAgents()
+        loadTodayUsage()
+        WidgetSnapshotWriter.shared.refreshUsageIfNeeded()
     }
     var unreadCount: Int {
         rows.filter { inboxNotifyEligible(origin: $0.origin, unread: $0.unread) && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable) }.count
@@ -142,6 +151,40 @@ enum InboxScope {
         if let dir = ruleProject { arguments += ["--rule-project", dir] }
         action(arguments, isOpen: false)
     }
+    /// R9：今日报告任务级用量映射（5 分钟节拍；今天实时计算，成本可控）。
+    func loadTodayUsage(force: Bool = false) {
+        let now = Date().timeIntervalSince1970
+        guard !todayUsageLoading, force || now - todayUsageFetchedAt >= 300 else { return }
+        todayUsageLoading = true
+        todayUsageFetchedAt = now
+        let directory = root
+        Task {
+            let result = await Task.detached {
+                Self.call(root: directory, arguments: ["daily-report"])
+            }.value
+            todayUsageLoading = false
+            guard result.0 == 0 else { return }
+            do {
+                let report = try Self.dailyDecoder.decode(DayReport.self, from: result.1)
+                var mapping: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)] = [:]
+                for task in report.tasks {
+                    mapping["\(task.provider):\(task.sessionId)"] = (
+                        tokens: task.totalTokens > 0 ? task.totalTokens : nil,
+                        cost: task.cost
+                    )
+                }
+                todayUsage = mapping
+                WidgetSnapshotWriter.shared.update(rows: rows, todayUsage: mapping)
+            } catch {}
+        }
+    }
+
+    nonisolated static let dailyDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
+    }()
+
     func loadAgents() {
         guard !loadingAgents else { return }
         loadingAgents = true
@@ -272,6 +315,7 @@ enum InboxScope {
                     if let count = info.errors, count > 0 { return "\(providerName(name))：\(count) 个历史记录暂未接入" }
                     return "\(providerName(name))：来源暂不可用"
                 }.sorted()
+                WidgetSnapshotWriter.shared.update(rows: rows, todayUsage: todayUsage)
             } catch { self.error = "列表读取失败：" + error.localizedDescription }
         }
     }
@@ -297,13 +341,19 @@ enum InboxScope {
         selected.removeAll()
         action(["ack-batch", "--items", payload], isOpen: false)
     }
-    func open(_ row: InboxRow) {
+    func open(_ row: InboxRow, revision: Int? = nil) {
         // Zcode 跳转依赖辅助功能授权；缺失时走拖拽授权悬浮窗，不发起会失败的开销、不动未读状态。
         if row.provider == "zcode" && !AccessibilitySetupController.shared.isGranted {
             AccessibilitySetupController.shared.present()
             return
         }
-        action(["open", row.id, "--revision", String(row.revision)], isOpen: true)
+        action(["open", row.id, "--revision", String(revision ?? row.revision)], isOpen: true)
+    }
+    // 组件 URL 打开（desktop-widgets.md §5）：与点击行同一链路——打开成功且
+    // revision 仍一致才自动确认，打开失败保留未读（复用 inbox open 的 CAS）。
+    func openByID(_ id: String, revision: Int?) {
+        guard let row = rows.first(where: { $0.id == id }) else { return }
+        open(row, revision: revision)
     }
     private func action(_ arguments: [String], isOpen: Bool) {
         if isOpen { opening = true }

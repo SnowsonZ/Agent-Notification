@@ -35,7 +35,7 @@ jobs:
 
       - name: Swift policy tests
         run: |
-          xcrun swiftc -parse-as-library native/InboxPolicy.swift tests/InboxPolicyTests.swift -o build/policy-tests
+          xcrun swiftc -parse-as-library native/InboxPolicy.swift native/Shared/WidgetSnapshot.swift tests/InboxPolicyTests.swift -o build/policy-tests
           ./build/policy-tests
 
       - name: Process runner tests
@@ -50,6 +50,30 @@ jobs:
 
       - name: Build Agent Notification.app
         run: python3 scripts/build_inbox_app.py --standalone
+
+      - name: Assert widget extension
+        run: |
+          set -euo pipefail
+          APP="build/Agent Notification.app"
+          APPLEX="$APP/Contents/PlugIns/Agent Notification Widgets.appex"
+          EXE="$APPLEX/Contents/MacOS/AgentNotificationWidgets"
+          test -x "$EXE"
+          # CI（macos-26 带 Xcode）必须是配置式组件（desktop-widgets.md §6）
+          test -d "$APPLEX/Contents/Resources/Metadata.appintents"  # R18：Metadata.appintents 是目录
+          plutil -extract CFBundlePackageType raw "$APPLEX/Contents/Info.plist" | grep -qx "XPC!"
+          plutil -extract CFBundleIdentifier raw "$APPLEX/Contents/Info.plist" | grep -qx "local.session-manager.inbox.widgets"
+          plutil -extract NSExtension.NSExtensionPointIdentifier raw "$APPLEX/Contents/Info.plist" | grep -qx "com.apple.widgetkit-extension"
+          plutil -extract CFBundleShortVersionString raw "$APPLEX/Contents/Info.plist" | grep -qx "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+          plutil -extract CFBundleVersion raw "$APPLEX/Contents/Info.plist" | grep -qx "$(plutil -extract CFBundleVersion raw "$APP/Contents/Info.plist")"
+          nm -u "$EXE" | grep -q "_NSExtensionMain"
+          # entitlements 恰好两项（沙盒 + 快照只读例外）
+          ENTITLEMENTS="$(codesign -d --entitlements :- "$APPLEX" 2>/dev/null)"
+          echo "$ENTITLEMENTS" | grep -q "com.apple.security.app-sandbox"
+          echo "$ENTITLEMENTS" | grep -q "temporary-exception.files.home-relative-path.read-only"
+          [ "$(echo "$ENTITLEMENTS" | grep -o '<key>' | wc -l | tr -d ' ')" = "2" ]
+          codesign --verify --strict "$APPLEX"
+          # 主程序 URL scheme（§5）
+          plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$APP/Contents/Info.plist" | grep -qx "agentnotification"
 
       - name: Run tests
         run: scratch/iterm-probe-venv/bin/python -W error::ResourceWarning -m unittest discover -s tests

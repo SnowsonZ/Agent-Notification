@@ -246,7 +246,41 @@ struct InboxView: View {
                 .help(model.searchExpanded ? "收起搜索" : "搜索会话或项目")
             }
         }
-        .onAppear { model.refresh() }
+        .onAppear {
+            model.refresh()
+            // 组件 URL 在窗口未开时由 bridge 暂存，窗口挂载即补送（§5）。
+            WidgetURLBridge.shared.flush { handleWidgetURL($0) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .widgetURLOpen)) { notification in
+            if let url = notification.object as? URL { handleWidgetURL(url) }
+        }
+        // R10：行数据未就绪时收到的 URL 会留在队列，首批行加载完成后补处理。
+        .onReceive(model.$rows.map(\.isEmpty).removeDuplicates()) { empty in
+            if !empty { WidgetURLBridge.shared.flush { handleWidgetURL($0) } }
+        }
+    }
+
+    // 组件 URL 跳转（desktop-widgets.md §5）：行未就绪时挂起不丢；非法 URL
+    // （就绪但 id 不存在/参数非法）标记处理后忽略、不输出参数原文。
+    private func handleWidgetURL(_ url: URL) {
+        // R10 冷启动：行未就绪时放回队列（flush 已清空，直接 return 会丢 URL），
+        // rows 首批加载后 flush 补处理。
+        guard !model.rows.isEmpty else {
+            WidgetURLBridge.shared.enqueue(url)
+            return
+        }
+        defer { WidgetURLBridge.shared.markHandled(url) }
+        guard let action = WidgetURLRouter.parse(url, knownIds: Set(model.rows.map(\.id))) else { return }
+        NSApplication.shared.activate()
+        switch action {
+        case .open(let id, let revision):
+            model.openByID(id, revision: revision)
+        case .report(let period):
+            NotificationCenter.default.post(name: .widgetReportPeriod, object: period)
+            openWindow(id: "dailyReport")
+        case .inbox:
+            openWindow(id: "inbox")
+        }
     }
 }
 

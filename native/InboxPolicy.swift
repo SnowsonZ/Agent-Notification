@@ -47,29 +47,6 @@ func inboxDurationText(from: Double, to: Double) -> String {
     if span < 86400 { return "\(span / 3600)小时\(span % 3600 / 60)分" }
     return "\(span / 86400)天\(span % 86400 / 3600)小时"
 }
-// token 计数 k/M/B：<1k 原值、≥1k x.k、≥1M x.xM（<10M 两位小数）、≥1B x.xxB，末尾零去除。
-func trimTrailingZeros(_ text: String) -> String {
-    var result = text
-    if result.contains(".") {
-        while result.hasSuffix("0") { result.removeLast() }
-        if result.hasSuffix(".") { result.removeLast() }
-    }
-    return result
-}
-func tokenText(_ value: Int) -> String {
-    if value <= 0 { return "0" }
-    if value < 1_000 { return String(value) }
-    let units: [(factor: Double, symbol: String, decimals: Int)] =
-        [(1_000_000_000, "B", 2), (1_000_000, "M", 1), (1_000, "k", 1)]
-    for unit in units where Double(value) >= unit.factor {
-        let mantissa = Double(value) / unit.factor
-        let text = mantissa < 100
-            ? trimTrailingZeros(String(format: "%.\(unit.decimals)f", mantissa))
-            : String(format: "%.0f", mantissa)
-        return text + unit.symbol
-    }
-    return String(value)
-}
 // 日报日期键「YYYY-MM-DD」：今日高亮与实时标注按它比对报告日期。
 func dailyReportDayKey(_ date: Date, calendar: Calendar = .current) -> String {
     let components = calendar.dateComponents([.year, .month, .day], from: date)
@@ -94,3 +71,151 @@ func rhythmRange(_ segments: [[[Double]]], dayStart: Double) -> (Double, Double)
 }
 // 热力分级阈值只在 Python（daily_report.heat_level）实现，界面直接使用载荷里的 level；
 // Swift 不留第二份实现，避免双语言口径漂移（旧副本阈值曾与 Python 不一致）。
+
+// MARK: - 组件快照刷新（desktop-widgets.md §3）
+
+enum WidgetKind: String, CaseIterable {
+    case inbox, recent, usage
+}
+
+struct WidgetRefreshDecision: Equatable {
+    var writeSnapshot = false
+    var reload: Set<WidgetKind> = []
+}
+
+enum WidgetRefreshPolicy {
+    // 分区签名：条目 id:revision:state 用 | 连接（§3 签名内容）。
+    static func signature(_ items: [(id: String, revision: Int, state: String)]) -> String {
+        items.map { "\($0.id):\($0.revision):\($0.state)" }.joined(separator: "|")
+    }
+
+    struct Inputs {
+        var inboxSignature: String
+        var recentSignature: String
+        var prefsSignature: String  // prefs + fx 的值本身
+        var last: (inbox: String, recent: String, prefs: String)?
+        var lastRecentReload: TimeInterval
+        var lastUsageReload: TimeInterval
+        var now: TimeInterval
+        var usageEvery: TimeInterval = 15 * 60
+        var recentMinReload: TimeInterval = 60
+    }
+
+    // 签名没变就不写文件、不 reload；recent 的 reload 最小间隔 60 秒，间隔内的
+    // 变化合并到下一次（快照仍立即写，只是不触发组件 timeline 重载）；
+    // prefs/fx 变化 reload 全部 kind；usage 按时间到期刷新。
+    static func evaluate(_ input: Inputs) -> WidgetRefreshDecision {
+        var decision = WidgetRefreshDecision()
+        let last = input.last
+        let inboxChanged = input.inboxSignature != last?.inbox
+        let recentChanged = input.recentSignature != last?.recent
+        let prefsChanged = input.prefsSignature != last?.prefs
+        decision.writeSnapshot = inboxChanged || recentChanged || prefsChanged
+        if prefsChanged {
+            decision.reload = Set(WidgetKind.allCases)
+            return decision
+        }
+        if inboxChanged { decision.reload.insert(.inbox) }
+        if recentChanged, input.now - input.lastRecentReload >= input.recentMinReload {
+            decision.reload.insert(.recent)
+        }
+        if input.now - input.lastUsageReload >= input.usageEvery {
+            decision.reload.insert(.usage)
+            decision.writeSnapshot = true
+        }
+        return decision
+    }
+}
+
+// MARK: - 组件 URL 跳转（desktop-widgets.md §5）
+
+// host 白名单 + 参数校验；任一条件不满足返回 nil，调用方只写不含参数原文的诊断日志。
+enum WidgetURLRouter {
+    enum Action: Equatable {
+        case open(id: String, revision: Int?)
+        case report(period: String)
+        case inbox
+    }
+
+    static let scheme = "agentnotification"
+    static let periods: Set<String> = ["day", "week", "month"]
+
+    static func parse(_ url: URL?, knownIds: Set<String>) -> Action? {
+        guard let url,
+              url.scheme?.lowercased() == scheme,
+              let host = url.host?.lowercased(),
+              !host.isEmpty
+        else { return nil }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func query(_ name: String) -> String? {
+            items.first { $0.name == name }?.value
+        }
+        switch host {
+        case "open":
+            guard let id = query("id"), knownIds.contains(id) else { return nil }
+            var revision: Int?
+            if let raw = query("revision") {
+                guard let value = Int(raw), value >= 0 else { return nil }
+                revision = value
+            }
+            return .open(id: id, revision: revision)
+        case "report":
+            guard let period = query("period"), periods.contains(period) else { return nil }
+            return .report(period: period)
+        case "inbox":
+            return .inbox
+        default:
+            return nil
+        }
+    }
+}
+
+// MARK: - 组件 URL 桥状态机（desktop-widgets.md §5 / R10）
+
+// 防抖：同一 URL 在 debounce 窗口内的重复回调只接受一次（组件点击可能连续
+// 触发两次系统回调）；窗口外或不同 URL 正常接受。
+struct WidgetURLGate {
+    private var lastAccepted: (url: URL, at: TimeInterval)?
+    var debounce: TimeInterval = 2
+
+    mutating func accept(_ url: URL, now: TimeInterval) -> Bool {
+        if let last = lastAccepted, last.url == url, now - last.at < debounce {
+            return false
+        }
+        lastAccepted = (url, now)
+        return true
+    }
+}
+
+// 待处理队列：通知路径处理完成时 markHandled 移除（不重放）；行数据未就绪时
+// 留在队列，首批行加载后 flush 一次性补处理（挂起语义，R10）。
+struct WidgetURLQueue {
+    private(set) var pending: [URL] = []
+
+    mutating func enqueue(_ url: URL) {
+        guard !pending.contains(url) else { return }
+        pending.append(url)
+    }
+
+    mutating func markHandled(_ url: URL) {
+        pending.removeAll { $0 == url }
+    }
+
+    mutating func flush() -> [URL] {
+        let queued = pending
+        pending.removeAll()
+        return queued
+    }
+}
+
+// MARK: - 组件快照条目口径（desktop-widgets.md §2 / R8、R15）
+
+// 进行中（R8）：只排除 agent（运行中的会话通常还不是未读）；与 activeCount 同口径。
+func widgetRunningListed(origin: String?, state: String, openAvailable: Bool) -> Bool {
+    origin != "agent" && inboxActiveListed(state: state, openAvailable: openAvailable)
+}
+
+// hide_titles（R15/§2）：只隐藏标题；来源与项目名仍显示。
+func widgetEntryTitle(hideTitles: Bool, title: String) -> String {
+    hideTitles ? "" : title
+}

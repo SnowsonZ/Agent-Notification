@@ -499,6 +499,25 @@ def main():
         action="store_true",
         help="rescan sources for a past day even if a finalized report is cached",
     )
+    usage = sub.add_parser("usage")
+    usage.add_argument(
+        "--period", choices=["day", "week", "month", "all"], default="day"
+    )
+    usage.add_argument("--date", help="anchor date YYYY-MM-DD, defaults to today")
+    usage.add_argument("--json", action="store_true", help="full JSON payload")
+    usage.add_argument("--currency", choices=["USD", "CNY"], default="CNY")
+    pricing = sub.add_parser("pricing")
+    pricing_sub = pricing.add_subparsers(dest="pricing_action", required=True)
+    show = pricing_sub.add_parser("show")
+    show.add_argument("model", nargs="?", help="show one model's price across layers")
+    pricing_sub.add_parser("check").add_argument(
+        "--days", type=int, default=30, help="look back N days for pricing gaps"
+    )
+    pricing_sub.add_parser("update").add_argument(
+        "--auto", action="store_true", help="only fetch when due (App background)"
+    )
+    fx = pricing_sub.add_parser("fx")
+    fx.add_argument("rate", type=float, help="USD_CNY manual rate")
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
     try:
@@ -548,21 +567,138 @@ def main():
             print(json.dumps({"launched": True, "agent": args.agent}))
             return 0
         if args.action == "daily-report":
-            from daily_report import generate_day, generate_overview
+            from daily_report import attach_costs, generate_day, generate_overview
+            from usage_cost import PricingTables
 
-            if args.overview:
-                payload = generate_overview(
+            payload = (
+                generate_overview(
                     store,
                     Path.home(),
                     days=max(7, args.days),
                     top=max(1, min(args.top, 10)),
                 )
-            else:
-                payload = generate_day(
-                    store, Path.home(), args.date, refresh=args.refresh
-                )
+                if args.overview
+                else generate_day(store, Path.home(), args.date, refresh=args.refresh)
+            )
+            if not args.overview:
+                # 金额是读取时的派生值（§5）：只附在响应里，不写入固化报告。
+                attach_costs(payload, PricingTables.load(store.root))
             print(json.dumps(payload, ensure_ascii=False))
             return 0
+        if args.action == "usage":
+            from daily_report import parse_day
+            from usage_cost import PricingTables, display_total, load_fx, money_text
+            from usage_report import collect
+
+            anchor = parse_day(args.date) if args.date else None
+            payload = collect(
+                store,
+                Path.home(),
+                args.period,
+                anchor,
+                tables=PricingTables.load(store.root),
+            )
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=False))
+                return 0
+            rate = load_fx(store.root)["USD_CNY"]
+            currency = args.currency
+            totals = payload["totals"]
+            print(
+                f"{payload['period']} {payload['start']}..{payload['end']}"
+                f"（{totals['tasks']} 个任务）"
+            )
+            print(
+                f"合计 {totals['total_tokens']:,} tokens · 金额 "
+                f"{money_text(display_total(totals['cost'], currency, rate), currency)}"
+                f" · 未定价 {totals['cost'].get('unpriced_tokens', 0):,} tokens"
+            )
+            for dimension in ("harness", "model", "project"):
+                rows = payload["by"][dimension][:5]
+                text = ", ".join(
+                    f"{row['key']} {row['total_tokens']:,}"
+                    f"（{money_text(display_total(row['cost'], currency, rate), currency)}）"
+                    for row in rows
+                )
+                print(f"{dimension}: {text or '—'}")
+            return 0
+        if args.action == "pricing":
+            from usage_cost import PricingTables, load_fx, set_fx
+            from usage_report import _merge_models, _public_models
+
+            if args.pricing_action == "fx":
+                payload = set_fx(store.root, args.rate)
+                print(json.dumps({"fx": payload}))
+                return 0
+            if args.pricing_action == "update":
+                from pricing_fetch import fetch as run_fetch
+
+                result = run_fetch(store.root, auto=args.auto)
+                print(json.dumps(result, ensure_ascii=False))
+                return 0
+            tables = PricingTables.load(store.root)
+            if args.pricing_action == "show":
+                if args.model:
+                    entry, layer = None, None
+                    from usage_cost import candidate_names
+
+                    for candidate in candidate_names(args.model.lower(), []):
+                        entry, layer = tables.lookup(candidate)
+                        if entry is not None:
+                            break
+                    print(
+                        json.dumps(
+                            {"model": args.model, "layer": layer, "price": entry},
+                            ensure_ascii=False,
+                        )
+                    )
+                else:
+                    print(
+                        json.dumps(
+                            {
+                                "layers": {
+                                    name: len(data) for name, data in tables.layers
+                                },
+                                "fx": load_fx(store.root),
+                            }
+                        )
+                    )
+                return 0
+            if args.pricing_action == "check":
+                from datetime import date, timedelta
+
+                from daily_report import _finalized, load_report
+                from pricing_fetch import load_state
+
+                days = max(1, args.days)
+                today = date.today()
+                merged = {}
+                state = load_state(store.root)
+                for offset in range(days):
+                    day = today - timedelta(days=offset)
+                    report = load_report(store.root, day.isoformat())
+                    if not _finalized(report, day):
+                        continue
+                    for task in report.get("tasks") or []:
+                        _merge_models(merged, task.get("models"))
+                from usage_cost import cost_for_models
+
+                cost, unpriced_models, notes = cost_for_models(
+                    _public_models(merged), today, tables
+                )
+                print(
+                    json.dumps(
+                        {
+                            "days": days,
+                            "unpriced_models": unpriced_models,
+                            "native_fallback_usd": cost.get("native_fallback"),
+                            "cache_price_fallbacks": notes,
+                            "fetch_state": state,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                return 0
         if args.action in ("sync", "watch"):
             while True:
                 print(json.dumps(refresh(store)), flush=True)

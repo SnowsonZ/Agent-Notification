@@ -89,7 +89,9 @@ bin/session-manager permissions   # 打开辅助功能授权面板，把应用�
 | `bin/session-manager zcode-focus TASK_ID` | 打开指定 Zcode 任务；`--describe` 仅解析任务元数据 |
 | `bin/session-manager inbox setup` | 安装或更新观察 hooks（幂等，不覆盖既有配置） |
 | `bin/session-manager inbox rows \| sync \| open \| ack \| ack-batch` | 收件箱数据查询与维护 |
-| `bin/session-manager inbox daily-report [--date YYYY-MM-DD] \| --overview` | 生成单日报告或热力图总览（自动补录缺失日期） |
+| `bin/session-manager inbox daily-report [--date YYYY-MM-DD] \| --overview` | 生成单日报告或热力图总览（自动补录缺失日期）；响应附按标价估算的 cost |
+| `bin/session-manager inbox usage --period day\|week\|month\|all [--json]` | 跨周期用量与金额（ISO 周 / 自然月，日/周/月三视图） |
+| `bin/session-manager inbox pricing show \| check \| update \| fx` | 价格表查询、缺口检查、自动拉取与手动汇率 |
 | `bin/session-manager app` | 打开「会话通知」 |
 
 诊断脚本：
@@ -117,11 +119,16 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | 文档 | 类别 | 说明 |
 |---|---|---|
 | [统一收件箱](docs/specs/unified-inbox.md) | 规范 | 使用入口、数据来源、状态语义与已知边界 |
-| [工作日报](docs/specs/daily-report.md) | 规范 | token 统计口径、热力分级、固化与补录语义 |
+| [工作日报](docs/specs/daily-report.md) | 规范 | token 统计口径、逐 model 用量（schema v8）、固化与补录语义 |
 | [CLI 会话绑定](docs/specs/cli-session-binding.md) | 规范 | 受管理启动、存活锁、会话 ID 与前台进程组校验 |
 | [Zcode 原生导航](docs/specs/zcode-native-navigation.md) | 规范 | task ID 查标题、AX 搜索、复制任务路径校验 |
+| [用量金额与跨周期统计](docs/specs/usage-cost.md) | 规范 | 按 model 计价、价格表三层与自适应拉取、USD/CNY、日/周/月（CLI 与日报金额已实施，界面与组件见执行计划） |
+| [桌面组件](docs/specs/desktop-widgets.md) | 规范（待实施） | 快照、刷新、三类组件、URL 跳转与构建要求 |
 | [会话收件箱方案](docs/plans/session-inbox.md) | 设计方案 | 五路接入、通知抓取评估与实现路径 |
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |
+| [用量金额与桌面组件执行计划](docs/plans/usage-cost-widgets-execution.md) | 设计方案 | 工作包、里程碑评审关口与交付要求 |
+| [日报金额与跨周期统计](docs/plans/usage-cost-report.md) | 设计方案 | 已定稿为规范，保留调研与取舍背景 |
+| [桌面组件](docs/plans/desktop-widgets.md) | 设计方案 | 已定稿为规范，保留设计背景与签名探针结论 |
 | [本机接入验证](docs/research/2026-09-13-integration-probe.md) | 调研记录 | 运行时证据、可复现检查与联调缺口 |
 | [剩余接入排查](docs/research/2026-09-14-integration-findings.md) | 调研记录 | Pi/Kimi 运行时与 Codex/Zcode 兼容读取 |
 | [跨终端误判修复](docs/research/2026-09-14-cross-terminal-ownership.md) | 调研记录 | managed focus 误判的原因与回归 |
@@ -130,6 +137,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [Codex 受管理可行性论证](docs/research/2026-09-16-codex-managed-feasibility.md) | 调研记录 | notify/插件/rollout 三通道实测与暂缓决策 |
 | [各来源推送通道盘点](docs/research/2026-09-20-push-channels-per-source.md) | 调研记录 | 七家消息通道现状；codex hooks.json 全生命周期实测（含信任门禁）与 zcode 文件事件方案 |
 | [项目整体评估](docs/review/2026-09-21-project-assessment.md) | 评审记录 | v0.7.4 全库复评、七项缺陷与验证边界；附 v0.7.3 历史评估 |
+| [桌面组件签名探针](docs/research/2026-09-23-widget-adhoc-probe.md) | 调研记录 | ad-hoc 签名组件可行性实测、构建要点与未覆盖系统 |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 调研记录 | 现成工具比较与选型依据 |
 
 调研记录为带日期的历史档案，反映当时状态；现行行为以规范文档为准。

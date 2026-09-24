@@ -25,6 +25,13 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         applyDockIcon(dark: dark, unread: DockBadge.unread)
     }
+    // 组件点击经 agentnotification:// scheme 唤起；scheme 在 Info.plist CFBundleURLTypes。
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { @MainActor in
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            for url in urls { WidgetURLBridge.shared.deliver(url) }
+        }
+    }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .sound])
@@ -49,6 +56,40 @@ final class InboxAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificatio
 
 extension Notification.Name {
     static let reopenInbox = Notification.Name("SessionInboxReopenInbox")
+    static let widgetURLOpen = Notification.Name("SessionInboxWidgetURLOpen")
+    static let widgetReportPeriod = Notification.Name("SessionInboxWidgetReportPeriod")
+}
+
+// 组件 URL 投递桥（desktop-widgets.md §5）：URL 事件由 AppDelegate 全 App 级接收，
+// 窗口未开时 SwiftUI 的 onOpenURL 收不到，这里先暂存、InboxView 挂载时补送。
+@MainActor
+final class WidgetURLBridge {
+    static let shared = WidgetURLBridge()
+    private var gate = WidgetURLGate()
+    private var queue = WidgetURLQueue()
+
+    /// 组件点击入口：防抖后投递通知（窗口已开时立即处理）并入队；
+    /// 处理方完成后调 markHandled 把 URL 移出队列（R10：只处理一次）。
+    func deliver(_ url: URL, now: TimeInterval = Date().timeIntervalSince1970) {
+        guard gate.accept(url, now: now) else { return }
+        queue.enqueue(url)
+        NotificationCenter.default.post(name: .widgetURLOpen, object: url)
+    }
+
+    /// 通知路径处理完成：移出队列，flush 不再重放。
+    func markHandled(_ url: URL) {
+        queue.markHandled(url)
+    }
+
+    /// R10 冷启动：处理方发现行数据未就绪时把 URL 放回队列，等 flush 补处理。
+    func enqueue(_ url: URL) {
+        queue.enqueue(url)
+    }
+
+    /// 窗口挂载或首批行加载完成：补处理仍挂起的 URL（R10 冷启动挂起语义）。
+    func flush(to handler: (URL) -> Void) {
+        for url in queue.flush() { handler(url) }
+    }
 }
 
 // Dock 未读角标：dockTile.badgeLabel 在本应用不渲染（见 InboxModel.updateDockBadge 注），
