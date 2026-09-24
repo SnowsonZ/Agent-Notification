@@ -81,6 +81,11 @@ final class WidgetURLBridge {
         queue.markHandled(url)
     }
 
+    /// R10 冷启动：处理方发现行数据未就绪时把 URL 放回队列，等 flush 补处理。
+    func enqueue(_ url: URL) {
+        queue.enqueue(url)
+    }
+
     /// 窗口挂载或首批行加载完成：补处理仍挂起的 URL（R10 冷启动挂起语义）。
     func flush(to handler: (URL) -> Void) {
         for url in queue.flush() { handler(url) }

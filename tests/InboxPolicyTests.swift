@@ -176,6 +176,21 @@ import Foundation
         precondition(widgetEntryTitle(hideTitles: true, title: "标题") == "")
         precondition(widgetEntryTitle(hideTitles: true, title: "") == "")
         precondition(widgetEntryTitle(hideTitles: false, title: "标题") == "标题")
+        // ---- R10 冷启动组合（第四轮）：flush 时行未就绪（处理方把 URL 放回
+        // 队列），就绪后再 flush 最终处理且只处理一次。
+        var coldQueue = WidgetURLQueue()
+        coldQueue.enqueue(urlA)
+        var rowsReady = false
+        for url in coldQueue.flush() where !rowsReady {
+            coldQueue.enqueue(url)  // 未就绪：处理方放回（flush 已清空，不重入）
+        }
+        precondition(coldQueue.pending == [urlA])
+        rowsReady = true
+        var coldHandled: [URL] = []
+        for url in coldQueue.flush() {
+            coldHandled.append(url)
+        }
+        precondition(coldHandled == [urlA] && coldQueue.pending.isEmpty)
         print("widget URL bridge state machine checks passed")
         print("Pagination, notification, daily report policy checks passed")
     }

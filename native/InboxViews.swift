@@ -263,7 +263,12 @@ struct InboxView: View {
     // 组件 URL 跳转（desktop-widgets.md §5）：行未就绪时挂起不丢；非法 URL
     // （就绪但 id 不存在/参数非法）标记处理后忽略、不输出参数原文。
     private func handleWidgetURL(_ url: URL) {
-        guard !model.rows.isEmpty else { return }  // 未就绪：留在 bridge 队列
+        // R10 冷启动：行未就绪时放回队列（flush 已清空，直接 return 会丢 URL），
+        // rows 首批加载后 flush 补处理。
+        guard !model.rows.isEmpty else {
+            WidgetURLBridge.shared.enqueue(url)
+            return
+        }
         defer { WidgetURLBridge.shared.markHandled(url) }
         guard let action = WidgetURLRouter.parse(url, knownIds: Set(model.rows.map(\.id))) else { return }
         NSApplication.shared.activate()
