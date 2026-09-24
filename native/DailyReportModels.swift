@@ -145,19 +145,8 @@ enum ReportPeriod: String, CaseIterable {
             if oldValue != period { loadUsage(force: false) }
         }
     }
-    // 热力图着色开关：token（默认）或按金额（§7）
-    @Published var heatmapMetric: String {
-        didSet { UserDefaults.standard.set(heatmapMetric, forKey: "reportHeatmapMetric") }
-    }
-    @Published var usageMetric: String {
-        didSet { UserDefaults.standard.set(usageMetric, forKey: "reportUsageMetric") }
-    }
-    @Published var currency: String {
-        didSet {
-            UserDefaults.standard.set(currency, forKey: "reportCurrency")
-            if oldValue != currency { WidgetSnapshotWriter.shared.refreshUsageNow() }
-        }
-    }
+    // 金额口径（2026-09-24 重设计）：只展示 USD（CNY 官价按汇率折算），
+    // 金额是伴随指标——不做全局度量切换、不再有币种/着色选择器。
     // usage --period all 的锚点日期：切换周期导航后重拉（过去周期读缓存，快）。
     private var usageAnchor = ""
     private var usageLoading = false
@@ -166,9 +155,6 @@ enum ReportPeriod: String, CaseIterable {
     init(root: String? = nil) {
         self.root = root ?? Bundle.main.object(forInfoDictionaryKey: "SessionManagerRoot") as? String ?? ""
         period = ReportPeriod(rawValue: UserDefaults.standard.string(forKey: "reportPeriod") ?? "") ?? .day
-        currency = UserDefaults.standard.string(forKey: "reportCurrency") ?? "CNY"
-        usageMetric = UserDefaults.standard.string(forKey: "reportUsageMetric") ?? "cost"
-        heatmapMetric = UserDefaults.standard.string(forKey: "reportHeatmapMetric") ?? "tokens"
         // §4.5：App 启动时与每 6 小时后台执行 pricing update --auto，
         // 是否请求由命令自行判断到期；不阻塞主 run loop。
         runPricingUpdateAuto()

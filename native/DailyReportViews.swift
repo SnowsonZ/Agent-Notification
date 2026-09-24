@@ -38,18 +38,23 @@ struct DailyReportView: View {
                     }
                     if model.period == .day, let overview = model.overview {
                         if let today = overview.today {
-                            TodayChipsView(today: today, overview: overview)
+                            TodayChipsView(model: model, today: today, overview: overview)
                         }
                         HeatmapView(model: model, overview: overview)
                         if let today = overview.today, let current = reportDate(today.date) {
                             WeekTrendView(days: trendDays(overview, endingAt: current),
                                           model: model)
                         }
+                        // 总览编排与周/月一致：双栏（来源环形 | 模型）+ Top 项目全宽（2026-09-24）。
+                        // 来源/模型/项目数据来自 usage 周（近 7 天窗口），金额伴随在悬浮卡与行内。
                         HStack(alignment: .top, spacing: 14) {
-                            SourceShareView(title: "来源占比 · 近 7 天", sources: overview.weekSources)
-                            TopProjectsCard(projects: overview.topProjects)
+                            WeekSourcesDonutCard(model: model)
+                            ModelRankCard(model: model, title: "模型")
                         }
                         .fixedSize(horizontal: false, vertical: true)
+                        ProjectRankCard(title: "Top 项目 · 本周",
+                                        rows: model.usageByPeriod["week"]?.by?.project ?? [],
+                                        rate: model.fxRate)
                     } else if model.loading {
                         HStack(spacing: 10) {
                             ProgressView().controlSize(.small)
@@ -57,6 +62,8 @@ struct DailyReportView: View {
                         }.frame(maxWidth: .infinity).padding(.vertical, 40)
                     }
                     Text("口径：token 三类之和参与全部统计——输入=新鲜输入+缓存写入；缓存=读取回放；输出=含 reasoning。取消/出错轮次照计。")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                    Text("金额为按 API 标价的估算值（非账单）· USD 显示，CNY 官价按汇率 \(String(format: "%.2f", model.fxRate)) 折算。")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
                 .padding(16)
@@ -105,11 +112,6 @@ struct HeatmapView: View {
     @ObservedObject var model: DailyReportModel
     let overview: ReportOverview
 
-    // 着色开关：token 用 level；金额用 cost_level（Python 分位阈值，§7）。
-    private func heatLevelFor(_ day: OverviewDay) -> Int {
-        model.heatmapMetric == "cost" ? day.costLevel ?? 0 : day.level
-    }
-
     var body: some View {
         let columns = heatWeekColumns(overview.days)
         let marks = heatMonthMarks(columns)
@@ -119,14 +121,6 @@ struct HeatmapView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("活跃热力 · 近半年").font(.headline)
-                // §7 按金额着色开关（阈值取有消耗日 CNY 视图金额的 50/75/90 分位，Python 算好 level）
-                Picker("着色", selection: $model.heatmapMetric) {
-                    Text("token").tag("tokens")
-                    Text("金额").tag("cost")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 120)
                 Spacer()
                 Text("活跃 \(activeDays) 天").font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 if streak > 1 {
@@ -162,7 +156,7 @@ struct HeatmapView: View {
                                                 // 有记录（或今天）才可点进详情；空白日只是占位。
                                                 NavigationLink(value: day.date) {
                                                     RoundedRectangle(cornerRadius: 3)
-                                                        .fill(heatColor(heatLevelFor(day)))
+                                                        .fill(heatColor(day.level))
                                                         .frame(width: 13, height: 13)
                                                         .overlay {
                                                             if day.date == todayKey {
@@ -176,11 +170,11 @@ struct HeatmapView: View {
                                                 .dailyHoverTip(title: reportDayDisplay(day.date),
                                                                lines: day.totalTokens > 0
                                                                    ? ["合计：\(tokenText(day.totalTokens))", "\(day.tasks) 个任务"]
-                                                                       + costTipLine(day.cost, model: model)
+                                                                       + costTipLine(day.cost, rate: model.fxRate)
                                                                    : ["暂无记录"])
                                             } else if let day = columns[column][row] {
                                                 RoundedRectangle(cornerRadius: 3)
-                                                    .fill(heatColor(heatLevelFor(day)))
+                                                    .fill(heatColor(day.level))
                                                     .frame(width: 13, height: 13)
                                                     .dailyHoverTip(title: reportDayDisplay(day.date), lines: ["无记录"])
                                             } else {
@@ -223,7 +217,8 @@ func activeStreak(_ days: [OverviewDay], todayKey: String) -> Int {
     return streak
 }
 
-// 总览/详情共用的头卡：大数字 + 三类 token 分段条 + 右侧 2×2 数据瓦片。
+// 总览/详情共用的头卡：大数字 + 金额伴随行 + 三类 token 分段条 + 右侧 2×2 数据瓦片。
+// 金额是伴随指标：放在 token 正下方、字号小一档（2026-09-24 重设计）。
 struct UsageHeroView: View {
     let total: Int
     let input: Int
@@ -231,24 +226,35 @@ struct UsageHeroView: View {
     let output: Int
     let caption: String
     let accent: String?
+    var money: Double? = nil  // USD 伴随金额；nil 显示 —
+    var delta: (text: String, up: Bool)? = nil  // 较上一期（token 口径），涨红降绿
     let tiles: [(value: String, label: String)]
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(tokenText(total))
                     .font(.system(size: 30, weight: .bold)).monospacedDigit()
+                Text(usdText(money))
+                    .font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                    .padding(.top, -2)
                 HStack(spacing: 6) {
                     Text(caption).font(.caption).foregroundStyle(.secondary)
                     if let accent {
                         Text("·").foregroundStyle(.tertiary).font(.caption)
                         Text(accent).font(.caption).foregroundStyle(Color.accentColor)
                     }
+                    if let delta {
+                        Text("·").foregroundStyle(.tertiary).font(.caption)
+                        Text((delta.up ? "▲ " : "▼ ") + delta.text)
+                            .font(.caption).monospacedDigit()
+                            .foregroundStyle(delta.up ? Color(red: 1.0, green: 0.271, blue: 0.227) : Color(red: 0.188, green: 0.820, blue: 0.345))
+                    }
                 }
                 classBar.frame(height: 8).padding(.top, 4)
                 HStack(spacing: 10) {
-                    classLegend(.output, "输出", output)
                     classLegend(.input, "输入", input)
                     classLegend(.cache, "缓存", cache)
+                    classLegend(.output, "输出", output)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -266,9 +272,10 @@ struct UsageHeroView: View {
     }
     private var classBar: some View {
         let sum = max(total, 1)
-        // 三类统一顺序：输出 / 输入 / 缓存（横条从左到右，柱图从上到下）。
-        let parts: [(Int, Color)] = [(output, tokenClassColor(.output)), (input, tokenClassColor(.input)),
-                                     (cache, tokenClassColor(.cache))]
+        // 三类统一顺序（图例与分段条同序）：输入 / 缓存 / 输出。
+        let parts: [(Int, Color)] = [(input, tokenClassColor(.input)),
+                                     (cache, tokenClassColor(.cache)),
+                                     (output, tokenClassColor(.output))]
         return GeometryReader { proxy in
             HStack(spacing: 1) {
                 ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
@@ -300,11 +307,13 @@ struct UsageHeroView: View {
 }
 
 struct TodayChipsView: View {
+    @ObservedObject var model: DailyReportModel
     let today: TodaySummary
     let overview: ReportOverview
     var body: some View {
         UsageHeroView(total: today.totalTokens, input: today.inputTokens, cache: today.cacheTokens,
                       output: today.outputTokens, caption: "今日 token 合计", accent: "实时汇总",
+                      money: usdTotal(today.cost, rate: model.fxRate),
                       tiles: [("\(today.tasks)", "任务"), ("\(today.turns)", "轮次"),
                               ("\(today.sources)", "活跃来源"), (deltaText, "较昨日")])
     }
@@ -335,8 +344,8 @@ struct WeekTrendView: View {
                     Text("日均 \(tokenText(average))").font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
                 Spacer()
-                ForEach([(tokenClassColor(.output), "输出"), (tokenClassColor(.input), "输入"),
-                         (tokenClassColor(.cache), "缓存")], id: \.1) { color, label in
+                ForEach([(tokenClassColor(.input), "输入"), (tokenClassColor(.cache), "缓存"),
+                         (tokenClassColor(.output), "输出")], id: \.1) { color, label in
                     HStack(spacing: 3) {
                         RoundedRectangle(cornerRadius: 1.5).fill(color).frame(width: 6, height: 6)
                         Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
@@ -374,12 +383,7 @@ struct WeekTrendView: View {
                         }
                         .chartHover(scale: 1.04)
                         .dailyHoverTip(title: reportDayDisplay(day.date),
-                                       lines: classTipLines(input: day.inputTokens,
-                                                            cache: day.cacheTokens,
-                                                            output: day.outputTokens)
-                                           + ["合计：\(tokenText(day.totalTokens))",
-                                              "\(day.tasks) 个任务"]
-                                           + (model.map { costTipLine(day.cost, model: $0) } ?? []))
+                                       lines: trendTipLines(day, model: model))
                     }
                 }
             }
@@ -387,14 +391,14 @@ struct WeekTrendView: View {
         }
         .dailyReportCard()
     }
-    // 三类层叠：自上而下 输出/输入/缓存，高度按合计相对最长日。
+    // 三类层叠：自上而下 输出/缓存/输入（底=输入），高度按合计相对最长日。
     private func stackedBar(_ day: OverviewDay, longest: Int) -> some View {
         let total = max(day.totalTokens, 1)
         let barHeight = max(3, CGFloat(day.totalTokens) / CGFloat(longest) * 52)
         let segments: [(value: Int, color: Color)] = [
             (day.outputTokens, tokenClassColor(.output)),
-            (day.inputTokens, tokenClassColor(.input)),
             (day.cacheTokens, tokenClassColor(.cache)),
+            (day.inputTokens, tokenClassColor(.input)),
         ]
         return VStack(spacing: 0) {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
@@ -404,6 +408,13 @@ struct WeekTrendView: View {
             }
         }
     }
+}
+// 悬浮行提取成函数：行内表达式过重会让 swiftc 类型检查超时。
+@MainActor
+func trendTipLines(_ day: OverviewDay, model: DailyReportModel?) -> [String] {
+    classTipLines(input: day.inputTokens, cache: day.cacheTokens, output: day.outputTokens)
+        + ["合计：\(tokenText(day.totalTokens))", "\(day.tasks) 个任务"]
+        + (model.map { costTipLine(day.cost, rate: $0.fxRate) } ?? [])
 }
 struct Line: Shape {
     func path(in rect: CGRect) -> Path {
@@ -500,67 +511,133 @@ struct SourceShareView: View {
     }
 }
 
-struct TopProjectsCard: View {
-    let projects: [TopProject]
+// 官方来源图标（AgentIcons 渲染管线：裁边+缩进+暗色变体）。
+struct AgentIconView: View {
+    let id: String
+    var size: CGFloat = 16
     var body: some View {
-        let longest = max(projects.first?.totalTokens ?? 1, 1)
+        Image(nsImage: agentIcon(id, size: size))
+            .resizable()
+            .frame(width: size, height: size)
+    }
+}
+
+// 模型行图标：按名称前缀映射家族官方图标，未匹配退化为灰底字牌。
+struct ModelIconView: View {
+    let name: String
+    var size: CGFloat = 15
+    var body: some View {
+        if let id = modelIconId(name) {
+            AgentIconView(id: id, size: size)
+        } else {
+            Text(String(name.prefix(2)))
+                .font(.system(size: size * 0.5, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: size, height: size)
+                .background(Color.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: size * 0.28))
+        }
+    }
+}
+
+// 周口径（usage.week.by）来源环形卡：金额伴随在悬浮卡；图例行 = 图标 + 名称 + token。
+struct WeekSourcesDonutCard: View {
+    @ObservedObject var model: DailyReportModel
+    var body: some View {
+        let rows = (model.usageByPeriod["week"]?.by?.harness ?? [])
+            .filter { $0.totalTokens > 0 }
+            .sorted { $0.totalTokens > $1.totalTokens }
+        let total = max(rows.reduce(0) { $0 + $1.totalTokens }, 1)
         VStack(alignment: .leading, spacing: 10) {
-            Text("Top 5 活跃项目 · 近 7 天").font(.headline)
-            if projects.isEmpty {
-                Text("近 7 天没有可统计的项目").font(.subheadline).foregroundStyle(.secondary)
+            Text("来源占比 · 本周").font(.headline)
+            if rows.isEmpty {
+                Text("没有可统计的来源").font(.subheadline).foregroundStyle(.secondary)
             } else {
-              // 与左侧环形图卡等高时，列表在剩余空间里垂直居中。
-              VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text("\(index + 1)")
-                                .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                                .foregroundStyle(.tertiary).frame(width: 12, alignment: .trailing)
-                            Text(project.name)
-                                .font(.footnote).lineLimit(1)
-                                .help(project.project)
-                            Spacer(minLength: 4)
-                            Text(tokenText(project.totalTokens))
-                                .font(.footnote.weight(.medium)).monospacedDigit()
-                            Text("\(Int((project.share * 100).rounded()))%")
-                                .font(.system(size: 10)).monospacedDigit().foregroundStyle(.tertiary)
-                                .frame(width: 30, alignment: .trailing)
-                        }
-                        // 条按输入/缓存/输出分段，与头卡分段条同一套色。
-                        GeometryReader { proxy in
-                            let width = proxy.size.width * Double(project.totalTokens) / Double(longest)
-                            let sum = max(project.totalTokens, 1)
-                            let parts: [(Int, Color)] = [(project.outputTokens, tokenClassColor(.output)),
-                                                         (project.inputTokens, tokenClassColor(.input)),
-                                                         (project.cacheTokens, tokenClassColor(.cache))]
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.05))
-                                HStack(spacing: 1) {
-                                    ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                                        if part.0 > 0 {
-                                            Rectangle().fill(part.1)
-                                                .frame(width: max(2, width * Double(part.0) / Double(sum)))
-                                        }
-                                    }
-                                }
-                                .frame(width: max(4, width))
-                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                VStack(alignment: .leading, spacing: 12) {
+                    donut(rows, total: total).frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(rows, id: \.key) { row in
+                            HStack(spacing: 6) {
+                                AgentIconView(id: row.key, size: 15)
+                                Text(providerName(row.key)).font(.footnote).lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(tokenText(row.totalTokens))
+                                    .font(.footnote.weight(.medium)).monospacedDigit()
                             }
-                        }.frame(height: 8).padding(.leading, 18)
+                            .rowHover()
+                            .dailyHoverTip(title: providerName(row.key),
+                                           lines: ["合计：\(tokenText(row.totalTokens))"]
+                                               + costTipLine(row.cost, rate: model.fxRate))
+                        }
                     }
-                    .rowHover()
-                    .dailyHoverTip(title: project.name,
-                                   lines: classTipLines(input: project.inputTokens,
-                                                        cache: project.cacheTokens,
-                                                        output: project.outputTokens)
-                                       + ["合计：\(tokenText(project.totalTokens))"])
                 }
-              }
-              .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .dailyReportCard()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    // 环形图：从 12 点方向顺时针；中心标本周合计 token。
+    private func donut(_ rows: [WidgetUsagePayload.By.Row], total: Int) -> some View {
+        var cursor = 0.0
+        var segments: [(color: Color, start: Double, end: Double)] = []
+        for row in rows {
+            let start = cursor
+            cursor = min(cursor + Double(row.totalTokens) / Double(total), 1)
+            segments.append((providerReportColor(row.key), start, cursor))
+        }
+        let gap = segments.count > 1 ? 0.004 : 0
+        return ZStack {
+            Circle().stroke(Color.primary.opacity(0.06), lineWidth: 14)
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                Circle()
+                    .trim(from: segment.start + gap, to: max(segment.start + gap, segment.end - gap))
+                    .stroke(segment.color, style: StrokeStyle(lineWidth: 14, lineCap: .butt))
+                    .rotationEffect(.degrees(-90))
+            }
+            VStack(spacing: 0) {
+                Text(tokenText(total)).font(.system(size: 16, weight: .bold)).monospacedDigit()
+                Text("本周").font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 112, height: 112)
+    }
+}
+
+// 周口径模型榜：家族图标 + token，金额伴随在悬浮卡（与来源环形卡同编排）。
+struct ModelRankCard: View {
+    @ObservedObject var model: DailyReportModel
+    let title: String
+    var body: some View {
+        let rows = (model.usageByPeriod["week"]?.by?.model ?? [])
+            .filter { $0.totalTokens > 0 }
+            .sorted { $0.totalTokens > $1.totalTokens }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title).font(.headline)
+                Spacer()
+                Text("按 token 排序").font(.caption2).foregroundStyle(.tertiary)
+            }
+            if rows.isEmpty {
+                Text("没有可统计的模型").font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(rows, id: \.key) { row in
+                        HStack(spacing: 6) {
+                            ModelIconView(name: row.key)
+                            Text(row.key).font(.footnote).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(tokenText(row.totalTokens))
+                                .font(.footnote.weight(.medium)).monospacedDigit()
+                        }
+                        .rowHover()
+                        .dailyHoverTip(title: row.key,
+                                       lines: ["合计：\(tokenText(row.totalTokens))"]
+                                           + costTipLine(row.cost, rate: model.fxRate))
+                    }
+                }
             }
         }
         .dailyReportCard()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
+

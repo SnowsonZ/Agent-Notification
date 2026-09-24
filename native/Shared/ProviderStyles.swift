@@ -43,3 +43,15 @@ func stateDotColor(_ state: String) -> Color {
     default: return Color.secondary
     }
 }
+
+// 模型名 → 家族图标 id（日报模型榜与组件共用）：前缀映射，未匹配返回 nil（调用方退化字牌）。
+func modelIconId(_ modelName: String) -> String? {
+    let name = modelName.lowercased()
+    if name.contains("claude") { return "claude" }
+    if name.contains("glm") { return "zcode" }
+    if name.contains("gpt") || name.contains("codex")
+        || name.range(of: "^o[134]", options: .regularExpression) != nil { return "codex" }
+    if name.contains("kimi") { return "kimi" }
+    if name.contains("gemini") { return "agy" }
+    return nil
+}

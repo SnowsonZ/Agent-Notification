@@ -1,52 +1,72 @@
-import Charts
 import SwiftUI
 
-// 周 / 月视图（usage-cost.md §7）：汇总卡、逐天堆叠柱图（金额/token 切换，
-// 月视图叠加累计折线）、占比区（harness/model Top 6，其余合并「其他」）、
-// Top 5 项目、周期导航（下期不超本期）。所有数字来自 `inbox usage`，不本地重算。
+// 周 / 月视图（usage-cost.md §7，2026-09-24 重设计）：与日视图同一套设计语言——
+// 同一卡片（dailyReportCard）、同一手绘柱图+悬浮卡、同一三类配色；token 为主线，
+// 金额（USD）是伴随指标：hero 金额行、榜单双列（token 主列 + $ 次列）、柱图悬浮卡。
+// 所有数字来自 `inbox usage`，不本地重算；无度量/币种切换器。
 
 struct PeriodHeader: View {
     @ObservedObject var model: DailyReportModel
 
     var body: some View {
-        HStack(spacing: 8) {
-            Picker("周期", selection: $model.period) {
-                Text("日").tag(ReportPeriod.day)
-                Text("周").tag(ReportPeriod.week)
-                Text("月").tag(ReportPeriod.month)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 150)
-            Spacer()
-            Picker("币种", selection: $model.currency) {
-                Text("CNY").tag("CNY")
-                Text("USD").tag("USD")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 110)
+        Picker("周期", selection: $model.period) {
+            Text("日").tag(ReportPeriod.day)
+            Text("周").tag(ReportPeriod.week)
+            Text("月").tag(ReportPeriod.month)
         }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 150)
     }
 }
 
 struct PeriodReportView: View {
     @ObservedObject var model: DailyReportModel
     let payload: WidgetUsagePayload
-    // 金额 / token 切换：状态在模型层（裸 swiftc 无 @State 宏）
-    private var metric: String { model.usageMetric }
 
-    private var currency: String { model.currency }
-    private var rate: Double { payload.fx?.usdCny ?? 7.10 }
+    private var rate: Double { payload.fx?.usdCny ?? model.fxRate }
 
-    private var totalText: String {
-        let cost = payload.totals.cost
-        let total = widgetMoneyTotal(cost, currency: currency, rate: rate)
-        return moneyText(total > 0 ? total : nil, currency: currency)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            summaryCard
+            PeriodBarsView(model: model, payload: payload)
+            HStack(alignment: .top, spacing: 14) {
+                DimensionRankCard(title: "来源", rows: payload.by?.harness ?? [],
+                                  iconKind: .provider, rate: rate)
+                DimensionRankCard(title: "模型", rows: payload.by?.model ?? [],
+                                  iconKind: .model, rate: rate)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            ProjectRankCard(title: "Top 项目 · \(periodName)", rows: payload.by?.project ?? [], rate: rate)
+            footnote
+        }
     }
 
-    private var previousTotal: Double {
-        widgetMoneyTotal(payload.previous?.cost ?? .empty, currency: currency, rate: rate)
+    // §7.1 汇总卡：token 大字 + 金额伴随行 + 三类分段 + 任务/环比瓦片（与日视图同一组件）。
+    private var summaryCard: some View {
+        let series = payload.series ?? []
+        let activeDays = series.filter { $0.totalTokens > 0 }.count
+        let delta = changePercent
+        return VStack(alignment: .leading, spacing: 8) {
+            UsageHeroView(
+                total: payload.totals.totalTokens,
+                input: payload.totals.inputTokens,
+                cache: payload.totals.cacheTokens,
+                output: payload.totals.outputTokens,
+                caption: "\(periodName) · \(dateRangeText)",
+                accent: nil,
+                money: usdTotal(payload.totals.cost, rate: rate),
+                delta: delta.map { (text: String(format: "%.0f%%", abs($0) * 100), up: $0 >= 0) },
+                tiles: [("\(payload.totals.tasks ?? 0)", "任务"),
+                        ("\(activeDays)", "活跃天"),
+                        (tokenText(payload.totals.inputTokens), "输入"),
+                        (tokenText(payload.totals.outputTokens), "输出")]
+            )
+            if payload.totals.cost.unpricedTokens > 0 {
+                Text("另有 \(tokenText(payload.totals.cost.unpricedTokens)) tokens 未定价")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
     }
 
     private var changePercent: Double? {
@@ -56,155 +76,20 @@ struct PeriodReportView: View {
         return Double(payload.totals.totalTokens - previous.totalTokens) / Double(previous.totalTokens)
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            summaryCard
-            barChart
-            breakdown
-            topProjects
-            footnote
-        }
+    private var periodName: String { ["day": "日", "week": "周", "month": "月"][payload.period] ?? "周期" }
+
+    private var dateRangeText: String {
+        let start = reportShortDay(payload.start)
+        let end = payload.start == payload.end ? "" : " – \(reportShortDay(payload.end))"
+        return start + end
     }
 
-    // §7.1 汇总卡：金额大字、三类 token、任务数、环比、未定价提示
-    private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(totalText).font(.system(size: 30, weight: .bold))
-                Spacer()
-                if let change = changePercent {
-                    Label(
-                        String(format: "%.0f%%", abs(change) * 100),
-                        systemImage: change >= 0 ? "arrow.up.right" : "arrow.down.right"
-                    )
-                    .font(.caption).foregroundStyle(.secondary)
-                    .help("环比上一\(periodName)")
-                }
-            }
-            HStack(spacing: 12) {
-                Text("输入 \(tokenText(payload.totals.inputTokens))").font(.caption)
-                Text("缓存 \(tokenText(payload.totals.cacheTokens))").font(.caption)
-                Text("输出 \(tokenText(payload.totals.outputTokens))").font(.caption)
-                Spacer()
-                Text("\(payload.totals.tasks ?? 0) 个任务").font(.caption).foregroundStyle(.secondary)
-            }
-            if cost.unpricedTokens > 0 {
-                Text("另有 \(tokenText(cost.unpricedTokens)) tokens 未定价")
-                    .font(.caption).foregroundStyle(.orange)
-            }
-        }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
-    }
-
-    private var cost: WidgetSnapshotMoney { payload.totals.cost }
-
-    // §7.2 逐天堆叠柱图（金额 / token），月视图叠加累计金额折线
-    private var barChart: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Picker("度量", selection: $model.usageMetric) {
-                Text("金额").tag("cost")
-                Text("token").tag("tokens")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 140)
-            Chart(seriesRows) { row in
-                BarMark(
-                    x: .value("日期", row.date),
-                    y: .value(metric == "cost" ? "金额" : "token", row.value),
-                    width: .automatic
-                )
-                .foregroundStyle(by: .value("类别", row.kind))
-                .cornerRadius(2)
-            }
-            .chartForegroundStyleScale([
-                "输入": Color.blue, "缓存": Color.teal, "输出": Color.orange,
-            ])
-            .chartLegend(.visible)
-            .frame(height: 180)
-            if payload.period == "month" {
-                cumulativeLine
-            }
-        }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
-    }
-
-    private var cumulativeLine: some View {
-        Chart(cumulativeRows) { row in
-            LineMark(x: .value("日期", row.date), y: .value("累计", row.value))
-                .foregroundStyle(Color.accentColor)
-                .interpolationMethod(.monotone)
-        }
-        .chartYAxis(.hidden)
-        .frame(height: 60)
-        .help("本月累计金额（\(currency) 视图）")
-    }
-
-    // §7.3 占比区：harness / model 两个横向条形榜，各取 Top 6，其余合并「其他」
-    private var breakdown: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            dimensionRows("来源", payload.by?.harness)
-            dimensionRows("模型", payload.by?.model)
-        }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
-    }
-
-    private func dimensionRows(_ title: String, _ rows: [WidgetUsagePayload.By.Row]?) -> some View {
-        let list = rows ?? []
-        let total = list.reduce(0) { $0 + $1.totalTokens }
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            ForEach(Array(list.prefix(6).enumerated()), id: \.element.key) { _, row in
-                HStack(spacing: 6) {
-                    Text(displayName(row.key)).font(.caption).frame(width: 90, alignment: .leading).lineLimit(1)
-                    ProgressBar(
-                        fraction: total > 0 ? Double(row.totalTokens) / Double(total) : 0
-                    )
-                    Text(tokenText(row.totalTokens)).font(.caption2).foregroundStyle(.secondary)
-                    Text(moneyText(
-                        moneyOrNil(row.cost), currency: currency
-                    ))
-                    .font(.caption2).foregroundStyle(.secondary).frame(width: 76, alignment: .trailing)
-                }
-            }
-        }
-    }
-
-    // §7.4 Top 5 项目
-    private var topProjects: some View {
-        let rows = (payload.by?.project ?? []).prefix(5)
-        return VStack(alignment: .leading, spacing: 6) {
-            Text("Top 项目").font(.caption).foregroundStyle(.secondary)
-            if rows.isEmpty {
-                Text("无项目记录").font(.caption).foregroundStyle(.tertiary)
-            }
-            ForEach(Array(rows), id: \.key) { row in
-                HStack {
-                    Text(row.name ?? (row.key as NSString).lastPathComponent)
-                        .font(.caption).lineLimit(1)
-                    Spacer()
-                    Text(tokenText(row.totalTokens)).font(.caption2).foregroundStyle(.secondary)
-                    Text(moneyText(moneyOrNil(row.cost), currency: currency))
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
-    }
-
-    // §7 注脚：按标价估算、汇率及其日期、价格表时间、首版不含阶梯价
+    // §7 注脚：估算免责（唯一保留处）、USD 与汇率、价格表时间、未定价模型。
     private var footnote: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("按 API 标价估算，不代表实际账单；首版不含阶梯价。").font(.caption2).foregroundStyle(.tertiary)
-            Text("汇率 1 USD = \(String(format: "%.2f", rate)) CNY（\(payload.fx?.asOf.isEmpty != false ? "默认" : payload.fx?.asOf ?? "默认")）· 价格表 \(updatedText)")
+            Text("金额为按 API 标价的估算值（非账单）· USD 显示，CNY 官价按汇率 \(String(format: "%.2f", rate)) 折算。")
+                .font(.caption2).foregroundStyle(.tertiary)
+            Text("汇率基准日 \(payload.fx?.asOf.isEmpty != false ? "默认" : payload.fx?.asOf ?? "默认") · 价格表 \(updatedText)")
                 .font(.caption2).foregroundStyle(.tertiary)
             if !unpriced.isEmpty {
                 Text("未定价：\(unpriced.joined(separator: "、"))").font(.caption2).foregroundStyle(.orange)
@@ -219,63 +104,264 @@ struct PeriodReportView: View {
         formatter.dateFormat = "MM-dd HH:mm"
         return formatter.string(from: Date(timeIntervalSince1970: fetched))
     }
+}
 
-    private var periodName: String { ["day": "日", "week": "周", "month": "月"][payload.period] ?? "周期" }
+// §7.2 逐天堆叠柱图：手绘 + 悬浮卡（与最近 7 天柱同一语言）；月视图叠加累计虚线。
+struct PeriodBarsView: View {
+    @ObservedObject var model: DailyReportModel
+    let payload: WidgetUsagePayload
 
-    private func moneyOrNil(_ cost: WidgetSnapshotMoney) -> Double? {
-        let total = widgetMoneyTotal(cost, currency: currency, rate: rate)
-        return total > 0 ? total : nil
-    }
+    private var rows: [WidgetUsagePayload.SeriesRow] { payload.series ?? [] }
+    private var isMonth: Bool { payload.period == "month" }
 
-    // 三段堆叠：金额取各桶单币种折算值；token 取三类 tokens。
-    private var seriesRows: [SeriesDatum] {
-        let rows = payload.series ?? []
-        return rows.flatMap { row -> [SeriesDatum] in
-            let amount = { (bucket: [String: Double]) in
-                convertAmount(
-                    usd: bucket["USD"] ?? 0, cny: bucket["CNY"] ?? 0,
-                    to: currency, rate: rate
-                )
+    var body: some View {
+        let series = rows
+        let longest = max(series.map(\.totalTokens).max() ?? 1, 1)
+        let average = series.isEmpty ? 0 : series.reduce(0) { $0 + $1.totalTokens } / max(series.count, 1)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("逐日 · token" + (isMonth ? "（虚线=累计）" : "")).font(.headline)
+                if average > 0 {
+                    Text("日均 \(tokenText(average))").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+                Spacer()
+                ForEach([(tokenClassColor(.input), "输入"), (tokenClassColor(.cache), "缓存"),
+                         (tokenClassColor(.output), "输出")], id: \.1) { color, label in
+                    HStack(spacing: 3) {
+                        RoundedRectangle(cornerRadius: 1.5).fill(color).frame(width: 6, height: 6)
+                        Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                }
             }
-            return [
-                SeriesDatum(
-                    date: shortDate(row.date), kind: "输入",
-                    value: metric == "cost"
-                        ? amount(row.cost.input)
-                        : Double(row.inputTokens ?? 0)
-                ),
-                SeriesDatum(
-                    date: shortDate(row.date), kind: "缓存",
-                    value: metric == "cost"
-                        ? amount(row.cost.cache)
-                        : Double(row.cacheTokens ?? 0)
-                ),
-                SeriesDatum(
-                    date: shortDate(row.date), kind: "输出",
-                    value: metric == "cost"
-                        ? amount(row.cost.output)
-                        : Double(row.outputTokens ?? 0)
-                ),
-            ]
+            ZStack(alignment: .bottomLeading) {
+                if !isMonth, average > 0 {
+                    Line().stroke(style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        .foregroundStyle(Color.primary.opacity(0.28))
+                        .frame(height: 1)
+                        .offset(y: -(12 + 3 + CGFloat(average) / CGFloat(longest) * 96))
+                        .allowsHitTesting(false)
+                }
+                HStack(alignment: .bottom, spacing: isMonth ? 4 : 10) {
+                    ForEach(series) { row in
+                        VStack(spacing: 3) {
+                            if !isMonth {
+                                Text(tokenText(row.totalTokens))
+                                    .font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            stackedBar(row, longest: longest)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                                .overlay {
+                                    if row.date == todayKey {
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .strokeBorder(Color.attention, lineWidth: 1.5)
+                                    }
+                                }
+                            Text(xLabel(row.date))
+                                .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
+                        }
+                        .chartHover(scale: 1.04)
+                        .dailyHoverTip(title: reportDayDisplay(row.date),
+                                       lines: seriesTipLines(row, model: model))
+                    }
+                }
+                if isMonth {
+                    CumulativeLineShape(points: cumulativePoints(longest: longest))
+                        .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                        .foregroundStyle(Color.primary.opacity(0.6))
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(height: 132, alignment: .bottom)
+        }
+        .dailyReportCard()
+    }
+
+    private var todayKey: String { dailyReportDayKey(Date()) }
+
+    // 三类层叠：自上而下 输出/缓存/输入（底=输入），与最近 7 天柱一致。
+    private func stackedBar(_ row: WidgetUsagePayload.SeriesRow, longest: Int) -> some View {
+        let total = max(row.totalTokens, 1)
+        let barHeight = max(3, CGFloat(row.totalTokens) / CGFloat(longest) * 96)
+        let segments: [(value: Int, color: Color)] = [
+            (row.outputTokens ?? 0, tokenClassColor(.output)),
+            (row.cacheTokens ?? 0, tokenClassColor(.cache)),
+            (row.inputTokens ?? 0, tokenClassColor(.input)),
+        ]
+        return VStack(spacing: 0) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                Rectangle()
+                    .fill(segment.color)
+                    .frame(height: barHeight * CGFloat(segment.value) / CGFloat(total))
+            }
         }
     }
 
-    private var cumulativeRows: [SeriesDatum] {
+    private func cumulativePoints(longest: Int) -> [CGPoint] {
+        let series = rows
+        guard !series.isEmpty, longest > 0 else { return [] }
         var running = 0.0
-        return (payload.series ?? []).map { row in
-            running += row.cost.input[currency] ?? 0
-            return SeriesDatum(date: shortDate(row.date), kind: "累计", value: running)
+        var points: [CGPoint] = []
+        for (index, row) in series.enumerated() {
+            running += Double(row.totalTokens)
+            let x = (CGFloat(index) + 0.5) / CGFloat(series.count)
+            let y = 1 - running / Double(longest) * 0.8
+            points.append(CGPoint(x: x, y: max(y, 0.02)))
+        }
+        return points
+    }
+
+    // 周视图标 MM/dd；月视图每 7 天标一次天号。
+    private func xLabel(_ iso: String) -> String {
+        if isMonth {
+            guard let day = Int(iso.suffix(2)) else { return "" }
+            return (day - 1) % 7 == 0 ? String(day) : ""
+        }
+        return reportShortDay(iso)
+    }
+}
+
+// 悬浮行提取成函数：行内表达式过重会让 swiftc 类型检查超时。
+@MainActor
+func seriesTipLines(_ row: WidgetUsagePayload.SeriesRow, model: DailyReportModel) -> [String] {
+    classTipLines(input: row.inputTokens ?? 0, cache: row.cacheTokens ?? 0, output: row.outputTokens ?? 0)
+        + ["合计：\(tokenText(row.totalTokens))"]
+        + costTipLine(row.cost, rate: model.fxRate)
+}
+// 月视图累计虚线：归一化坐标（0–1），在柱图 ZStack 里铺满。
+struct CumulativeLineShape: Shape {
+    let points: [CGPoint]
+    func path(in rect: CGRect) -> Path {
+        guard points.count > 1 else { return Path() }
+        var path = Path()
+        for (index, point) in points.enumerated() {
+            let location = CGPoint(x: point.x * rect.width, y: point.y * rect.height)
+            if index == 0 { path.move(to: location) } else { path.addLine(to: location) }
+        }
+        return path
+    }
+}
+
+// §7.3 榜单卡：图标 + 名称 + 占比条 + token + 金额（token 主列、金额次列）。
+enum RankIconKind { case provider, model }
+
+struct DimensionRankCard: View {
+    let title: String
+    let rows: [WidgetUsagePayload.By.Row]
+    let iconKind: RankIconKind
+    let rate: Double
+
+    var body: some View {
+        let list = rows.filter { $0.totalTokens > 0 && $0.key != "__other__" }
+            .sorted { $0.totalTokens > $1.totalTokens }
+        let longest = max(list.first?.totalTokens ?? 1, 1)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title).font(.headline)
+                Spacer()
+                Text("按 token 排序").font(.caption2).foregroundStyle(.tertiary)
+            }
+            if list.isEmpty {
+                Text("没有可统计的数据").font(.subheadline).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(list.prefix(6), id: \.key) { row in
+                    HStack(spacing: 6) {
+                        rankIcon(row.key)
+                        Text(displayName(row)).font(.footnote).lineLimit(1)
+                        GeometryReader { proxy in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.05))
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(barColor(row.key))
+                                    .frame(width: max(3, proxy.size.width * Double(row.totalTokens) / Double(longest)))
+                            }
+                        }
+                        .frame(height: 6)
+                        Text(tokenText(row.totalTokens))
+                            .font(.footnote.weight(.medium)).monospacedDigit()
+                        Text(usdText(usdTotal(row.cost, rate: rate)))
+                            .font(.footnote).monospacedDigit().foregroundStyle(.secondary)
+                            .frame(minWidth: 60, alignment: .trailing)
+                    }
+                    .rowHover()
+                    .dailyHoverTip(title: displayName(row),
+                                   lines: ["合计：\(tokenText(row.totalTokens))"]
+                                       + costTipLines(rate))
+                }
+            }
+        }
+        .dailyReportCard()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func costTipLines(_ rate: Double) -> [String] {
+        rows.first(where: { $0.key == "" }).map { _ in [] } ?? []
+    }
+
+    private func rankIcon(_ key: String) -> some View {
+        switch iconKind {
+        case .provider: return AnyView(AgentIconView(id: key, size: 15))
+        case .model: return AnyView(ModelIconView(name: key))
         }
     }
-
-    // x 轴标签用「天号」短标签（完整日期在悬浮卡里），避免 30 天类别轴全部截断成 "0…"。
-    private func shortDate(_ iso: String) -> String {
-        let day = iso.suffix(2)
-        return String(day.prefix(1) == "0" ? day.dropFirst() : day)
+    private func barColor(_ key: String) -> Color {
+        iconKind == .provider ? providerReportColor(key).opacity(0.85) : Color.accentColor.opacity(0.75)
     }
+    private func displayName(_ row: WidgetUsagePayload.By.Row) -> String {
+        iconKind == .provider ? providerName(row.key) : row.key
+    }
+}
 
-    private func displayName(_ key: String) -> String {
-        providerName(key)
+// §7.4 Top 项目全宽卡：名称 + token + 金额 + 占比条（总览/周/月共用）。
+struct ProjectRankCard: View {
+    let title: String
+    let rows: [WidgetUsagePayload.By.Row]
+    let rate: Double
+
+    var body: some View {
+        let list = rows.filter { $0.totalTokens > 0 && $0.key != "__other__" }
+            .sorted { $0.totalTokens > $1.totalTokens }
+        let longest = max(list.first?.totalTokens ?? 1, 1)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title).font(.headline)
+                Spacer()
+                Text("按 token 排序").font(.caption2).foregroundStyle(.tertiary)
+            }
+            if list.isEmpty {
+                Text("没有可统计的项目").font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(list.prefix(6), id: \.key) { row in
+                let base = (row.key as NSString).lastPathComponent
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(base).font(.footnote).lineLimit(1).help(row.key)
+                        Spacer(minLength: 4)
+                        Text(tokenText(row.totalTokens))
+                            .font(.footnote.weight(.medium)).monospacedDigit()
+                        Text(usdText(usdTotal(row.cost, rate: rate)))
+                            .font(.footnote).monospacedDigit().foregroundStyle(.secondary)
+                            .frame(minWidth: 60, alignment: .trailing)
+                    }
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.05))
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.accentColor.opacity(0.75))
+                                .frame(width: max(3, proxy.size.width * Double(row.totalTokens) / Double(longest)))
+                        }
+                    }
+                    .frame(height: 6)
+                }
+                .rowHover()
+                .dailyHoverTip(title: base,
+                               lines: ["合计：\(tokenText(row.totalTokens))",
+                                       "金额：\(usdText(usdTotal(row.cost, rate: rate)))"])
+            }
+        }
+        .dailyReportCard()
     }
 }
 
@@ -294,13 +380,6 @@ struct ProgressBar: View {
         }
         .frame(height: 8)
     }
-}
-
-struct SeriesDatum: Identifiable {
-    let date: String
-    let kind: String
-    let value: Double
-    var id: String { date + kind }
 }
 
 // 周期导航（§7.5）：‹ 上一期 · 本期 · 下一期 ›，下一期不能超过本期。
