@@ -532,7 +532,7 @@ def build_widgets() -> bool:
         shutil.copy2(icon, resources / icon.name)
     zcode_icns = Path("/Applications/Zcode.app/Contents/Resources/icon.icns")
     if zcode_icns.exists():
-        zcode_iconset = root / "build/zcode-iconset"
+        zcode_iconset = root / "build/zcode.iconset"
         shutil.rmtree(zcode_iconset, ignore_errors=True)
         if subprocess.run(
             ["iconutil", "-c", "iconset", str(zcode_icns), "-o", str(zcode_iconset)],
