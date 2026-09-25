@@ -226,6 +226,46 @@ class GitGuardTest(unittest.TestCase):
         self.assertEqual((self.repo.sha("main"), self.repo.sha("v1")), (main_before, tag_before))
 
 
+class TamperedRulesTest(unittest.TestCase):
+    """PR7-R3：执行者改掉工作区的 harness/rules.toml（去掉受保护分支），守卫仍按 origin/main 的规则拒绝。"""
+
+    def setUp(self):
+        self.repo = TempRepo()
+        self.addCleanup(self.repo.close)
+        (self.repo.path / "harness").mkdir()
+        for name in ("common.py", "git_guard.py", "hygiene.py", "rules.toml"):
+            shutil.copy2(ROOT / "harness" / name, self.repo.path / "harness" / name)
+        shutil.copytree(ROOT / ".githooks", self.repo.path / ".githooks")
+        self.env = {"HARNESS_ALLOW_MAIN": "1", "HARNESS_SKIP_VERIFY": "1"}
+        self.run_git("add", "-A")
+        self.run_git("commit", "-q", "-m", "guarded main")
+        self.run_git("config", "core.hooksPath", ".githooks")
+        self.remote = tempfile.TemporaryDirectory()
+        self.addCleanup(self.remote.cleanup)
+        subprocess.run(["git", "init", "-q", "--bare", self.remote.name], env=clean_git_env(GIT_ENV), check=True)
+        self.run_git("remote", "add", "origin", self.remote.name)
+        self.assertEqual(self.run_git("push", "-q", "origin", "main").returncode, 0)
+        self.run_git("fetch", "-q", "origin")
+
+    def run_git(self, *args, env=None):
+        return subprocess.run(
+            ["git", *args],
+            cwd=self.repo.path,
+            capture_output=True,
+            text=True,
+            env=clean_git_env({**GIT_ENV, **self.env, **(env or {})}),
+            check=False,
+        )
+
+    def test_tampered_rules_do_not_unprotect_main(self):
+        rules = self.repo.path / "harness" / "rules.toml"
+        rules.write_text(rules.read_text().replace('protected_branches = ["main"]', "protected_branches = []"))
+        result = self.run_git("commit", "-q", "--amend", "-m", "rewritten")
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("改写保护分支", result.stderr)
+        self.assertIn("与 origin/main 不一致", result.stderr)
+
+
 class PrePushTest(unittest.TestCase):
     def setUp(self):
         self.repo = HookedRepo()

@@ -53,7 +53,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | 层 | 内容 | 能否被绕过 |
 |---|---|---|
 | 服务端 | `.github/rulesets/main.json`：main 禁删除与改写，必须经 PR，`build` 与 `harness` 检查必须通过；`release-tags.json`：`v*` tag 禁移动与删除；release job 走 environment `release`，由用户批准 | 本机 Agent 无法绕过 |
-| git | `.githooks/pre-commit`（保护分支上禁止提交、暂存区卫生、快速 verify）；`pre-push`（禁推 main 与 tag、禁强制推送、本次推送的改动卫生、完整 verify）；`reference-transaction`（禁本地改写或删除 main、移动或删除 tag，含 filter-repo） | `--no-verify`、改 `core.hooksPath` 可绕过；Agent 层拒绝这些命令 |
+| git | `.githooks/pre-commit`（保护分支上禁止提交、暂存区卫生、快速 verify）；`pre-push`（禁推 main 与 tag、禁强制推送、本次推送的改动卫生、完整 verify）；`reference-transaction`（禁本地改写或删除 main、移动或删除 tag，含 filter-repo） | 防误操作，不防有意绕过：`--no-verify`、改 `core.hooksPath`、改守卫代码或运行时解释器都能绕过（规则文件已改为读 origin/main）；Agent 层拒绝其中能识别的命令 |
 | Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release` 与删除 CI 记录；`--role implementer` 另禁编辑判定器与护栏 | 取决于各家 hook 能力 |
 
 覆盖变量只供人使用（Agent 层会拒绝设置它们的命令）：
@@ -77,8 +77,8 @@ Agent 层按角色接入：
 
 ## 5. 一次性设置（用户）
 
-1. 本机环境：`scratch/iterm-probe-venv/bin/python -m pip install -r requirements-dev.txt`，然后 `python3 harness/git_guard.py install`。`bin/verify` 会检查这两步。
-2. GitHub ruleset：仓库 Settings → Rules → Rulesets → New ruleset → Import a ruleset，依次导入 `.github/rulesets/main.json` 与 `.github/rulesets/release-tags.json`。
+1. GitHub ruleset（先做：它是唯一不能被本机绕过的一层）：仓库 Settings → Rules → Rulesets → New ruleset → Import a ruleset，依次导入 `.github/rulesets/main.json` 与 `.github/rulesets/release-tags.json`。
+2. 本机环境：`scratch/iterm-probe-venv/bin/python -m pip install -r requirements-dev.txt`，然后 `python3 harness/git_guard.py install`。`bin/verify` 会检查这两步。
 3. 发版审批：Settings → Environments → New environment，名称 `release`，勾选 Required reviewers 并加上自己；只有一个维护者时不要勾选 Prevent self-review。
 4. Codex（可选）：在 `~/.codex/hooks.json` 的 `PreToolUse` 中加一项，命令为 `python3 <仓库>/harness/command_guard.py --format claude --role designer`，然后在 Codex 里执行 `/hooks` 信任它（改动脚本后需重新信任）。
 5. 设置后自检（只看、不改）：Rulesets 列表中两条规则均为 Active；任一 PR 页面上 `build` 与 `harness` 标为 Required。不要用真实推送 main 的方式测试：规则没生效时会真的改掉 main。
@@ -111,3 +111,4 @@ Agent 层按角色接入：
 - **身份不可区分**：Agent 与用户共用同一个 GitHub 身份时（本会话触发的 CI 记录的 actor 即为用户），服务端分不清谁在合并。R2 以上「由用户合并」目前靠约定，彻底解决需要给执行者单独身份（机器账号或 GitHub App），待用户决定。
 - **命令守卫按字符串匹配**：命令文本里出现危险字样就会拒绝，哪怕只是被 echo 或写进注释。误报的处理方式是换一种写法（例如用编辑工具改文件），不是放宽规则。已记录 4 次误报（最近一次：只读查询 `core.hooksPath` 被拒，已改为只拦设置与取消）；改为按命令结构解析列入后续工作（方案 §13 E3）。
 - **Zcode 与 Pi 无 Agent 层拦截**：它们设置覆盖变量或使用 `--no-verify` 时，本机两层都挡不住，只有服务端兜底。
+- **本机护栏的信任根在可写路径**（评审 PR7-R3）：git 钩子的规则文件曾在执行者可写的工作区，改掉 `protected_branches` 即可让本机改写 main 不受拦截。现在钩子按 origin/main 上的 `harness/rules.toml` 执行，工作区版本不一致时告警；但守卫代码（`harness/git_guard.py`、`.githooks/`）与运行时解释器（`scratch/iterm-probe-venv`）仍可被改。本机两层定位为防误操作，防有意绕过只能靠服务端 ruleset 与发版审批，所以一次性设置里 ruleset 排在第一步。
