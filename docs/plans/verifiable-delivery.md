@@ -131,8 +131,8 @@
 | A1 | 独立评审 PR #7（交接书：[harness-review-brief](../review/2026-09-25-harness-review-brief.md)） | 另一评审 Agent | — | 完成（[评审报告](../review/2026-09-26-harness-review.md)：首轮修改后可合并，PR7-R1..R6 已修；复评可合并，新增 PR7-R7..R9 已在本 PR 修复） |
 | A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 | 待开始 |
 | A4 | 导入 `.github/rulesets/main.json`、`release-tags.json`；新建 environment `release` 并设审批人（[harness 规范](../specs/delivery-harness.md) §5） | 用户 | — | 完成（2026-09-25，先于 A2 合并）：两条 ruleset 经 API 核对为 Active、规则与仓库文件一致、无绕过名单；environment `release` 经用户转贴的 API 输出核对：审批人为用户、未开禁止自审、管理员不可绕过、只允许 `v*` tag 部署；实际拦停由首次发版 V6 确认 |
-| A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 待开始 |
-| A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 待开始 |
+| A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 完成（2026-09-26）：本机 macOS `bin/verify --strict --full` 10 项全过，含 3 项 Swift 检查 |
+| A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 完成（2026-09-26）：三个执行方都在本机同一克隆里工作，`core.hooksPath` 在仓库配置中，对其 worktree 同样生效；另起克隆需重新 install（`bin/verify` 会检查）。Pi 另需信任项目（规范 §5 第 5 步，待用户执行） |
 
 ### 13.2 待用户决定
 
@@ -155,9 +155,9 @@
 
 | # | 事项 | 怎么验证 | 状态 |
 |---|---|---|---|
-| V1 | OpenCode 项目插件在真实 OpenCode 中加载并拦截 | 在本仓库启动 OpenCode，让它尝试 `git push --force`，应被拒绝 | 待验证 |
+| V1 | OpenCode 项目插件在真实 OpenCode 中加载并拦截 | 在本仓库启动 OpenCode，让它尝试 `git push --force`，应被拒绝 | 完成（2026-09-26）：真实 OpenCode 拒绝了设置覆盖变量的命令与编辑护栏文件（规范 §6） |
 | V2 | Codex 用户级 PreToolUse 钩子（载荷格式、信任门禁） | 按 harness 规范 §5 第 4 步配置后同上 | 待验证 |
-| V3 | Pi 扩展能否拦截工具调用 | 调研 Pi 扩展 API；可行则补适配器，不可行在规范中写明 | 待调研 |
+| V3 | Pi 扩展能否拦截工具调用 | 调研 Pi 扩展 API；可行则补适配器，不可行在规范中写明 | 完成（2026-09-26）：Pi 0.85 的 `tool_call` 事件可拦截，已补 `.pi/extensions/harness-guard.ts` 并在真实 Pi 中实测；扩展只在项目被信任后加载 |
 | V4 | 写入器重构在真机上行为不变（W6 隐藏标题保留项目名；R8 进行中计数） | 用户真机抽查组件 | 待验证 |
 | V5 | 每周 quality workflow 首次运行 | 合并后在 Actions 中手动触发一次 | 待 A2 |
 | V6 | `release_check` 与发版审批在首次真实发版中生效 | 下次发版时确认 | 待发版 |
