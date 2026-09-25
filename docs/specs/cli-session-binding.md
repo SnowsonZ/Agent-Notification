@@ -37,6 +37,25 @@
 
 这是协作式受管理启动合同，不是针对恶意本机进程的安全隔离。未通过启动器运行的会话不自动归属。若 agent 在不发送 SessionStart 的情况下内部切换会话，须补该版本适配后才能保证覆盖。
 
+## 验收（编号）
+
+2026-09-25 由本文既有条款整理，不新增需求；证据类型与覆盖列由 `harness/acceptance.py` 检查（见 [delivery-harness.md](delivery-harness.md)）。
+
+| 编号 | 验收内容 | 证据类型 | 覆盖 |
+|---|---|---|---|
+| CB1 | 每次运行独立 run_id；启动器在子进程存活期间持有文件锁；锁释放后的旧记录不能通过校验（PID 复用不能继承锁） | 单测 | `test_session_binding.BindingTests.test_live_binding`、`test_session_binding.BindingTests.test_released_lock_rejects_stale_record` |
+| CB2 | SessionStart 登记会话 ID，切换会话后替换；旧会话迟到的 SessionEnd 不清除新会话 | 单测 | `test_session_binding.BindingTests.test_new_session_invalidates_old_and_late_shutdown_does_not_clear_new` |
+| CB3 | 同 pane 的新受管理运行替换旧运行，旧运行的事件不再更新绑定 | 单测 | `test_session_binding.BindingTests.test_pane_reuse_rejects_old_run_and_late_events` |
+| CB4 | 校验要求锁存活、会话 ID 一致、原进程组是该 TTY 的前台进程组；挂起或转后台的旧任务不能认领 pane | 单测 + 真实 PTY | `test_session_binding.BindingTests.test_suspended_or_background_agent_cannot_claim_pane`、`test_foreground_terminal.CrossSessionForegroundTests` |
+| CB5 | 跨会话前台组查询用 ps 的 pgid/tpgid（不用 tcgetpgrp） | 真实 PTY | `test_foreground_terminal.CrossSessionForegroundTests.test_live_foreground_group_is_recognized_from_another_session`、`test_foreground_terminal.CrossSessionForegroundTests.test_other_process_group_is_rejected` |
+| CB6 | pane 身份：只认精确观测到的 ID，候选冲突时不猜测 | 单测 | `test_iterm_probe.TerminalIdentityTests` |
+| CB7 | 正常退出删除对应 run_id 的记录；未受管理的 hook 调用直接返回 | 单测 | `test_session_binding.BindingTests.test_shutdown_clears_binding`、`test_session_binding.BindingTests.test_unmanaged_hook_is_noop` |
+| CB8 | Kimi hooks 安装保留既有配置且幂等 | 单测 | `test_session_binding.BindingTests.test_kimi_install_preserves_existing_config_and_is_idempotent` |
+| CB9 | OpenCode 受管理：插件事件驱动完整生命周期；非受管理事件忽略、插件不注册钩子 | 模拟协议 | `test_opencode_inbox.OpenCodeManagedTests.test_plugin_events_drive_full_lifecycle`、`test_opencode_inbox.OpenCodeManagedTests.test_unmanaged_events_ignored`、`test_opencode_inbox.OpenCodePluginTests.test_sdk_events_map_to_inbox_names`、`test_opencode_inbox.OpenCodePluginTests.test_unmanaged_plugin_returns_no_hooks` |
+| CB10 | agy 受管理：hooks 驱动生命周期并随会话切换改绑；包装器退出兜底 SessionEnd；非受管理载荷忽略；过期锁拒绝 | 模拟协议 | `test_agy_inbox.AgyManagedTests` |
+| CB11 | 恢复降级：绑定死亡时带会话 ID 受管理恢复（pi/kimi/opencode `--session`、agy `--conversation`），优先已有活绑定；运行锁仍被持有时拒绝恢复并保留未读 | 单测 | `test_opencode_inbox.OpenCodeManagedTests.test_open_resumes_when_binding_dead`、`test_opencode_inbox.OpenCodeManagedTests.test_open_refuses_resume_when_binding_still_alive`、`test_opencode_inbox.OpenCodeManagedTests.test_open_prefers_live_rebound_binding`、`test_opencode_inbox.OpenCodeManagedTests.test_open_resumes_pi_and_kimi_with_session_flag`、`test_opencode_inbox.OpenCodeManagedTests.test_open_resumes_agy_with_conversation_flag` |
+| CB12 | 真实 iTerm2：focus 切回原标签并返回 agent_ownership_verified=true；退出后、同 pane 重启后旧 run_id 均拒绝 | 真机 UI | 用户在真实 iTerm2 执行「用法」一节的入口 |
+
 ## 用法
 
 第一标签页启动一个 agent 并保持运行：

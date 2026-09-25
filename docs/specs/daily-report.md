@@ -67,6 +67,29 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 - **准确性核对（2026-09-15）**：独立重算脚本与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致；Zcode 在跨零点分摊容差内 <2.2%（归日语义差）。证据 scratch/2026-09-15-token-accuracy-check.md。
 - 总览/详情截图核对通过（scratch/daily-report-v3-overview.png、daily-report-v3-day.png）。
 
+## 验收（编号）
+
+2026-09-25 由本文既有条款整理，不新增需求；证据类型与覆盖列由 `harness/acceptance.py` 检查（见 [delivery-harness.md](delivery-harness.md)）。
+
+| 编号 | 验收内容 | 证据类型 | 覆盖 |
+|---|---|---|---|
+| DR1 | 三类口径：输入 = 新鲜输入 + 缓存写入，缓存 = 缓存读取，输出 = 输出 + reasoning，三类之和 = 合计；取消/出错轮次照计 | 夹具 | `test_daily_report.DailyReportTests.test_zcode_three_classes_and_cancelled_turns_counted` |
+| DR2 | 各来源解析与归日：Zcode 轮区间跨零点按比例分摊，Codex 增量按时间戳，Claude/Pi/Kimi/OpenCode 按消息时间 | 夹具 | `test_daily_report.DailyReportTests.test_turn_tokens_split_proportionally_across_midnight`、`test_daily_report.DailyReportTests.test_codex_tokens_bucketed_by_request_time`、`test_daily_report.DailyReportTests.test_pi_assistant_usage_parsed`、`test_daily_report.DailyReportTests.test_kimi_wire_records_counted`、`test_daily_report.DailyReportTests.test_claude_transcript_tokens_and_missing_fallback` |
+| DR3 | Codex 任意非空 originator 的 rollout 与未登记的 Claude CLI 直启转写计入（与收件箱同口径），同一会话不重复计 | 夹具 | `test_daily_report.DailyReportTests.test_codex_cli_originator_rollouts_counted`、`test_daily_report.DailyReportTests.test_claude_cli_only_transcript_counted_once`、`test_daily_report.DailyReportTests.test_claude_transcript_counted_without_desktop_install` |
+| DR4 | `fidelity = unavailable` 的任务只列出、不参与合计 | 夹具 | `test_daily_report.DailyReportTests.test_zcode_without_token_columns_degrades_to_unavailable`、`test_daily_report.DailyReportTests.test_unavailable_task_keeps_models_empty` |
+| DR5 | Zcode 子代理轮次 token 归属父任务、不计入父任务轮次；无法归属的子代理（含 OpenCode 子代理会话）不计 | 夹具 | `test_daily_report.DailyReportTests.test_subagent_tokens_attribute_to_parent_task_without_counting_turns`、`test_daily_report.DailyReportTests.test_opencode_subagent_tokens_not_counted` |
+| DR6 | `segments` 为真实活动段（Zcode 逐请求、其余逐条时间戳，按天窗口截断），不按首末时间画整段 | 夹具 | `test_daily_report.DailyReportTests.test_task_segments_follow_real_activity_not_first_to_last_span`、`test_daily_report.DailyReportTests.test_zcode_segments_use_model_requests_not_whole_turn`、`test_daily_report.DailyReportTests.test_segments_clamped_to_day_window_across_midnight` |
+| DR7 | agent 会话退出合计、计入 `agent_excluded` 注脚；手动覆盖与 origin 规则生效；`inbox usage` 补录路径同样带注脚 | 夹具 | `test_daily_report.DailyReportTests.test_agent_sessions_excluded_and_counted_in_footnote`、`test_daily_report.DailyReportTests.test_manual_override_excludes_from_daily_report`、`test_daily_report.DailyReportTests.test_origin_rule_overrides_report_scope`、`test_usage_report.BackfillAgentStatsTest` |
+| DR8 | OpenCode 受管理口径：只统计经包装器登记的会话 | 夹具 | `test_daily_report.DailyReportTests.test_opencode_assistant_usage_counted` |
+| DR9 | 过去日固化为 json + md；今天始终实时、不落盘 | 夹具 | `test_daily_report.DailyReportTests.test_generate_day_writes_v8_and_markdown`、`test_daily_report.DailyReportTests.test_generate_day_keeps_today_live` |
+| DR10 | 过去日读定稿缓存；生成时刻早于该日结束或版本不符时重算 | 夹具 | `test_daily_report.DailyReportTests.test_overview_refreshes_past_day_snapshot_taken_before_day_end`、`test_daily_report.DailyReportTests.test_overview_backfill_cache_invalidates_v1_and_ranks_week_projects` |
+| DR11 | 过去日重写按任务合并、不降级（`--refresh` 与补录走同一关口） | 夹具 + 性质 | `test_daily_report.DailyReportTests.test_refresh_does_not_degrade_restored_day`、`test_daily_report.DailyReportTests.test_backup_fallback_when_current_report_missing`、`test_properties.MergeNoDowngradeProperties` |
+| DR12 | 热力分级：0 无记录 / L1 <20M / L2 <100M / L3 <400M / L4 ≥400M | 单测 | `test_daily_report.DailyReportTests.test_heat_level_total_token_thresholds` |
+| DR13 | 数字格式 `tokenText`（k/M/B 规则）双端一致 | 单测 | `test_daily_report.DailyReportTests.test_token_text_units`、`tests/InboxPolicyTests.swift#tokenText(6_594) == "6.6k"` |
+| DR14 | 隐私：正文不提取、不持久化、不输出；唯一例外是 claude CLI 首条合格用户消息截取 ≤80 字符作标题 | 单测 | |
+| DR15 | 总览与当日详情的编排、全部图表与数字有悬浮卡 | 真机 UI | 用户 UI 验收（截图核对） |
+| DR16 | 准确性：独立重算与报告三类逐位一致（Zcode 在跨零点分摊容差 <2.2% 内） | 真实数据 | 独立重算脚本，证据不入库 |
+
 ## 已知边界
 
 - 各来源缓存语义不同（Zcode 新鲜输入约 2%，Codex 约 50%），跨来源三类合计对比有系统偏差；口径在注脚中明示。

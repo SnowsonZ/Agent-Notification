@@ -109,6 +109,27 @@ python3 scripts/build_inbox_app.py
 
 当前产物面向 Apple Silicon、macOS 14+。先退出应用再重建，构建脚本会拒绝覆盖运行中的应用。图标由 AppKit 生成并打包，完整 bundle 使用本地 ad-hoc 签名并校验；这不是分发公证。新签名需要重新添加辅助功能授权，采用拖拽方式：缺权限时点击 Zcode 事项的「前往会话」会自动打开「隐私与安全性 → 辅助功能」面板并弹出可拖拽的本应用悬浮窗，拖进列表即授权，授权后悬浮窗自动收起；`bin/session-manager permissions` 是等效手动入口。旧开关显示开启不代表新版已获授权。
 
+## 验收（编号）
+
+2026-09-25 由本文既有条款整理，不新增需求；证据类型与覆盖列由 `harness/acceptance.py` 检查（见 [delivery-harness.md](delivery-harness.md)）。以本节为现役验收清单，下方「验证证据」「验收记录」保留历史。
+
+| 编号 | 验收内容 | 证据类型 | 覆盖 |
+|---|---|---|---|
+| IN1 | 打开成功按点击时的 revision 自动确认；打开失败保留未读；打开期间到达的新回复不被旧动作清除 | 单测 | `test_inbox_improvements.ImprovementsTests.test_successful_open_acknowledges_displayed_revision`、`test_inbox_improvements.ImprovementsTests.test_failed_open_leaves_attention`、`test_inbox_improvements.ImprovementsTests.test_new_reply_during_open_is_not_acknowledged`、`test_inbox.InboxTests.test_stale_ui_ack_cannot_clear_new_reply` |
+| IN2 | 批量已读按点击时 (id, revision) 快照逐项 CAS；已有新活动的项跳过并保留未读 | 单测 | `test_inbox_improvements.ImprovementsTests.test_batch_acknowledges_matching_revisions`、`test_inbox_improvements.ImprovementsTests.test_batch_ack_preserves_items_with_new_activity`、`test_inbox_improvements.ImprovementsTests.test_ack_batch_cli_rejects_non_array_items` |
+| IN3 | 事件去重与时钟：重复事件不恢复已处理项；迟到的完成不覆盖新的运行回合；过期事件不烧毁事件 ID；元数据变化不重复提醒 | 单测 | `test_inbox.InboxTests.test_duplicate_event_does_not_restore_acknowledged_item`、`test_inbox.InboxTests.test_late_completion_cannot_replace_new_running_turn`、`test_inbox.InboxTests.test_stale_event_does_not_burn_event_id`、`test_inbox.InboxTests.test_same_source_attention_marker_does_not_renotify_after_metadata_change` |
+| IN4 | agent 会话不通知、不进待查看、不计入角标；声明变量优先于推断；单条改判 > 目录规则 > 自动分类 | 单测 | `test_cli_sessions.ClaudeCliVisibilityTests.test_declared_env_overrides_heuristics`、`test_cli_sessions.ClaudeCliVisibilityTests.test_tty_spawn_origin_rule`、`test_cli_sessions.ManualOriginOverrideTests.test_manual_override_survives_desktop_refresh`、`test_cli_sessions.ManualOriginOverrideTests.test_display_rows_stamps_effective_origin`、`tests/InboxPolicyTests.swift#inboxNotifyEligible(origin: "agent", unread: true)` |
+| IN5 | 「进行中」只收 `running`（waiting、idle 不算），不可打开的 closed 行不列出也不计数 | 单测 | `tests/InboxPolicyTests.swift#inboxActiveListed(state: "waiting"` |
+| IN6 | 首次导入不轰炸：Codex/Zcode 历史完成以首次监控为基线，之后的新完成才未读 | 夹具 | `test_inbox.InboxTests.test_codex_initial_history_is_quiet_then_new_completion_is_unread`、`test_cli_sessions.CodexCliInclusionTests.test_historical_cli_completion_before_baseline_stays_silent` |
+| IN7 | Zcode 状态：完成不依赖原生蓝点、原生已读不替收件箱确认、流式部件推运行中、落库结束覆盖推断、子会话不冒充主任务 | 夹具 | `test_zcode_inbox.ZcodeInboxTests` |
+| IN8 | Codex rollout：CLI originator 纳入、guardian 等子会话归 agent 且不留死链、悬置回合合成中断、分身会话归属 | 夹具 | `test_cli_sessions.CodexCliInclusionTests`、`test_cli_sessions.CodexDanglingTurnTests`、`test_inbox.InboxTests.test_fork_history_does_not_attribute_parent_events_to_child` |
+| IN9 | Claude CLI：带 cwd 的 hook 会话以 cli 定位可见；标题取首条用户消息，负缓存按会话状态门控 | 夹具 | `test_cli_sessions.ClaudeCliVisibilityTests.test_hook_session_with_cwd_becomes_visible_cli_row`、`test_cli_sessions.ClaudeCliTitleTests` |
+| IN10 | 数据最小化：不保存提示词全文、回复全文、工具参数或凭据 | 单测 | `test_capture_hook.CaptureTests.test_body_and_tool_secrets_are_not_captured` |
+| IN11 | setup 可重复运行，保留既有配置与 hooks，不重复添加 | 单测 | `test_inbox.InboxTests.test_claude_setup_preserves_existing_hooks_and_is_idempotent` |
+| IN12 | 刷新双节拍：3 秒只读 store，全量采集按墙钟每 15 秒 | 单测 | `tests/InboxPolicyTests.swift#inboxTickShouldScan` |
+| IN13 | 主窗口分段、批量栏、图标与 Dock 角标同口径；切换分段不跳变 | 真机 UI | 用户 UI 验收（OCR 坐标核对） |
+| IN14 | Zcode「前往会话」：打开任务搜索、预填标题并停在结果页（2026-09-14 语义；与 zcode-native-navigation.md 的自动核验描述存在分歧，见 H0925-6） | 真机 UI | 用户 UI 验收 |
+
 ## 验证证据
 
 - 102 项 Python 检查通过（历史轮次数字，最新全量以下方验收记录为准），包括重复完成事件不恢复已处理项、旧 UI 不能清掉新回复、迟到事件不覆盖新运行、相同 unread marker 不重复提醒、源配置安装幂等，以及 Zcode 无蓝点完成、旧时钟迁移、独立已处理状态和运行中推断（活跃回合显示运行中、真实完成覆盖推断、滞后索引不能覆盖已记录完成）。

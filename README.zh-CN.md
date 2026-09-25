@@ -129,6 +129,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |
 | [用量金额与桌面组件执行计划](docs/plans/usage-cost-widgets-execution.md) | 设计方案 | 工作包、里程碑评审关口与交付要求 |
 | [可验证交付 harness](docs/specs/delivery-harness.md) | 规范 | bin/verify、修复证据、风险等级、三层护栏、一次性设置与验证状态 |
+| [任务模板](docs/templates/task.md)、[计划模板](docs/templates/plan.md) | 模板 | 把任务写成可验证问题：终态、非目标、编号验收、风险、预算、升级包 |
 | [可验证交付方案](docs/plans/verifiable-delivery.md) | 设计方案 | 以本项目为标杆的全链路 harness：可验证定义、角色、风险等级、护栏分层与 P0–P6 阶段 |
 | [日报与桌面组件重设计](docs/plans/2026-09-24-report-widget-redesign.md) | 设计决策记录 | 口径决定（金额伴随/USD-only/官方图标）、实施与已知边界 |
 | [日报金额与跨周期统计](docs/plans/usage-cost-report.md) | 设计方案 | 已定稿为规范，保留调研与取舍背景 |
@@ -157,6 +158,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | `docs/review/` | 全项目、版本或专项代码评审及验证结论 | `YYYY-MM-DD-topic.md`，注明审查基线、证据和未覆盖范围 |
 | `docs/plans/` | 设计方案、取舍、未决项和实施路径 | `topic.md`，注明当前阶段，持续更新 |
 | `docs/specs/` | 经确认、足以执行的需求和接口规格 | `topic.md`，关联来源方案与验收项 |
+| `docs/templates/` | 任务、计划等可复用模板 | `topic.md`，改动随 harness 规范同步 |
 | `docs/decisions/` | 已采纳的重要架构决策及理由 | `NNNN-topic.md`，注明状态和被替代关系 |
 
 一次性实验输出放 `scratch/`，有长期价值的证据整理后归入对应文档。新增、迁移或替代文档时同步更新本索引及相关链接；历史文档保留背景，以索引标明的现行规范为准。

@@ -121,16 +121,18 @@ App 注册 URL scheme `agentnotification`，写在 `build_inbox_app.py` 的 Info
 
 ## 7. 验收
 
-| # | 项 | 方法 |
-|---|---|---|
-| W1 | 注册与组件库展示 | 构建开发包并启动 App 后，`pluginkit -m -p com.apple.widgetkit-extension` 能列出组件；组件库里 3 个 kind 的各尺寸预览正常（用户 UI 验收） |
-| W2 | 快照读取 | 组件显示的数字与快照一致；删除快照后显示「请打开会话通知」，没有新的崩溃报告 |
-| W3 | 刷新 | 制造一条新的待处理事项，组件在 5 秒内更新；签名不变时文件的 mtime 不变（单测覆盖 `WidgetRefreshPolicy`） |
-| W4 | 跳转 | 点击待处理条目后，打开原会话并自动确认；打开前先制造新事件，打开后仍为未读；非法 URL 不执行动作（URL 解析写成纯函数并单测，端到端由用户 UI 验收） |
-| W5 | 用量一致 | 同一周期、同一视角下，组件数字与 `inbox usage` 和日报界面一致 |
-| W6 | 隐私 | `hide_titles` 打开后，快照文件中没有标题；诊断日志中没有 URL 参数原文 |
-| W7 | 过时提示 | 退出 App 超过 30 分钟后显示「更新于」 |
-| W8 | 构建两种形态 | 本机只有 CLT 时构建出降级组件；CI 构建出配置式组件，且 Metadata 断言通过 |
-| W9 | 重签保留 | 重新构建（CDHash 变化）后，已放置的组件仍在并能正常刷新 |
+证据类型与覆盖列由 `harness/acceptance.py` 检查（见 [delivery-harness.md](delivery-harness.md)）。
+
+| # | 项 | 方法 | 证据类型 | 覆盖 |
+|---|---|---|---|---|
+| W1 | 注册与组件库展示 | 构建开发包并启动 App 后，`pluginkit -m -p com.apple.widgetkit-extension` 能列出组件；组件库里 3 个 kind 的各尺寸预览正常（用户 UI 验收） | 真机 UI | 用户 UI 验收 |
+| W2 | 快照读取 | 组件显示的数字与快照一致；删除快照后显示「请打开会话通知」，没有新的崩溃报告 | 真机 UI | 用户 UI 验收 |
+| W3 | 刷新 | 制造一条新的待处理事项，组件在 5 秒内更新；签名不变时文件的 mtime 不变（单测覆盖 `WidgetRefreshPolicy`） | 单测 + 真机 UI | `tests/InboxPolicyTests.swift#WidgetRefreshPolicy.evaluate` |
+| W4 | 跳转 | 点击待处理条目后，打开原会话并自动确认；打开前先制造新事件，打开后仍为未读；非法 URL 不执行动作（URL 解析写成纯函数并单测，端到端由用户 UI 验收） | 单测 + 真机 UI | `tests/InboxPolicyTests.swift#WidgetURLRouter.parse`、`tests/InboxPolicyTests.swift#WidgetURLQueue()` |
+| W5 | 用量一致 | 同一周期、同一视角下，组件数字与 `inbox usage` 和日报界面一致 | 真实数据 + 真机 UI | 用户对照组件、CLI 与日报界面 |
+| W6 | 隐私 | `hide_titles` 打开后，快照文件中没有标题；诊断日志中没有 URL 参数原文 | 单测 + 架构 | `tests/InboxPolicyTests.swift#widgetEntryText(hideTitles: true`、`test_architecture.WidgetWriterUsesPolicyTest` |
+| W7 | 过时提示 | 退出 App 超过 30 分钟后显示「更新于」 | 真机 UI | 用户 UI 验收 |
+| W8 | 构建两种形态 | 本机只有 CLT 时构建出降级组件；CI 构建出配置式组件，且 Metadata 断言通过 | CI 断言 + 人工 | `.github/workflows/build.yml#Metadata.appintents` |
+| W9 | 重签保留 | 重新构建（CDHash 变化）后，已放置的组件仍在并能正常刷新 | 真机 UI | 用户 UI 验收 |
 
 **验证边界**：W1、W4 端到端、W7、W9 需要用户在真机上做 UI 验收。macOS 14、15、26 的验收在有设备时补做，结果记入探针调研文档；没有覆盖到的系统不得写成「已验证」。

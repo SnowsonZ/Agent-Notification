@@ -255,19 +255,21 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 
 ## 8. 验收
 
-| # | 项 | 方法 |
-|---|---|---|
-| U1 | v8 三类合计与 v7 逐位一致（Zcode 保持现有容差） | 用本机真实数据抽 3 个过去日，由独立脚本对比，证据放 `scratch/` |
-| U2 | 迁移不降级 | 夹具：v7 报告存在但来源已删；迁移后合计等于 v7，出现 `migrated_from: 7` 和 `unknown` model，备份目录存在 |
-| U3 | 六个来源的 model 与四项拆分正确 | 每个来源一份夹具测试，包括 Codex 缺少 turn_context 时记为 unknown；Zcode 覆盖单 model 整轮归属、多 model 按占比拆分（拆分后合计等于轮级）、无 model_usage 记 unknown。真实数据：最近 7 天各来源 `unknown` 的 token 占比写进 PR |
-| U4 | 规范名 | `GLM-5.3-Flash`、`zai-coding-plan/glm-5.3-flash` 合并；日期后缀被去掉；不做相似度匹配 |
-| U5 | 查找顺序、历史价格、未定价 | 覆盖层 > 国产官方 > 公开价格；跨调价日的金额分别按新旧价计算；未知 model 进入 `unpriced_tokens` |
-| U6 | 拉取节奏状态机 | 序列「变、同、同、同、同、同、同」对应间隔 7,7,14,14,28,28,30；失败后次日重试且状态不变；10 倍防护生效 |
-| U7 | Pi / OpenCode 对账 | 同一 model、同一单价下，我方计价与 `native_cost_usd` 误差 <1% |
-| U8 | `money_text` 双端一致 | Python 与 Swift 跑同一组边界值 |
-| U9 | 周期边界 | ISO 周跨年、闰年二月、月末时区边界 |
-| U10 | 界面 | 真实数据下日/周/月三屏截图（`scratch/u10-*.png`）核对：编排与统一设计语言一致、金额为 USD 伴随指标、悬浮卡数字与 `inbox usage` 一致（2026-09-24 重设计后重验收） |
-| U11 | 全量测试 | `python3 -W error::ResourceWarning -m unittest discover -s tests -v`、`ruff check scripts tests`、Swift 策略测试全部通过 |
+证据类型与覆盖列由 `harness/acceptance.py` 检查（见 [delivery-harness.md](delivery-harness.md)）。
+
+| # | 项 | 方法 | 证据类型 | 覆盖 |
+|---|---|---|---|---|
+| U1 | v8 三类合计与 v7 逐位一致（Zcode 保持现有容差） | 用本机真实数据抽 3 个过去日，由独立脚本对比，证据放 `scratch/` | 真实数据 | 独立脚本对比，证据不入库 |
+| U2 | 迁移不降级 | 夹具：v7 报告存在但来源已删；迁移后合计等于 v7，出现 `migrated_from: 7` 和 `unknown` model，备份目录存在 | 夹具 + 性质 | `test_daily_report.DailyReportTests.test_v7_migration_rewrites_to_unknown_when_sources_gone`、`test_daily_report.DailyReportTests.test_partial_cleanup_diff_becomes_unknown`、`test_properties.MergeNoDowngradeProperties` |
+| U3 | 六个来源的 model 与四项拆分正确 | 每个来源一份夹具测试，包括 Codex 缺少 turn_context 时记为 unknown；Zcode 覆盖单 model 整轮归属、多 model 按占比拆分（拆分后合计等于轮级）、无 model_usage 记 unknown。真实数据：最近 7 天各来源 `unknown` 的 token 占比写进 PR | 夹具 + 真实数据 | `test_daily_report.DailyReportTests.test_zcode_reconciled_requests_split_by_model`、`test_daily_report.DailyReportTests.test_zcode_multi_model_splits_by_request_share`、`test_daily_report.DailyReportTests.test_zcode_turn_without_model_usage_is_unknown`、`test_daily_report.DailyReportTests.test_codex_model_from_turn_context_and_unknown_without`、`test_daily_report.DailyReportTests.test_claude_pi_models_and_native_cost`、`test_daily_report.DailyReportTests.test_kimi_opencode_models_and_native_cost` |
+| U4 | 规范名 | `GLM-5.3-Flash`、`zai-coding-plan/glm-5.3-flash` 合并；日期后缀被去掉；不做相似度匹配 | 单测 | `test_model_names.CanonicalTest` |
+| U5 | 查找顺序、历史价格、未定价 | 覆盖层 > 国产官方 > 公开价格；跨调价日的金额分别按新旧价计算；未知 model 进入 `unpriced_tokens` | 单测 + 性质 | `test_usage_cost.LookupOrderTest`、`test_usage_cost.HistoryPriceTest`、`test_usage_cost.CostTest`、`test_properties.PeriodCostProperties` |
+| U6 | 拉取节奏状态机 | 序列「变、同、同、同、同、同、同」对应间隔 7,7,14,14,28,28,30；失败后次日重试且状态不变；10 倍防护生效 | 单测 + 性质 | `test_pricing_fetch.FetchStateMachineTest`、`test_pricing_fetch.TransformTest`、`test_pricing_fetch.TransformBoundaryTest`、`test_properties.PricingTransformProperties` |
+| U7 | Pi / OpenCode 对账 | 同一 model、同一单价下，我方计价与 `native_cost_usd` 误差 <1% | 单测 | `test_usage_cost.ReconciliationTest.test_computed_matches_native_within_one_percent` |
+| U8 | `money_text` 双端一致 | Python 与 Swift 跑同一组边界值 | 单测 | `test_usage_cost.MoneyTextTest`、`tests/InboxPolicyTests.swift#moneyText(0.005, currency: "USD")` |
+| U9 | 周期边界 | ISO 周跨年、闰年二月、月末时区边界 | 单测 | `test_usage_report.PeriodBoundsTest` |
+| U10 | 界面 | 真实数据下日/周/月三屏截图（`scratch/u10-*.png`）核对：编排与统一设计语言一致、金额为 USD 伴随指标、悬浮卡数字与 `inbox usage` 一致（2026-09-24 重设计后重验收） | 真机 UI | 用户截图核对 |
+| U11 | 全量测试 | `python3 -W error::ResourceWarning -m unittest discover -s tests -v`、`ruff check scripts tests`、Swift 策略测试全部通过 | CI 断言 | `.github/workflows/build.yml#harness/verify.py --strict --full` |
 
 ## 9. 已知边界
 
