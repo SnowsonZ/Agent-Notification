@@ -176,6 +176,11 @@ import Foundation
         precondition(widgetEntryTitle(hideTitles: true, title: "标题") == "")
         precondition(widgetEntryTitle(hideTitles: true, title: "") == "")
         precondition(widgetEntryTitle(hideTitles: false, title: "标题") == "标题")
+        // V080-R15（H0925-2）：写入器经 widgetEntryText 取条目文字，hide_titles 时项目名必须保留。
+        precondition(widgetEntryText(hideTitles: true, title: "标题", project: "/work/x")
+            == WidgetEntryText(title: "", project: "/work/x"))
+        precondition(widgetEntryText(hideTitles: false, title: "标题", project: "/work/x")
+            == WidgetEntryText(title: "标题", project: "/work/x"))
         // ---- R10 冷启动组合（第四轮）：flush 时行未就绪（处理方把 URL 放回
         // 队列），就绪后再 flush 最终处理且只处理一次。
         var coldQueue = WidgetURLQueue()
