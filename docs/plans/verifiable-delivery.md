@@ -130,7 +130,7 @@
 |---|---|---|---|---|
 | A1 | 独立评审 PR #7（交接书：[harness-review-brief](../review/2026-09-25-harness-review-brief.md)） | 另一评审 Agent | — | 完成（[评审报告](../review/2026-09-26-harness-review.md)：首轮修改后可合并，PR7-R1..R6 已修；复评可合并，新增 PR7-R7..R9 已在本 PR 修复） |
 | A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 | 待开始 |
-| A4 | 导入 `.github/rulesets/main.json`、`release-tags.json`；新建 environment `release` 并设审批人（[harness 规范](../specs/delivery-harness.md) §5） | 用户 | A2 | 待开始（先于 A3：本机护栏只防误操作，评审 PR7-R3） |
+| A4 | 导入 `.github/rulesets/main.json`、`release-tags.json`；新建 environment `release` 并设审批人（[harness 规范](../specs/delivery-harness.md) §5） | 用户 | — | 完成（2026-09-25，先于 A2 合并）：两条 ruleset 经 API 核对为 Active、规则与仓库文件一致、无绕过名单；environment `release` 由用户创建，配置未经机器核对（代理禁止读取），首次发版时由 V6 确认 |
 | A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 待开始 |
 | A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 待开始 |
 
