@@ -372,6 +372,58 @@ class EvidenceTest(unittest.TestCase):
         self.assertIn("✗ 失败 | ✓ 通过 | ✅", text)
 
 
+class BaseTestsTest(unittest.TestCase):
+    """PR7-R2：往已有测试文件末尾追加 monkeypatch 即可禁用已有测试；已有测试必须按 base 版本运行。"""
+
+    def setUp(self):
+        self.repo = TempRepo()
+        self.addCleanup(self.repo.close)
+        self.repo.write("scripts/mod.py", FIXED)
+        self.repo.write("tests/test_mod.py", TEST_MODULE)
+        self.base = self.repo.commit("base with guarding test")
+
+    def test_appended_monkeypatch_cannot_disable_existing_test(self):
+        import base_tests
+
+        self.repo.write("scripts/mod.py", BUGGY)
+        self.repo.write(
+            "tests/test_mod.py",
+            TEST_MODULE + "\nLevelTest.test_median_of_unsorted = lambda self: None\n",
+        )
+        self.repo.commit("reintroduce bug and silence the test\n\nRisk: R1")
+        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
+        self.assertEqual((ok, enforced), (False, True))
+
+    def test_new_test_file_cannot_patch_existing_tests(self):
+        import base_tests
+
+        self.repo.write("scripts/mod.py", BUGGY)
+        self.repo.write(
+            "tests/test_zzz.py",
+            "import test_mod\n\ntest_mod.LevelTest.test_median_of_unsorted = lambda self: None\n",
+        )
+        self.repo.commit("sneaky new file")
+        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
+        self.assertEqual((ok, enforced), (False, True))
+
+    def test_intended_test_change_is_reported_not_enforced(self):
+        import base_tests
+
+        self.repo.write("scripts/mod.py", BUGGY)
+        self.repo.write("tests/test_mod.py", TEST_MODULE.replace("[9, 1, 5]), 5)", "[9, 1, 5]), 1)"))
+        self.repo.commit("change behaviour and update the test")
+        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
+        self.assertEqual((ok, enforced), (False, False))
+
+    def test_clean_change_passes(self):
+        import base_tests
+
+        self.repo.write("scripts/mod.py", FIXED + "\nEXTRA = 1\n")
+        self.repo.commit("harmless")
+        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
+        self.assertEqual((ok, enforced), (True, True))
+
+
 class VerifyTest(unittest.TestCase):
     def test_pinned_ruff_version_is_declared(self):
         self.assertRegex(verify.pinned_version("ruff") or "", r"^\d+\.\d+\.\d+$")

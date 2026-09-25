@@ -47,6 +47,10 @@ jobs:
       - name: Hygiene of changes
         run: python harness/hygiene.py --range "${{ steps.base.outputs.sha }}"
 
+      # 已有判定器以 base 为准：追加或新增的测试代码不能让已有测试失效（评审 PR7-R2）。
+      - name: Existing tests (base version) on head
+        run: python harness/base_tests.py --base "${{ steps.base.outputs.sha }}"
+
       # 前面的检查失败时，风险等级与证据仍要生成，评审才看得到全貌。
       - name: Risk level
         if: ${{ !cancelled() }}
