@@ -1,0 +1,13 @@
+# harness 钩子公共部分（由各钩子 source）：定位 harness 与解释器。
+# 解释器优先用开发包运行时 venv，与 bin/verify 一致；找不到时按 HARNESS_FAIL_OPEN 决定放行或拒绝。
+HARNESS_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+HARNESS_PY="$HARNESS_ROOT/scratch/iterm-probe-venv/bin/python"
+if [ ! -x "$HARNESS_PY" ]; then
+    HARNESS_PY=$(command -v python3 || true)
+fi
+if [ -z "$HARNESS_PY" ]; then
+    echo "harness：找不到 python3，$(basename -- "$0") 守卫未执行。" >&2
+    if [ "${HARNESS_FAIL_OPEN:-0}" = 1 ]; then exit 0; fi
+    exit 1
+fi
+HARNESS_GUARD="$HARNESS_ROOT/harness/git_guard.py"

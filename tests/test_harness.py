@@ -99,7 +99,8 @@ class HygieneTest(unittest.TestCase):
 
     def test_secret_and_home_path_in_added_lines(self):
         added = {
-            "a.py": [(1, "token = 'ghp_" + "a" * 36 + "'"), (2, "p = '/Users/snowson/work'"), (3, "q = '/Users/x/p'")],
+            # 测试数据动态拼接：文件里写出真实形态的路径或凭据，本身就会被卫生检查拦下。
+            "a.py": [(1, "token = 'ghp_" + "a" * 36 + "'"), (2, "p = '/Users/" + "alice/work'"), (3, "q = '/Users/x/p'")],
         }
         kinds = [(v.path, v.kind) for v in hygiene.check_added_lines(added, self.rules)]
         self.assertEqual(kinds, [("a.py:1", "疑似凭据"), ("a.py:2", "本机路径")])

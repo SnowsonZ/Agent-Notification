@@ -44,11 +44,18 @@ jobs:
       - name: Hygiene of changes
         run: python harness/hygiene.py --range "${{ steps.base.outputs.sha }}"
 
+      # 前面的检查失败时，风险等级与证据仍要生成，评审才看得到全貌。
       - name: Risk level
+        if: ${{ !cancelled() }}
         run: python harness/risk.py --base "${{ steps.base.outputs.sha }}" --github
 
       - name: Fix evidence
+        if: ${{ !cancelled() }}
         run: python harness/evidence.py --base "${{ steps.base.outputs.sha }}" --markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: Release check (tag = build version, on main)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python harness/release_check.py --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA"
 
   build:
     # macos-26 自带 Xcode 26：build 脚本用 actool 把 native/AppIcon.icon 编成 Liquid Glass 分层图标。
@@ -138,7 +145,10 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, harness]
+    # 发版需用户在 environment「release」上批准（仓库设置里为它配置 required reviewer，
+    # 见 docs/specs/delivery-harness.md）；harness job 已核对 tag 与构建版本一致且在 main 上。
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: write
