@@ -1397,8 +1397,9 @@ def _v7_unknown_models(record):
 def _merge_day_tasks(report, base, excluded_sessions):
     """重扫报告与磁盘现有报告按 (provider, session_id) 合并，不降级（§3.1.3/4）。
 
-    - 重扫中存在的任务：采用重扫记录；其三类合计小于现有报告时，沿用现有三类
-      合计，差额记 unknown。
+    - 重扫中存在的任务：采用重扫记录；其三类合计小于现有报告时，三类按类别取
+      max(现有, 重扫)，正差额（现有 − 重扫）记 unknown（H0925-4：合计沿用旧值而
+      某类采用新值时，model 明细之和会与三类合计不一致）。
     - 只在现有报告存在的任务：恢复（v7 任务拆 unknown 并标记 restored_from；
       判定为 agent 的会话不恢复——正当排除，重扫注脚已含）。
     返回 (merged_records, restored_v7)。"""
@@ -1410,7 +1411,9 @@ def _merge_day_tasks(report, base, excluded_sessions):
         if old is None or _task_total(old) <= _task_total(record):
             merged.append(record)
             continue
-        # 来源部分被清理：三类合计沿用现有报告，差额记 unknown。
+        # 来源部分被清理，或两次扫描间类别迁移使某一类上升：三类合计按类别取
+        # max(现有, 重扫)，正差额（现有 − 重扫）记 unknown，保证 model 明细之和
+        # 与三类合计一致、且合计不低于现有报告（H0925-4）。
         merged_record = dict(record)
         diff = {
             "fresh_input": max(
@@ -1441,10 +1444,10 @@ def _merge_day_tasks(report, base, excluded_sessions):
             unknown[name] = int(unknown.get(name) or 0) + diff[name]
         models[UNKNOWN] = unknown
         merged_record["models"] = models
-        merged_record["input_tokens"] = int(old.get("input_tokens") or 0)
-        merged_record["cache_tokens"] = int(old.get("cache_tokens") or 0)
-        merged_record["output_tokens"] = int(old.get("output_tokens") or 0)
-        merged_record["total_tokens"] = _task_total(old)
+        merged_record["input_tokens"] = int(record.get("input_tokens") or 0) + diff["fresh_input"]
+        merged_record["cache_tokens"] = int(record.get("cache_tokens") or 0) + diff["cache_read"]
+        merged_record["output_tokens"] = int(record.get("output_tokens") or 0) + diff["output"]
+        merged_record["total_tokens"] = _task_total(merged_record)
         merged.append(merged_record)
     for key, old in base_map.items():
         if key in rescan_map:
