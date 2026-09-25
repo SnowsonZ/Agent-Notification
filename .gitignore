@@ -7,7 +7,8 @@ build/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
-.zcode/
+.zcode/*
+!.zcode/config.json
 .agents/
 .pytest_cache/
 *.o

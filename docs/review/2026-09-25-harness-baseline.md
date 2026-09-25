@@ -127,6 +127,8 @@ P6 真实任务试跑时，按同一口径对比。
 | H0925-6 | 规格互相矛盾：`zcode-native-navigation.md` 以「复制任务路径核验一致才返回 focused」为合同，`unified-inbox.md` 记录 2026-09-14 起 App「前往会话」停在搜索结果页、自动核验已移除 | 给规格编号验收时逐条对照 | 两处均已标注，**待用户确认**各自对应的入口后统一表述 ⚠️ |
 | H0925-7 | AGENTS.md 要求的 `build/zcode-focus --self-test` 在 CI 中只编译、从未运行 | 给 ZN 条目找覆盖时 | 纳入 verify（macOS），CI 每次运行 ✅ |
 | H0926-1 | 过程失败：PR #7 的评审报告绕过 PR 直接提交到 main（`3442069`），违反「main 只经 PR 合并」与评审「只读、不推送」两条约定。作者身份与用户相同，分不清是用户还是评审 Agent 所为 | 用户发现 | 不改写 main（改写本身违反约定，且该提交只含文档）；已合入 PR 分支。本机与服务端都没拦住：main 上还没有 `.githooks/`，检出 main 时没有 git 守卫；ruleset 尚未导入。再次说明 ruleset 必须先于一切导入（方案 §13 A4），身份问题见 D3 ⚠️ |
+| H0926-2 | 护栏自相矛盾：执行方守卫把 `harness/**` 整体设为禁改，而规范与任务书要求执行方补完测试后删除 `harness/acceptance-gaps.txt` 的对应行 | 首个试跑 trial-001：OpenCode 删行被拒，按升级包上报且未绕过 | 待用户决定：放开执行方编辑该清单（增条目仍由 risk.py 判 R3 兜底），或由评审方/用户删行 ⚠️ |
+| H0926-3 | harness 自身：在 linked worktree 里推送时 pre-push 的 verify 失败。钩子注入的 `GIT_DIR` 在主工作区是相对路径 `.git`，恰好对测试里的临时仓库也成立；worktree 里是指向真实仓库的绝对路径，检查子进程里未隔离的 git 调用落到真实仓库 | 本机用 worktree 推送 PR #8 时 | verify 启动检查时清掉 git 本地变量（清单按 `git rev-parse --local-env-vars` 补全），回归测试按该拓扑构造 ✅ |
 
 ### 5.1 独立评审发现（PR #7，2026-09-26）
 

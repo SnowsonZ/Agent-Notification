@@ -2,7 +2,7 @@
 
 状态：现役（2026-09-25 起）。方案与阶段见 [可验证交付方案](../plans/verifiable-delivery.md)，基线见 [2026-09-25 基线评审](../review/2026-09-25-harness-baseline.md)。
 
-harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发布包（构建只拷 `scripts/` 与 `bin/session-manager`）。改动 `harness/`、`.githooks/`、`.github/`、`.claude/`、`.opencode/`、`.pi/` 属于 R3，必须由用户批准。
+harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发布包（构建只拷 `scripts/` 与 `bin/session-manager`）。改动 `harness/`、`.githooks/`、`.github/`、`.claude/`、`.opencode/`、`.pi/`、`.zcode/` 属于 R3，必须由用户批准。
 
 ## 1. 命令
 
@@ -37,6 +37,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 - **任务与计划**：任务按 [task.md](../templates/task.md) 写（终态、非目标、编号验收、风险、预算、升级包）；R2 及以上先按 [plan.md](../templates/plan.md) 写计划交评审。
 - **独立评审**：评审方按 [review-prompt.md](../templates/review-prompt.md) 工作，对照 [review-checklist.md](../templates/review-checklist.md)（由失败分类生成，机器已判定的只核对，评审时间花在机器判定不了的部分）；发现编号 `PR<编号>-R<序号>`，修复以证据表为准。
 - **测试的几种形态**：种子固定的性质测试（`tests/test_properties.py`，`PROPTEST_SEEDS=N` 放大搜索）、架构适应度（`tests/test_architecture.py`，同一口径只实现一次）、CLI 黄金快照（`tests/test_golden.py`，有意改变时 `UPDATE_GOLDEN=1` 重新生成，按 R2 评审）。
+- **护栏规则先合并**：本机 git 守卫按 origin/main 上的 `harness/rules.toml` 执行（评审 PR7-R3），改规则的 PR 合并前，依赖新规则的文件在本机提交会被拒。放宽类规则（如新增 `[hygiene] allowed` 例外）与依赖它的文件分两个 PR：先合并规则，再提交文件。
 - **行为不变的重构**：每个提交带 `Risk: R1`；risk.py 核对只改产品代码、已有测试与黄金快照零改动，否则按 R2。
 - **不手写通过状态**：PR 与交付说明里的「测试通过」「CI 通过」「已修复」一律由 CI 的 harness job summary 与 run 链接代替。
 
@@ -74,16 +75,17 @@ Agent 层按角色接入：
 | Codex | 设计与评审 | 用户级配置，需手动添加（见 §5），不自动改用户配置 |
 | OpenCode | 执行 | 项目级插件 `.opencode/plugin/harness-guard.js`，`--role implementer` |
 | Pi | 执行 | 项目级扩展 `.pi/extensions/harness-guard.ts`（`tool_call` 事件拦截，`--role implementer`）。**只在项目被信任后加载**：未信任时（含 `pi -p` 且无保存的信任）扩展不加载、命令照常执行，只剩 git 与服务端两层；须按 §5 第 5 步信任本项目 |
-| Zcode | 执行 | 宿主没有工具调用 hook，靠 git 与服务端两层 |
+| Zcode | 执行 | （配置文件在本规则合并后的下一个 PR 入库，见 §2「护栏规则先合并」）项目级 `.zcode/config.json` 的 `PreToolUse`（Bash、Edit、Write 与 MCP 合并工具），调用 `command_guard.py --format claude --role implementer`，退出码 2 即拦截。工作区钩子须经用户信任后才执行（§5 第 6 步），未信任时状态为 `pending_trust`、不执行。`.zcode/` 其余内容是 Zcode 运行数据，仍禁止入库（`[hygiene] allowed` 只放行这一个文件） |
 
 ## 5. 一次性设置（用户）
 
 1. GitHub ruleset（先做：它是唯一不能被本机绕过的一层）：仓库 Settings → Rules → Rulesets → New ruleset → Import a ruleset，依次导入 `.github/rulesets/main.json` 与 `.github/rulesets/release-tags.json`。
-2. 本机环境：`scratch/iterm-probe-venv/bin/python -m pip install -r requirements-dev.txt`，然后 `python3 harness/git_guard.py install`。`bin/verify` 会检查这两步。
+2. 本机环境：由 Agent 按 AGENTS.md「新环境准备」自行完成（重建 venv、装开发依赖、`python3 harness/git_guard.py install`、`bin/verify`），不需要人执行。
 3. 发版审批：Settings → Environments → New environment，名称 `release`，勾选 Required reviewers 并加上自己；只有一个维护者时不要勾选 Prevent self-review。
 4. Codex（可选）：在 `~/.codex/hooks.json` 的 `PreToolUse` 中加一项，命令为 `python3 <仓库>/harness/command_guard.py --format claude --role designer`，然后在 Codex 里执行 `/hooks` 信任它（改动脚本后需重新信任）。若 Codex 接了 GitHub MCP，再为合并类工具加一项同样的钩子（D4）。
 5. Pi（执行方用 Pi 时必做）：在仓库根目录启动 `pi`，执行 `/trust` 保存对本项目的信任（写入用户级 `~/.pi/agent/trust.json`，由用户自行执行），重启 pi 后项目扩展才会加载；或每次运行都加 `-a`。
-6. 设置后自检（只看、不改）：Rulesets 列表中两条规则均为 Active；任一 PR 页面上 `build` 与 `harness` 标为 Required。不要用真实推送 main 的方式测试：规则没生效时会真的改掉 main。
+6. Zcode（执行方用 Zcode 时必做，每个克隆一次，`.zcode/config.json` 改动后需重做）：`zcode hooks trust status --workspace <仓库根>` 查看，确认声明内容后由用户执行它提示的 `zcode hooks trust grant --workspace <仓库根> --hook-digest <sha256>`。
+7. 设置后自检（只看、不改）：Rulesets 列表中两条规则均为 Active；任一 PR 页面上 `build` 与 `harness` 标为 Required。不要用真实推送 main 的方式测试：规则没生效时会真的改掉 main。
 
 ## 6. 验证状态
 
@@ -98,6 +100,7 @@ Agent 层按角色接入：
 | Claude Code PreToolUse | 2026-09-25 本仓库会话中真实拦截 3 次（均为命令文本含危险字样的误报，拦截本身生效） | ✅ 真实会话 |
 | OpenCode 插件 | node 加载插件的单测；2026-09-26 真实 OpenCode（`opencode run`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改 | ✅ 真实会话 |
 | Pi 扩展 | node 加载扩展的单测（`PiExtensionTest`）；2026-09-26 真实 Pi（`pi -a -p`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改；**未信任项目时（`pi -p` 不带 `-a`）同一命令照常执行**，扩展未加载 | ✅ 已信任时；⚠️ 依赖用户按 §5 第 5 步信任项目 |
+| Zcode 钩子 | 配置与单测（`ZcodeHookConfigTest`）随下一个 PR 入库；2026-09-26 真实 Zcode 0.16.9 识别到该声明（`hooks trust status`），未信任时同一覆盖变量命令照常执行 | ⚠️ 信任后的真实拦截待实测 |
 | Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
 | ruleset | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`）；2026-09-25 导入后经 GitHub API 核对：两条均 Active、规则与文件一致（GitHub 为 PR 规则补了默认参数）、无绕过名单，main 上生效的规则为禁删、禁强推、必须经 PR、`build` 与 `harness` 必须通过 | ✅ |
 | environment `release` | 2026-09-25 创建。本会话代理禁止读取 environments 接口，由用户转贴 API 输出核对：`required_reviewers` 为用户本人、`prevent_self_review` 为 false、`can_admins_bypass` 为 false（管理员即与 Agent 共用的身份也不能跳过审批）、部署限制为只允许 tag `v*` | ✅ 配置；实际拦停待首次发版确认（方案 §13 V6） |
@@ -115,7 +118,7 @@ Agent 层按角色接入：
 
 - **身份不可区分**：Agent 与用户共用同一个 GitHub 身份时（本会话触发的 CI 记录的 actor 即为用户），服务端分不清谁在合并。R2 以上「由用户合并」目前靠约定，彻底解决需要给执行者单独身份（机器账号或 GitHub App），待用户决定。
 - **命令守卫按字符串匹配**：命令文本里出现危险字样就会拒绝，哪怕只是被 echo 或写进注释。误报的处理方式是换一种写法（例如用编辑工具改文件），不是放宽规则。已记录 6 次误报（最近一次：新加的「不自行合并 PR」规则拦下了提到该命令名的文档编辑命令；更早两次：只读查询 `core.hooksPath` 被拒，已改为只拦设置与取消；命令里的文档文字提到危险命令被拒，改用编辑工具）。变量间接展开等写法字符串规则仍识别不了；改为按命令结构解析列入后续工作（方案 §13 E3）。
-- **Zcode 无 Agent 层拦截，Pi 的拦截依赖项目信任**：Zcode 宿主没有工具调用 hook；Pi 的项目扩展在未信任项目时不加载。此时它们设置覆盖变量或使用 `--no-verify`，本机两层都挡不住，只有服务端兜底。
+- **Zcode 与 Pi 的拦截依赖用户信任**：Zcode 的工作区钩子未经信任不执行，Pi 的项目扩展在未信任项目时不加载。此时它们设置覆盖变量或使用 `--no-verify`，本机两层都挡不住，只有服务端兜底。
 - **本机护栏的信任根在可写路径**（评审 PR7-R3）：git 钩子的规则文件曾在执行者可写的工作区，改掉 `protected_branches` 即可让本机改写 main 不受拦截。现在钩子按 origin/main 上的 `harness/rules.toml` 执行，工作区版本不一致时告警；但守卫代码（`harness/git_guard.py`、`.githooks/`）与运行时解释器（`scratch/iterm-probe-venv`）仍可被改。本机两层定位为防误操作，防有意绕过只能靠服务端 ruleset 与发版审批，所以一次性设置里 ruleset 排在第一步。
   - 「读 origin/main」只在本地远端引用可信时成立（评审 PR7-R8）：本地的 `refs/remotes/origin/main` 不受保护，把它改指伪造的提交，或把 remote 指向伪造的源再 fetch，守卫就会读到伪造的规则并照常告警「按 origin/main 的规则执行」。
   - 本 PR 合并前 main 上没有 `harness/rules.toml`，钩子退回读工作区版本；更根本的是 main 上还没有 `.githooks/`，检出 main 时本机没有任何 git 守卫（2026-09-26 评审报告直接提交到 main 即因此未被拦截，见基线评审 H0926-1）。
