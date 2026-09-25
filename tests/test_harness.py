@@ -489,6 +489,7 @@ class VerifyTest(unittest.TestCase):
             check=True,
         ).stdout.strip()
         hook_env = {"GIT_DIR": real_git_dir}
+        verify.LOG_DIR.mkdir(parents=True, exist_ok=True)  # 新检出（如 evidence 的临时 worktree）没有 build/
         with mock.patch.dict(os.environ, hook_env):
             result = verify.run_check(check)
         self.addCleanup(lambda: (ROOT / result.log).unlink(missing_ok=True))
