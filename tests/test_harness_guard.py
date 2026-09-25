@@ -478,5 +478,50 @@ console.log(JSON.stringify(out));
         self.assertEqual(json.loads(result.stdout), ["deny", "allow", "deny", "deny", "allow", "allow", "deny"])
 
 
+class ZcodeHookConfigTest(unittest.TestCase):
+    """按 .zcode/config.json 的声明运行 PreToolUse 钩子：Zcode 以 Claude 兼容载荷调用，退出码 2 即拦截。
+
+    Zcode 真实加载另需实测，且工作区钩子要经用户信任（规范 §5）。
+    """
+
+    def setUp(self):
+        config = json.loads((ROOT / ".zcode/config.json").read_text())
+        [self.entry] = config["hooks"]["events"]["PreToolUse"]
+        [self.hook] = self.entry["hooks"]
+
+    def run_hook(self, tool_name: str, tool_input: dict) -> int:
+        payload = {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": tool_input}
+        result = subprocess.run(
+            self.hook["command"],
+            shell=True,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            env={**os.environ, "ZCODE_PROJECT_DIR": str(ROOT)},
+            check=False,
+        )
+        return result.returncode
+
+    def test_matcher_covers_executor_tools(self):
+        for tool in ("Bash", "Edit", "Write", "mcp__github__merge_pull_request"):
+            with self.subTest(tool=tool):
+                self.assertTrue(re.fullmatch(self.entry["matcher"], tool), tool)
+        self.assertIsNone(re.fullmatch(self.entry["matcher"], "Read"))
+
+    def test_hook_runs_guard_as_implementer(self):
+        cases = [
+            ("Bash", {"command": "git push --force origin x"}, 2),
+            ("Bash", {"command": "git status"}, 0),
+            ("Edit", {"file_path": "harness/verify.py"}, 2),
+            ("Write", {"file_path": ".zcode/config.json"}, 2),
+            ("Edit", {"file_path": "scripts/inbox.py"}, 0),
+            ("mcp__github__merge_pull_request", {"pullNumber": 7}, 2),
+        ]
+        for tool, tool_input, expected in cases:
+            with self.subTest(tool=tool, tool_input=tool_input):
+                self.assertEqual(self.run_hook(tool, tool_input), expected)
+
+
 if __name__ == "__main__":
     unittest.main()
