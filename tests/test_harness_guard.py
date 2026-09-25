@@ -121,6 +121,31 @@ class CommandGuardTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(command_guard.check_command(command), [], command)
 
+    def test_curl_writes_in_any_argument_order(self):
+        """PR7-R9：curl 写请求只在「URL 在前、方法在后」时被拦；动词在前、长选项、连写都会放行。"""
+        denied = [
+            "curl -X PATCH https://api.github.com/repos/o/r/git/refs/heads/main",
+            "curl --request PATCH https://api.github.com/repos/o/r/git/refs/heads/main",
+            "curl --request=put https://api.github.com/repos/o/r/contents/a.py",
+            "curl -XPOST https://api.github.com/repos/o/r/releases",
+            "curl -d @body https://api.github.com/repos/o/r/git/refs",
+            "curl -d@body https://api.github.com/repos/o/r/git/refs",
+            "curl --json @body https://api.github.com/repos/o/r/pulls",
+            "curl -H 'Authorization: token x' --data-binary @b https://api.github.com/repos/o/r/merges",
+        ]
+        allowed = [
+            "curl -s https://api.github.com/repos/o/r/pulls/7",
+            "curl -D headers.txt https://api.github.com/repos/o/r",
+            "curl -X GET https://api.github.com/repos/o/r/actions/runs",
+            "curl -X POST https://example.com/hook -d x",
+        ]
+        for command in denied:
+            with self.subTest(command=command):
+                self.assertTrue(command_guard.check_command(command), command)
+        for command in allowed:
+            with self.subTest(command=command):
+                self.assertEqual(command_guard.check_command(command), [], command)
+
     def test_implementer_cannot_edit_verifiers(self):
         for path in (".github/workflows/build.yml", "harness/verify.py", str(ROOT / ".githooks/pre-push")):
             with self.subTest(path=path):
