@@ -45,13 +45,13 @@
 
 ## 5. 护栏分层
 
-执行者里 Zcode 的宿主没有工具调用 hook（`~/.zcode/hooks/` 只有编辑期 lint，见 [推送通道调研](../research/2026-09-20-push-channels-per-source.md)），所以硬边界不能放在 Agent 层。
+Agent 层取决于各家宿主（最初调研认为 Zcode 没有工具调用 hook，见 [推送通道调研](../research/2026-09-20-push-channels-per-source.md)；2026-09-26 核实 Zcode 0.16.9 已支持 `PreToolUse`），且 Zcode、Pi 的项目钩子都要用户信任后才生效，所以硬边界不能放在 Agent 层。
 
 | 层 | 机制 | 能否被绕过 | 作用 |
 |---|---|---|---|
 | 服务端 | GitHub ruleset：`main` 禁 force push 与删除、必须经 PR 与 `build` 检查；`v*` tag 禁移动与删除；release job 走需要用户审批的 environment | 本机 Agent 无法绕过 | 硬边界 |
 | git | 仓库内 `core.hooksPath`：pre-commit（禁止路径与隐私模式）、pre-push（禁推 `main` 与 tag）、reference-transaction（禁本地改写 `main` 与 tag，待实测） | `--no-verify` 等可绕过 | 与工具无关的快速反馈、防误操作 |
-| Agent | Claude Code / Codex 的 PreToolUse；OpenCode 插件、Pi 扩展（拦截能力待实测）；Zcode 无 | 各家不同 | 最早的反馈，锦上添花 |
+| Agent | Claude Code / Codex 的 PreToolUse；OpenCode 插件、Pi 扩展、Zcode 工作区钩子（后两者需用户信任） | 各家不同 | 最早的反馈，锦上添花 |
 
 未决：所有 Agent 与用户共用同一个 GitHub 身份时，服务端无法区分操作者（例如 R2 改动能否由执行者自行合并）。P2 决定是否给执行者单独身份（机器账号或 GitHub App）。
 
@@ -131,8 +131,8 @@
 | A1 | 独立评审 PR #7（交接书：[harness-review-brief](../review/2026-09-25-harness-review-brief.md)） | 另一评审 Agent | — | 完成（[评审报告](../review/2026-09-26-harness-review.md)：首轮修改后可合并，PR7-R1..R6 已修；复评可合并，新增 PR7-R7..R9 已在本 PR 修复） |
 | A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 | 待开始 |
 | A4 | 导入 `.github/rulesets/main.json`、`release-tags.json`；新建 environment `release` 并设审批人（[harness 规范](../specs/delivery-harness.md) §5） | 用户 | — | 完成（2026-09-25，先于 A2 合并）：两条 ruleset 经 API 核对为 Active、规则与仓库文件一致、无绕过名单；environment `release` 经用户转贴的 API 输出核对：审批人为用户、未开禁止自审、管理员不可绕过、只允许 `v*` tag 部署；实际拦停由首次发版 V6 确认 |
-| A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 待开始 |
-| A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 待开始 |
+| A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 完成（2026-09-26）：本机 macOS `bin/verify --strict --full` 10 项全过，含 3 项 Swift 检查 |
+| A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 完成（2026-09-26）：三个执行方都在本机同一克隆里工作，`core.hooksPath` 在仓库配置中，对其 worktree 同样生效；另起克隆需重新 install（`bin/verify` 会检查）。Pi 另需信任项目（规范 §5 第 5 步，待用户执行） |
 
 ### 13.2 待用户决定
 
@@ -155,9 +155,10 @@
 
 | # | 事项 | 怎么验证 | 状态 |
 |---|---|---|---|
-| V1 | OpenCode 项目插件在真实 OpenCode 中加载并拦截 | 在本仓库启动 OpenCode，让它尝试 `git push --force`，应被拒绝 | 待验证 |
+| V1 | OpenCode 项目插件在真实 OpenCode 中加载并拦截 | 在本仓库启动 OpenCode，让它尝试 `git push --force`，应被拒绝 | 完成（2026-09-26）：真实 OpenCode 拒绝了设置覆盖变量的命令与编辑护栏文件（规范 §6） |
 | V2 | Codex 用户级 PreToolUse 钩子（载荷格式、信任门禁） | 按 harness 规范 §5 第 4 步配置后同上 | 待验证 |
-| V3 | Pi 扩展能否拦截工具调用 | 调研 Pi 扩展 API；可行则补适配器，不可行在规范中写明 | 待调研 |
+| V3 | Pi 扩展能否拦截工具调用 | 调研 Pi 扩展 API；可行则补适配器，不可行在规范中写明 | 完成（2026-09-26）：Pi 0.85 的 `tool_call` 事件可拦截，已补 `.pi/extensions/harness-guard.ts` 并在真实 Pi 中实测；扩展只在项目被信任后加载 |
+| V7 | Zcode 工作区钩子在真实 Zcode 中拦截 | 用户按规范 §5 第 6 步信任后，让 Zcode 执行设置覆盖变量的命令与编辑 `harness/` 文件，应被拒绝 | 配置已接入并被 Zcode 识别；待用户信任后实测 |
 | V4 | 写入器重构在真机上行为不变（W6 隐藏标题保留项目名；R8 进行中计数） | 用户真机抽查组件 | 待验证 |
 | V5 | 每周 quality workflow 首次运行 | 合并后在 Actions 中手动触发一次 | 待 A2 |
 | V6 | `release_check` 与发版审批在首次真实发版中生效 | 下次发版时确认 | 待发版 |

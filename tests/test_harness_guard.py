@@ -171,7 +171,12 @@ class CommandGuardTest(unittest.TestCase):
                 self.assertTrue(any(re.fullmatch(matcher, tool) for matcher in matchers), matchers)
 
     def test_implementer_cannot_edit_verifiers(self):
-        for path in (".github/workflows/build.yml", "harness/verify.py", str(ROOT / ".githooks/pre-push")):
+        for path in (
+            ".github/workflows/build.yml",
+            "harness/verify.py",
+            str(ROOT / ".githooks/pre-push"),
+            ".pi/extensions/harness-guard.ts",
+        ):
             with self.subTest(path=path):
                 self.assertTrue(command_guard.evaluate({"file_path": path}, "implementer", ROOT))
                 self.assertEqual(command_guard.evaluate({"file_path": path}, "designer", ROOT), [])
@@ -424,6 +429,53 @@ console.log(JSON.stringify(out));
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), ["deny", "allow", "deny", "allow", "allow", "deny"])
+
+
+
+def _node_runs_typescript() -> bool:
+    if not shutil.which("node"):
+        return False
+    probe = subprocess.run(["node", "-p", "process.features.typescript"], capture_output=True, text=True, check=False)
+    return probe.stdout.strip() in {"strip", "transform"}
+
+
+@unittest.skipUnless(_node_runs_typescript(), "node 不能直接运行 TypeScript")
+class PiExtensionTest(unittest.TestCase):
+    """在 node 中加载 Pi 扩展并调用 tool_call 处理器；Pi 真实加载另需实测（规范 §6）。"""
+
+    SCRIPT = """
+const mod = await import(%s);
+const handlers = {};
+mod.default({ on: (name, handler) => { handlers[name] = handler; } });
+const cases = JSON.parse(process.argv.at(-1));
+const out = [];
+for (const [toolName, input] of cases) {
+  const verdict = await handlers["tool_call"]({ toolName, input });
+  out.push(verdict && verdict.block ? "deny" : "allow");
+}
+console.log(JSON.stringify(out));
+"""
+
+    def test_extension_blocks_dangerous_calls(self):
+        extension = (ROOT / ".pi/extensions/harness-guard.ts").as_uri()
+        cases = [
+            ["bash", {"command": "git push --force origin x"}],
+            ["bash", {"command": "git status"}],
+            ["edit", {"path": "harness/verify.py"}],
+            ["write", {"path": ".pi/extensions/harness-guard.ts"}],
+            ["edit", {"path": "scripts/inbox.py"}],
+            ["read", {"path": "harness/verify.py"}],
+            ["github_merge_pull_request", {"pullNumber": 7}],
+        ]
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", self.SCRIPT % json.dumps(extension), json.dumps(cases)],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), ["deny", "allow", "deny", "deny", "allow", "allow", "deny"])
 
 
 if __name__ == "__main__":

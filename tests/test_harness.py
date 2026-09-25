@@ -97,6 +97,12 @@ class HygieneTest(unittest.TestCase):
         flagged = {v.path for v in hygiene.check_paths(paths, self.rules)}
         self.assertEqual(flagged, {"widget/snapshot.json", "native/Widget.o", "scratch/r2.json"})
 
+    def test_only_listed_exception_under_forbidden_dir(self):
+        """.zcode/ 是 Zcode 运行数据，只有项目守卫配置可以入库。"""
+        paths = [".zcode/config.json", ".zcode/plans/plan-sess_x.md", ".zcode/config.json.bak"]
+        flagged = {v.path for v in hygiene.check_paths(paths, self.rules)}
+        self.assertEqual(flagged, {".zcode/plans/plan-sess_x.md", ".zcode/config.json.bak"})
+
     def test_secret_and_home_path_in_added_lines(self):
         added = {
             # 测试数据动态拼接：文件里写出真实形态的路径或凭据，本身就会被卫生检查拦下。
@@ -467,6 +473,25 @@ class BaseTestsTest(unittest.TestCase):
 
 
 class VerifyTest(unittest.TestCase):
+    def test_checks_do_not_inherit_hook_git_dir(self):
+        """H0926-3：linked worktree 的钩子注入绝对路径 GIT_DIR，检查里的临时仓库 git 调用被带到真实仓库。"""
+        repo = TempRepo()
+        self.addCleanup(repo.close)
+        repo.write("a.txt", "a\n")
+        expected = repo.commit("temp")
+        check = verify.Check("git-env-probe", ("quick",), shell=f"git -C '{repo.path}' rev-parse HEAD")
+        other = TempRepo()  # 钩子所属的「真实仓库」
+        self.addCleanup(other.close)
+        other.write("b.txt", "b\n")
+        other.commit("other")
+        hook_env = {"GIT_DIR": str(other.path / ".git")}
+        verify.LOG_DIR.mkdir(parents=True, exist_ok=True)  # 新检出（如 evidence 的临时 worktree）没有 build/
+        with mock.patch.dict(os.environ, hook_env):
+            result = verify.run_check(check)
+        self.addCleanup(lambda: (ROOT / result.log).unlink(missing_ok=True))
+        self.assertEqual(result.status, "pass", result.tail)
+        self.assertEqual((ROOT / result.log).read_text().strip(), expected)
+
     def test_pinned_ruff_version_is_declared(self):
         self.assertRegex(verify.pinned_version("ruff") or "", r"^\d+\.\d+\.\d+$")
 
