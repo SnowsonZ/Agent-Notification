@@ -1,4 +1,5 @@
-# 本地编辑钩子与 CI 共用的 lint 标准；两边 ruff 版本必须同步升级（当前 0.16.8）。
+# 本地编辑钩子与 CI 共用的 lint 标准；ruff 版本锁在 requirements-dev.txt（当前 0.16.8），
+# bin/verify 会检查实际版本与锁定一致。
 # 不覆盖默认规则集（无 select），只做显式豁免：
 # - DTZ（naive datetime）：日报与收件箱按本机时区归日是设计口径
 #   （docs/specs/daily-report.md），改 tz-aware 会改变报告归属，不是缺陷。

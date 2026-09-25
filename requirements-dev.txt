@@ -1,0 +1,3 @@
+# 开发与验证依赖（bin/verify 检查版本一致）。与 CI 共用；升级 ruff 时同步 ruff.toml 注释。
+-r requirements.txt
+ruff==0.16.8
