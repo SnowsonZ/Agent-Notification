@@ -129,6 +129,7 @@ P6 真实任务试跑时，按同一口径对比。
 | H0926-1 | 过程失败：PR #7 的评审报告绕过 PR 直接提交到 main（`3442069`），违反「main 只经 PR 合并」与评审「只读、不推送」两条约定。作者身份与用户相同，分不清是用户还是评审 Agent 所为 | 用户发现 | 不改写 main（改写本身违反约定，且该提交只含文档）；已合入 PR 分支。本机与服务端都没拦住：main 上还没有 `.githooks/`，检出 main 时没有 git 守卫；ruleset 尚未导入。再次说明 ruleset 必须先于一切导入（方案 §13 A4），身份问题见 D3 ⚠️ |
 | H0926-2 | 护栏自相矛盾：执行方守卫把 `harness/**` 整体设为禁改，而规范与任务书要求执行方补完测试后删除 `harness/acceptance-gaps.txt` 的对应行 | 首个试跑 trial-001：OpenCode 删行被拒，按升级包上报且未绕过 | 执行方可编辑缺口清单（逐个列出的例外，增条目仍由 risk.py 判 R3）；同类冲突 `replay_cases.py` 改为回放用例由评审方加入 ✅ |
 | H0926-3 | harness 自身：在 linked worktree 里推送时 pre-push 的 verify 失败。钩子注入的 `GIT_DIR` 在主工作区是相对路径 `.git`，恰好对测试里的临时仓库也成立；worktree 里是指向真实仓库的绝对路径，检查子进程里未隔离的 git 调用落到真实仓库 | 本机用 worktree 推送 PR #8 时 | verify 启动检查时清掉 git 本地变量（清单按 `git rev-parse --local-env-vars` 补全），回归测试按该拓扑构造 ✅ |
+| H0926-4 | harness 自身：base_tests 只把 `tests/` 换回 base 版本，head 在规格验收表里引用新测试时，base 版本的验收映射测试找不到这些测试而失败。补测试并更新验收表的正常 PR 都会被这道必过检查拦下 | 首个试跑 trial-001 的 PR #11，CI harness job | 判定器输入整体按 base 版本（`tests/`、`docs/specs/`、`harness/acceptance-gaps.txt`），回归测试与回放用例按该场景构造 ✅ |
 
 ### 5.1 独立评审发现（PR #7，2026-09-26）
 
