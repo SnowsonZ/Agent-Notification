@@ -299,6 +299,49 @@ class EvidenceTest(unittest.TestCase):
         self.assertIn("T-R1", result)
         self.assertEqual(result["T-R1"].after, "pass")
 
+    def test_doc_defect_that_changes_code_is_rejected(self):
+        """PR7-R1：`Defect: X doc` 免于测试核对，改了代码就不能再算 doc 类修复。"""
+        self.repo.write("scripts/mod.py", FIXED)
+        self.repo.write("docs/specs/a.md", "改规格\n")
+        self.repo.commit("spec + code\n\nDefect: T-R6 doc")
+        result = self.analyse(run_tests=False)["T-R6"]
+        self.assertIn("标为 doc 类修复却改了代码", result.problems[0])
+
+    def test_error_before_fix_is_not_proof(self):
+        """PR7-R4：修复新增模块时，退回后测试只会 import 出错，这证明不了测试检查了缺陷。"""
+        self.repo.write("scripts/helper.py", "def fixed():\n    return 1\n")
+        self.repo.write(
+            "tests/test_helper.py",
+            "import sys\nimport unittest\nfrom pathlib import Path\n\n"
+            "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))\n\n"
+            "from helper import fixed\n\n\nclass HelperTest(unittest.TestCase):\n"
+            "    def test_fixed(self):\n        # T-R7\n        self.assertEqual(fixed(), 1)\n",
+        )
+        self.repo.commit("add helper\n\nDefect: T-R7")
+        result = self.analyse()["T-R7"]
+        self.assertEqual(result.before, "error")
+        self.assertIn("出错而非断言失败", result.problems[0])
+
+    def test_revert_only_the_fix_not_later_commits(self):
+        """PR7-R5：整文件退回会连带撤掉后续无关提交，让一个没检查缺陷的测试「修复前失败」。"""
+        self.repo.write("scripts/mod.py", BUGGY + "VERSION = 1\n")
+        self.base = self.repo.commit("versioned base")
+        self.repo.write("scripts/mod.py", FIXED + "VERSION = 1\n")
+        self.repo.commit("fix\n\nDefect: T-R8")
+        self.repo.write("scripts/mod.py", FIXED + "VERSION = 2\n")
+        self.repo.write(
+            "tests/test_mod.py",
+            "import sys\nimport unittest\nfrom pathlib import Path\n\n"
+            "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))\n\n"
+            "import mod\n\n\nclass VersionTest(unittest.TestCase):\n"
+            "    def test_version(self):\n        # T-R8：只检查了版本号，没检查排序缺陷\n"
+            "        self.assertEqual(mod.VERSION, 2)\n",
+        )
+        self.repo.commit("bump version")
+        result = self.analyse()["T-R8"]
+        self.assertEqual(result.before, "pass")
+        self.assertIn("测试没有检查到这个缺陷", result.problems[0])
+
     def test_fix_without_referencing_test(self):
         self.repo.write("scripts/mod.py", FIXED)
         self.repo.commit("fix\n\nDefect: T-R4")
