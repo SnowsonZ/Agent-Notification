@@ -104,6 +104,9 @@ class CommandGuardTest(unittest.TestCase):
             "X=HARNESS; export ${X}_ALLOW_TAG=1; git push origin v1",
             "export \"HARNESS\"'_ALLOW_REWRITE'=1",
             "env HAR\\NESS_SKIP_VERIFY=1 git push",
+            # 只有去掉引号后才能识别的拆写（回放发现上面几条靠别的规则也能拦，没测到去引号这一步）
+            "export HARN'ESS_ALL'OW_TAG=1",
+            'gh a"pi" -X PATCH repos/o/r/git/refs/heads/main',
         ]
         allowed = [
             "gh api repos/o/r/pulls/7",
