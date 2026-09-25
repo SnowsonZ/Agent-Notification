@@ -128,6 +128,11 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [会话收件箱方案](docs/plans/session-inbox.md) | 设计方案 | 五路接入、通知抓取评估与实现路径 |
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |
 | [用量金额与桌面组件执行计划](docs/plans/usage-cost-widgets-execution.md) | 设计方案 | 工作包、里程碑评审关口与交付要求 |
+| [可验证交付 harness](docs/specs/delivery-harness.md) | 规范 | bin/verify、修复证据、风险等级、三层护栏、一次性设置与验证状态 |
+| [任务模板](docs/templates/task.md)、[计划模板](docs/templates/plan.md) | 模板 | 把任务写成可验证问题：终态、非目标、编号验收、风险、预算、升级包 |
+| [评审清单](docs/templates/review-checklist.md)、[评审提示词](docs/templates/review-prompt.md) | 模板 | 由失败分类生成的评审清单与评审方工作方式，配合 `harness/review_pack.py` 证据包 |
+| [试跑任务 001：补 DR14 测试](docs/plans/trial-001-dr14.md) | 设计方案 | 可验证交付首个真实任务试跑：任务说明、预算与试跑记录表 |
+| [可验证交付方案](docs/plans/verifiable-delivery.md) | 设计方案 | 以本项目为标杆的全链路 harness：可验证定义、角色、风险等级、护栏分层与 P0–P6 阶段 |
 | [日报与桌面组件重设计](docs/plans/2026-09-24-report-widget-redesign.md) | 设计决策记录 | 口径决定（金额伴随/USD-only/官方图标）、实施与已知边界 |
 | [日报金额与跨周期统计](docs/plans/usage-cost-report.md) | 设计方案 | 已定稿为规范，保留调研与取舍背景 |
 | [桌面组件](docs/plans/desktop-widgets.md) | 设计方案 | 已定稿为规范，保留设计背景与签名探针结论 |
@@ -138,6 +143,8 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [Zcode 状态语义排查](docs/research/2026-09-14-zcode-state-semantics.md) | 调研记录 | 等待权限状态的可达性边界 |
 | [Codex 受管理可行性论证](docs/research/2026-09-16-codex-managed-feasibility.md) | 调研记录 | notify/插件/rollout 三通道实测与暂缓决策 |
 | [各来源推送通道盘点](docs/research/2026-09-20-push-channels-per-source.md) | 调研记录 | 七家消息通道现状；codex hooks.json 全生命周期实测（含信任门禁）与 zcode 文件事件方案 |
+| [harness 评审交接](docs/review/2026-09-25-harness-review-brief.md) | 评审记录 | 交给独立评审方的范围、阅读顺序、复现命令、重点质疑与产出要求 |
+| [可验证交付基线](docs/review/2026-09-25-harness-baseline.md) | 评审记录 | v0.8.0 失败分类（R1–R19 与过程失败）、基线指标、Agent 就绪度与可验证性地图 |
 | [项目整体评估](docs/review/2026-09-21-project-assessment.md) | 评审记录 | v0.7.4 全库复评、七项缺陷与验证边界；附 v0.7.3 历史评估 |
 | [桌面组件签名探针](docs/research/2026-09-23-widget-adhoc-probe.md) | 调研记录 | ad-hoc 签名组件可行性实测、构建要点与未覆盖系统 |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 调研记录 | 现成工具比较与选型依据 |
@@ -154,6 +161,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | `docs/review/` | 全项目、版本或专项代码评审及验证结论 | `YYYY-MM-DD-topic.md`，注明审查基线、证据和未覆盖范围 |
 | `docs/plans/` | 设计方案、取舍、未决项和实施路径 | `topic.md`，注明当前阶段，持续更新 |
 | `docs/specs/` | 经确认、足以执行的需求和接口规格 | `topic.md`，关联来源方案与验收项 |
+| `docs/templates/` | 任务、计划等可复用模板 | `topic.md`，改动随 harness 规范同步 |
 | `docs/decisions/` | 已采纳的重要架构决策及理由 | `NNNN-topic.md`，注明状态和被替代关系 |
 
 一次性实验输出放 `scratch/`，有长期价值的证据整理后归入对应文档。新增、迁移或替代文档时同步更新本索引及相关链接；历史文档保留背景，以索引标明的现行规范为准。

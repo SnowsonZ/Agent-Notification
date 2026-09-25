@@ -37,6 +37,17 @@ SEGMENT_GAP = 15 * 60  # 逐条时间戳来源：相邻消息间隔不超过 15 
 CLASSES = ("input_tokens", "cache_tokens", "output_tokens")
 
 
+def cost_thresholds(amounts):
+    """热力金额分级阈值（§7）：有消耗日金额的 50/75/90 分位；样本少于 8 个时不分级。
+
+    输入可以是任意顺序（generate_overview 按日期收集），分位数必须基于排序后的样本
+    （V080-R17：曾按日期顺序直接取值，分级整体错位）。"""
+    ordered = sorted(amounts)
+    if len(ordered) < 8:
+        return [0.0, 0.0, 0.0]
+    return [ordered[int(len(ordered) * q)] for q in (0.5, 0.75, 0.9)]
+
+
 def cost_level(cny_amount, thresholds):
     """按金额的热力分级（§7）：阈值取近 182 天有消耗日的 50/75/90 分位，
     由 generate_overview 算出后传入；无阈值（样本不足）时全部 0。"""
@@ -1590,12 +1601,7 @@ def generate_overview(store, home, *, days=182, top=5):
         value = cny_view(day_cost)
         if value > 0:
             amounts.append(value)
-    amounts.sort()  # R17：分位数必须基于有序样本（此前按日期顺序取值导致分级错误）。
-    thresholds = (
-        [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)]
-        if len(amounts) >= 8
-        else [0.0, 0.0, 0.0]
-    )
+    thresholds = cost_thresholds(amounts)
     for offset in range(days):
         day = first_day + timedelta(days=offset)
         text = day.isoformat()

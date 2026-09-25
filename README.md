@@ -108,7 +108,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 
 ## Documentation
 
-The complete documentation (specifications, design plans, dated research records, and reviews) is available in Chinese under [`docs/`](docs/). Start with [the unified inbox specification](docs/specs/unified-inbox.md); the latest cross-project health review is the [2026-09-21 project assessment](docs/review/2026-09-21-project-assessment.md).
+The complete documentation (specifications, design plans, dated research records, and reviews) is available in Chinese under [`docs/`](docs/). Start with [the unified inbox specification](docs/specs/unified-inbox.md); the latest cross-project health review is the [2026-09-21 project assessment](docs/review/2026-09-21-project-assessment.md). The verifiable-delivery harness plan is in [docs/plans/verifiable-delivery.md](docs/plans/verifiable-delivery.md), with its baseline in the [2026-09-25 harness baseline review](docs/review/2026-09-25-harness-baseline.md).
 
 ## License
 

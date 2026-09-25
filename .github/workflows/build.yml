@@ -12,6 +12,64 @@ permissions:
   contents: read
 
 jobs:
+  harness:
+    # 风险等级与修复证据由机器生成，写入 job summary；不采信手写的「已修复」「CI 通过」。
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # 交付度量读取本分支的 build 运行记录（CI 轮次）
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dev dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Resolve base
+        id: base
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$PR_BASE" ]; then
+            echo "sha=$PR_BASE" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify (quick)
+        run: python harness/verify.py --quick
+
+      - name: Hygiene of changes
+        run: python harness/hygiene.py --range "${{ steps.base.outputs.sha }}"
+
+      # 已有判定器以 base 为准：追加或新增的测试代码不能让已有测试失效（评审 PR7-R2）。
+      - name: Existing tests (base version) on head
+        run: python harness/base_tests.py --base "${{ steps.base.outputs.sha }}"
+
+      # 前面的检查失败时，风险等级与证据仍要生成，评审才看得到全貌。
+      - name: Risk level
+        if: ${{ !cancelled() }}
+        run: python harness/risk.py --base "${{ steps.base.outputs.sha }}" --github
+
+      - name: Fix evidence
+        if: ${{ !cancelled() }}
+        run: python harness/evidence.py --base "${{ steps.base.outputs.sha }}" --markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: Delivery metrics
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python harness/metrics.py --base "${{ steps.base.outputs.sha }}" --github --markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: Release check (tag = build version, on main)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python harness/release_check.py --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA"
+
   build:
     # macos-26 自带 Xcode 26：build 脚本用 actool 把 native/AppIcon.icon 编成 Liquid Glass 分层图标。
     runs-on: macos-26
@@ -26,27 +84,16 @@ jobs:
         run: |
           python3 -m venv scratch/iterm-probe-venv
           scratch/iterm-probe-venv/bin/python -m pip install --upgrade pip
-          scratch/iterm-probe-venv/bin/python -m pip install -r requirements.txt
+          scratch/iterm-probe-venv/bin/python -m pip install -r requirements-dev.txt
 
       - name: Build zcode-focus
         run: |
           mkdir -p build
           xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus
 
-      - name: Swift policy tests
-        run: |
-          xcrun swiftc -parse-as-library native/InboxPolicy.swift native/Shared/WidgetSnapshot.swift tests/InboxPolicyTests.swift -o build/policy-tests
-          ./build/policy-tests
-
-      - name: Process runner tests
-        run: |
-          xcrun swiftc -parse-as-library native/ProcessRunner.swift tests/ProcessRunnerTests.swift -o build/runner-tests
-          ./build/runner-tests
-
-      - name: Lint Python
-        run: |
-          python3 -m pip install --quiet ruff==0.16.8
-          ruff check scripts tests
+      - name: Verify (lint, hygiene, Python and Swift tests, incident replay)
+        # 与本机、云端同一入口（docs/plans/verifiable-delivery.md P1）；--strict 不允许 Swift 检查被跳过。
+        run: scratch/iterm-probe-venv/bin/python harness/verify.py --strict --full
 
       - name: Build Agent Notification.app
         run: python3 scripts/build_inbox_app.py --standalone
@@ -74,9 +121,6 @@ jobs:
           codesign --verify --strict "$APPLEX"
           # 主程序 URL scheme（§5）
           plutil -extract CFBundleURLTypes.0.CFBundleURLSchemes.0 raw "$APP/Contents/Info.plist" | grep -qx "agentnotification"
-
-      - name: Run tests
-        run: scratch/iterm-probe-venv/bin/python -W error::ResourceWarning -m unittest discover -s tests
 
       - name: Smoke test standalone bundle
         run: |
@@ -114,7 +158,10 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, harness]
+    # 发版需用户在 environment「release」上批准（仓库设置里为它配置 required reviewer，
+    # 见 docs/specs/delivery-harness.md）；harness job 已核对 tag 与构建版本一致且在 main 上。
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: write

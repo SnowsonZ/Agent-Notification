@@ -50,19 +50,20 @@ final class WidgetSnapshotWriter {
             inboxNotifyEligible(origin: $0.origin, unread: $0.unread)
                 && inboxRowListed(state: $0.state, openAvailable: $0.openAvailable)
         }
-        // R8：进行中只排除 agent（运行中的会话通常还不是未读）；与 activeCount 同口径。
-        let runningRows = human.filter {
-            inboxActiveListed(state: $0.state, openAvailable: $0.openAvailable)
+        // V080-R8：进行中口径只在 widgetRunningListed 实现（只排除 agent，不要求未读，与 activeCount 同口径）。
+        let runningRows = rows.filter {
+            widgetRunningListed(origin: $0.origin, state: $0.state, openAvailable: $0.openAvailable)
         }
         let recentRows = human.sorted {
             max($0.activityAt ?? 0, $0.eventAt) > max($1.activityAt ?? 0, $1.eventAt)
         }
 
         func item(_ row: InboxRow) -> WidgetSnapshot.Inbox.Item {
-            WidgetSnapshot.Inbox.Item(
+            let text = widgetEntryText(hideTitles: hideTitles, title: row.title, project: row.project)
+            return WidgetSnapshot.Inbox.Item(
                 id: row.id, revision: row.revision, provider: row.provider,
-                title: hideTitles ? "" : row.title,
-                project: row.project,
+                title: text.title,
+                project: text.project,
                 state: row.state, at: max(row.activityAt ?? 0, row.eventAt)
             )
         }
@@ -70,10 +71,11 @@ final class WidgetSnapshotWriter {
         let runningItems = runningRows.prefix(WidgetSnapshot.maxRunningItems).map(item)
         let recentItems = recentRows.prefix(WidgetSnapshot.maxRecentItems).map { row in
             let usage = todayUsage["\(row.provider):\(row.sessionID ?? "")"]
+            let text = widgetEntryText(hideTitles: hideTitles, title: row.title, project: row.project)
             return WidgetSnapshot.RecentItem(
                 id: row.id, revision: row.revision, provider: row.provider,
-                title: hideTitles ? "" : row.title,
-                project: row.project,
+                title: text.title,
+                project: text.project,
                 state: row.state, at: max(row.activityAt ?? 0, row.eventAt),
                 todayTokens: usage?.tokens, todayCost: usage?.cost
             )

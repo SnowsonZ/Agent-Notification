@@ -1,0 +1,5 @@
+# 开发与验证依赖（bin/verify 检查版本一致）。与 CI 共用；升级 ruff 时同步 ruff.toml 注释。
+-r requirements.txt
+ruff==0.16.8
+# 仅供护栏测试回放 v0.8.0 X3（filter-repo 改写 main 与 tag），git 层与 Agent 层守卫都会拒绝它。
+git-filter-repo==2.47.0

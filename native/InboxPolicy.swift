@@ -219,3 +219,14 @@ func widgetRunningListed(origin: String?, state: String, openAvailable: Bool) ->
 func widgetEntryTitle(hideTitles: Bool, title: String) -> String {
     hideTitles ? "" : title
 }
+
+// 组件条目的可见文字（V080-R15）：WidgetSnapshotWriter 的所有条目都经这里取标题与项目名，
+// 口径只实现一次；tests/test_architecture.py 检查写入器没有另行内联判断。
+struct WidgetEntryText: Equatable {
+    let title: String
+    let project: String
+}
+
+func widgetEntryText(hideTitles: Bool, title: String, project: String) -> WidgetEntryText {
+    WidgetEntryText(title: widgetEntryTitle(hideTitles: hideTitles, title: title), project: project)
+}

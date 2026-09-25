@@ -1,0 +1,10 @@
+#!/bin/sh
+# 统一验证入口（harness/verify.py）。解释器优先用开发包运行时 venv，与 App/CLI 同一环境；
+# 没有 venv 的环境（云端、新克隆）退回 PATH 上的 python3。
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+runtime="$root/scratch/iterm-probe-venv/bin/python"
+if [ ! -x "$runtime" ]; then
+    runtime=$(command -v python3)
+fi
+exec "$runtime" "$root/harness/verify.py" "$@"

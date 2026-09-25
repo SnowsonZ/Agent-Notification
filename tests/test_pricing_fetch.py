@@ -271,5 +271,38 @@ class FetchStateMachineTest(unittest.TestCase):
         self.assertEqual(entries["provider-d/model-y"].get("aliases"), ["model-y"])
 
 
+class TransformBoundaryTest(unittest.TestCase):
+    """变异测试（harness/mutate.py）暴露的边界：「超过 10 倍」不含 10 倍本身；0 是合法单价；
+    输出单价非法同样触发保留；多级前缀的别名取最后一段。"""
+
+    def test_exactly_ten_fold_is_not_a_jump(self):
+        previous = {"m": {"input": 1.0, "output": 12.0, "currency": "USD"}}
+        entries, guards = transform({"m": {"mode": "chat", "input_cost_per_token": 1e-5}}, previous, DAY)
+        self.assertEqual(entries["m"]["input"], 10.0)
+        self.assertEqual(guards, [])
+
+    def test_exactly_one_tenth_is_not_a_jump(self):
+        previous = {"m": {"input": 10.0, "output": 12.0, "currency": "USD"}}
+        entries, guards = transform({"m": {"mode": "chat", "input_cost_per_token": 1e-6}}, previous, DAY)
+        self.assertEqual(entries["m"]["input"], 1.0)
+        self.assertEqual(guards, [])
+
+    def test_zero_price_is_valid(self):
+        entries, guards = transform({"free": {"mode": "chat", "input_cost_per_token": 0.0}}, today=DAY)
+        self.assertEqual(entries["free"]["input"], 0.0)
+        self.assertEqual(guards, [])
+
+    def test_invalid_output_price_keeps_previous_entry(self):
+        previous = {"m": {"input": 3.0, "output": 12.0, "currency": "USD"}}
+        raw = {"m": {"mode": "chat", "input_cost_per_token": 3e-6, "output_cost_per_token": -1.0}}
+        entries, guards = transform(raw, previous, DAY)
+        self.assertEqual(entries["m"], previous["m"])
+        self.assertTrue(any("kept old" in guard for guard in guards))
+
+    def test_alias_is_last_path_segment(self):
+        entries, _ = transform({"vendor/family/model-z": {"mode": "chat", "input_cost_per_token": 1e-6}}, today=DAY)
+        self.assertEqual(entries["vendor/family/model-z"]["aliases"], ["model-z"])
+
+
 if __name__ == "__main__":
     unittest.main()
