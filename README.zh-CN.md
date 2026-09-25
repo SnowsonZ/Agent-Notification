@@ -143,6 +143,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [Zcode 状态语义排查](docs/research/2026-09-14-zcode-state-semantics.md) | 调研记录 | 等待权限状态的可达性边界 |
 | [Codex 受管理可行性论证](docs/research/2026-09-16-codex-managed-feasibility.md) | 调研记录 | notify/插件/rollout 三通道实测与暂缓决策 |
 | [各来源推送通道盘点](docs/research/2026-09-20-push-channels-per-source.md) | 调研记录 | 七家消息通道现状；codex hooks.json 全生命周期实测（含信任门禁）与 zcode 文件事件方案 |
+| [harness 评审交接](docs/review/2026-09-25-harness-review-brief.md) | 评审记录 | 交给独立评审方的范围、阅读顺序、复现命令、重点质疑与产出要求 |
 | [可验证交付基线](docs/review/2026-09-25-harness-baseline.md) | 评审记录 | v0.8.0 失败分类（R1–R19 与过程失败）、基线指标、Agent 就绪度与可验证性地图 |
 | [项目整体评估](docs/review/2026-09-21-project-assessment.md) | 评审记录 | v0.7.4 全库复评、七项缺陷与验证边界；附 v0.7.3 历史评估 |
 | [桌面组件签名探针](docs/research/2026-09-23-widget-adhoc-probe.md) | 调研记录 | ad-hoc 签名组件可行性实测、构建要点与未覆盖系统 |

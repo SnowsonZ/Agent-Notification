@@ -47,6 +47,9 @@ DENY = [
     "git commit --no-verify -m x",
     "git commit -nm x",
     "git -c core.hooksPath=/dev/null commit -m x",
+    "git config core.hooksPath /dev/null",
+    "git config --local --unset core.hooksPath",
+    "git config core.hookspath .x",
     "HARNESS_ALLOW_TAG=1 git push origin v1",
     "HARNESS_SKIP_VERIFY=1 git push",
     "git reset --hard HEAD~1",
@@ -74,6 +77,8 @@ ALLOW = [
     "python3 -m unittest discover -s tests",
     "git reset --soft HEAD~1",
     "python3 -m pip show git-filter-repo",
+    "git config --get core.hooksPath",
+    "git config --local --get core.hooksPath && git status",
 ]
 
 
