@@ -305,7 +305,7 @@ class EvidenceTest(unittest.TestCase):
         self.repo.write("docs/specs/a.md", "改规格\n")
         self.repo.commit("spec + code\n\nDefect: T-R6 doc")
         result = self.analyse(run_tests=False)["T-R6"]
-        self.assertIn("标为 doc 类修复却改了代码", result.problems[0])
+        self.assertIn("标为 doc 类修复却改了代码", "\n".join(result.problems))
 
     def test_error_before_fix_is_not_proof(self):
         """PR7-R4：修复新增模块时，退回后测试只会 import 出错，这证明不了测试检查了缺陷。"""
@@ -320,7 +320,7 @@ class EvidenceTest(unittest.TestCase):
         self.repo.commit("add helper\n\nDefect: T-R7")
         result = self.analyse()["T-R7"]
         self.assertEqual(result.before, "error")
-        self.assertIn("出错而非断言失败", result.problems[0])
+        self.assertIn("出错而非断言失败", "\n".join(result.problems))
 
     def test_revert_only_the_fix_not_later_commits(self):
         """PR7-R5：整文件退回会连带撤掉后续无关提交，让一个没检查缺陷的测试「修复前失败」。"""
@@ -373,7 +373,10 @@ class EvidenceTest(unittest.TestCase):
 
 
 class BaseTestsTest(unittest.TestCase):
-    """PR7-R2：往已有测试文件末尾追加 monkeypatch 即可禁用已有测试；已有测试必须按 base 版本运行。"""
+    """PR7-R2：往已有测试文件末尾追加 monkeypatch 即可禁用已有测试；已有测试必须按 base 版本运行。
+
+    通过 CI 实际调用的命令行检查，而不是导入模块：修复前没有这道检查，用例应以断言失败结束。
+    """
 
     def setUp(self):
         self.repo = TempRepo()
@@ -382,46 +385,56 @@ class BaseTestsTest(unittest.TestCase):
         self.repo.write("tests/test_mod.py", TEST_MODULE)
         self.base = self.repo.commit("base with guarding test")
 
-    def test_appended_monkeypatch_cannot_disable_existing_test(self):
-        import base_tests
+    def check(self) -> tuple[int, str]:
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "harness/base_tests.py"), "--base", self.base, "--repo", str(self.repo.path)],
+            capture_output=True,
+            text=True,
+            env=clean_git_env(GIT_ENV),
+            check=False,
+        )
+        return completed.returncode, completed.stdout
 
+    def test_ci_runs_existing_tests_at_base_version(self):
+        workflow = (ROOT / ".github/workflows/build.yml").read_text()
+        self.assertIn("harness/base_tests.py --base", workflow)
+
+    def test_appended_monkeypatch_cannot_disable_existing_test(self):
         self.repo.write("scripts/mod.py", BUGGY)
         self.repo.write(
             "tests/test_mod.py",
             TEST_MODULE + "\nLevelTest.test_median_of_unsorted = lambda self: None\n",
         )
         self.repo.commit("reintroduce bug and silence the test\n\nRisk: R1")
-        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
-        self.assertEqual((ok, enforced), (False, True))
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
+        self.assertTrue(out.startswith("✗"), out)
 
     def test_new_test_file_cannot_patch_existing_tests(self):
-        import base_tests
-
         self.repo.write("scripts/mod.py", BUGGY)
         self.repo.write(
             "tests/test_zzz.py",
             "import test_mod\n\ntest_mod.LevelTest.test_median_of_unsorted = lambda self: None\n",
         )
         self.repo.commit("sneaky new file")
-        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
-        self.assertEqual((ok, enforced), (False, True))
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
+        self.assertTrue(out.startswith("✗"), out)
 
     def test_intended_test_change_is_reported_not_enforced(self):
-        import base_tests
-
         self.repo.write("scripts/mod.py", BUGGY)
         self.repo.write("tests/test_mod.py", TEST_MODULE.replace("[9, 1, 5]), 5)", "[9, 1, 5]), 1)"))
         self.repo.commit("change behaviour and update the test")
-        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
-        self.assertEqual((ok, enforced), (False, False))
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out.startswith("-"), out)
 
     def test_clean_change_passes(self):
-        import base_tests
-
         self.repo.write("scripts/mod.py", FIXED + "\nEXTRA = 1\n")
         self.repo.commit("harmless")
-        ok, enforced, _ = base_tests.run(self.base, "HEAD", cwd=self.repo.path)
-        self.assertEqual((ok, enforced), (True, True))
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out.startswith("✓"), out)
 
 
 class VerifyTest(unittest.TestCase):
