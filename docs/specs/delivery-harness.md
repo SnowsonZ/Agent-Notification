@@ -98,7 +98,7 @@ Agent 层按角色接入：
 | OpenCode 插件 | node 加载插件并调用 `tool.execute.before` 的单测 | ⚠️ 真实 OpenCode 加载待实测 |
 | Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
 | ruleset | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`）；2026-09-25 导入后经 GitHub API 核对：两条均 Active、规则与文件一致（GitHub 为 PR 规则补了默认参数）、无绕过名单，main 上生效的规则为禁删、禁强推、必须经 PR、`build` 与 `harness` 必须通过 | ✅ |
-| environment `release` | 2026-09-25 创建。本会话代理禁止读取 environments 接口，由用户转贴 API 输出核对：`required_reviewers` 为用户本人、`prevent_self_review` 为 false、有部署分支/tag 限制（模式未核对）；`can_admins_bypass` 仍为 true，管理员（与 Agent 共用的身份）可跳过审批 | ⚠️ 配置已核对；实际拦停待首次发版确认（方案 §13 V6） |
+| environment `release` | 2026-09-25 创建。本会话代理禁止读取 environments 接口，由用户转贴 API 输出核对：`required_reviewers` 为用户本人、`prevent_self_review` 为 false、`can_admins_bypass` 为 false（管理员即与 Agent 共用的身份也不能跳过审批）、部署限制为只允许 tag `v*` | ✅ 配置；实际拦停待首次发版确认（方案 §13 V6） |
 | 发版核对 | 临时仓库单测：版本不一致、构建号未递增、tag 不在 main | ✅ 单测；首次真实发版时再确认 |
 | 事故回放 | 30 个注入用例（含评审 PR7-R1..R9 的 11 个）：Linux 实跑 27 个，Swift 3 个由 macOS CI `--strict --full` 运行（run 36152060546）；回放自检（注入点未过期、基线全覆盖）在默认档 | ✅ |
 | 修复证据 | 本 PR 的 H0925 与 PR7-R1..R6 修复提交由 evidence 生成「修复前失败、修复后通过」；修复前以出错结束不算证据，只退回修复提交自身的改动 | ✅ |
