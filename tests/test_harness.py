@@ -471,6 +471,24 @@ class BaseTestsTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertTrue(out.startswith("✓"), out)
 
+    def test_new_tests_referenced_in_specs_are_not_a_regression(self):
+        """H0926-4：补测试并在规格验收表引用它，是正常做法；base 的验收映射测试不能因此判失败（trial-001 PR 被拦）。"""
+        self.repo.write("docs/specs/a.md", "| DR1 | `test_mod` |\n")
+        self.repo.write(
+            "tests/test_specs.py",
+            "import re\nimport unittest\nfrom pathlib import Path\n\nROOT = Path(__file__).resolve().parents[1]\n\n\n"
+            "class SpecsTest(unittest.TestCase):\n    def test_referenced_tests_exist(self):\n"
+            "        for name in re.findall(r'`(test_\\w+)`', (ROOT / 'docs/specs/a.md').read_text()):\n"
+            "            self.assertTrue((ROOT / 'tests' / f'{name}.py').exists(), name)\n",
+        )
+        self.base = self.repo.commit("specs reference tests")
+        self.repo.write("tests/test_new.py", "import unittest\n\n\nclass NewTest(unittest.TestCase):\n    def test_ok(self):\n        pass\n")
+        self.repo.write("docs/specs/a.md", "| DR1 | `test_mod` |\n| DR2 | `test_new` |\n")
+        self.repo.commit("add test and reference it")
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertTrue(out.startswith("✓"), out)
+
 
 class VerifyTest(unittest.TestCase):
     def test_checks_do_not_inherit_hook_git_dir(self):
