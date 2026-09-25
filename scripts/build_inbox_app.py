@@ -23,8 +23,8 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 contents = root / "build/Agent Notification.app/Contents"
 # 发布约束（AGENTS.md）：版本号两处同源，改版本只动这里。
-BUNDLE_SHORT_VERSION = "0.7.5"
-BUNDLE_VERSION = "23"
+BUNDLE_SHORT_VERSION = "0.8.0"
+BUNDLE_VERSION = "24"
 running = subprocess.run(
     ["/bin/ps", "-axo", "comm="], capture_output=True, text=True, check=True
 ).stdout.splitlines()
