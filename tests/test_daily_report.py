@@ -1695,5 +1695,96 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(cost_level(10, [0, 0, 0]), 0)  # 样本不足时不分级
 
 
+class DailyReportPrivacyTests(unittest.TestCase):
+    """DR14 端到端：收件箱采集（标题 ≤80 入库）之后生成日报，报告对象与落盘
+    json/md 只允许携带截断后的标题；首条消息八十字符之后的尾部、其余用户消息
+    正文与 assistant 正文不得出现在日报输出与存储目录任何文件中。"""
+
+    TAIL = "DR14-泄漏-首条消息八十字符之后"
+    SECOND = "DR14-泄漏-第二条用户消息正文"
+    ASSISTANT = "DR14-泄漏-助手消息正文"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self.store = Store(self.home / "state")
+        self.day = date.today() - timedelta(days=3)
+
+    def assert_no_markers(self, markers, *texts):
+        for text in texts:
+            for marker in markers:
+                self.assertNotIn(marker, text)
+
+    def test_report_output_and_store_carry_no_message_bodies(self):
+        from inbox_sources import collect_claude
+
+        sid = "cccccccc-2222-3333-4444-555555555555"
+        prefix = ("DR14 日报标题：" + "x" * 100)[:80]
+        self.assertEqual(len(prefix), 80)
+        self.store.patch("claude", sid, locator={"kind": "cli", "cwd": "/work/cli"})
+        path = self.home / ".claude/projects/proj" / f"{sid}.jsonl"
+        path.parent.mkdir(parents=True)
+        lines = [
+            json.dumps(
+                {
+                    "type": "user",
+                    "isMeta": True,
+                    "message": {"content": "注入上下文 " + self.SECOND},
+                    "sessionId": sid,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"content": prefix + self.TAIL},
+                    "sessionId": sid,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"content": "第二条用户消息 " + self.SECOND},
+                    "sessionId": sid,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "sessionId": sid,
+                    "timestamp": iso(self.day, 9),
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": self.ASSISTANT}],
+                        "usage": {
+                            "input_tokens": 100,
+                            "cache_creation_input_tokens": 10,
+                            "cache_read_input_tokens": 500,
+                            "output_tokens": 20,
+                        },
+                    },
+                }
+            ),
+        ]
+        path.write_text("\n".join(lines) + "\n")
+        collect_claude(self.store, self.home)  # 收件箱侧先把 ≤80 标题写入 store
+        self.assertEqual(self.store.rows()[0]["title"], prefix)
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        tasks = [task for task in report["tasks"] if task["provider"] == "claude"]
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["title"], prefix)
+        # ensure_ascii=False：标记含中文，默认转义会让断言落空。
+        serialized = json.dumps(report, ensure_ascii=False)
+        reports = self.store.root / "reports"
+        markdown = (reports / f"{self.day.isoformat()}.md").read_text()
+        self.assert_no_markers([self.TAIL, self.SECOND, self.ASSISTANT], serialized, markdown)
+        for file in sorted(self.store.root.rglob("*")):
+            if not file.is_file():
+                continue
+            blob = file.read_bytes()
+            for marker in (self.TAIL, self.SECOND, self.ASSISTANT):
+                self.assertNotIn(marker.encode("utf-8"), blob, str(file))
+
+
 if __name__ == "__main__":
     unittest.main()

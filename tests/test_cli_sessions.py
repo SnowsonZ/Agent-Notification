@@ -1305,5 +1305,104 @@ class ClaudeNativeSpawnOriginTests(unittest.TestCase):
         self.assertEqual(self.origin({("111", "tty=,ucomm=,ppid="): "\n"}), "user")
 
 
+class ClaudeCliTitlePrivacyTests(unittest.TestCase):
+    """DR14：标题只取首条合格用户消息的前 80 字符；截断尾部与其余消息正文
+    （含 isMeta 注入与 assistant 正文）不得被提取进收件箱存储（按存储目录
+    全部文件做字节级断言，正文不提取、不持久化）。"""
+
+    TAIL = "DR14-泄漏-首条消息八十字符之后"
+    SECOND = "DR14-泄漏-第二条用户消息正文"
+    ASSISTANT = "DR14-泄漏-助手消息正文"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.home = Path(self.tmp.name)
+        self.store = Store(self.home / "state")
+        # collect_claude 需要 Desktop 元数据根存在才会走到迁移/标题逻辑。
+        (self.home / "Library/Application Support/Claude/claude-code-sessions").mkdir(
+            parents=True
+        )
+
+    def write_transcript(self, sid, first_user):
+        path = self.home / ".claude/projects/proj" / f"{sid}.jsonl"
+        path.parent.mkdir(parents=True)
+        lines = [
+            json.dumps(
+                {
+                    "type": "user",
+                    "isMeta": True,
+                    "message": {"content": "注入上下文 " + self.SECOND},
+                    "sessionId": sid,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"content": "<command>跳过命令行</command>"},
+                    "sessionId": sid,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"content": first_user},
+                    "sessionId": sid,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {"content": "第二条用户消息 " + self.SECOND},
+                    "sessionId": sid,
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": self.ASSISTANT}],
+                    },
+                    "sessionId": sid,
+                }
+            ),
+        ]
+        path.write_text("\n".join(lines) + "\n")
+
+    def assert_not_persisted(self, markers):
+        for path in sorted((self.home / "state").rglob("*")):
+            if not path.is_file():
+                continue
+            blob = path.read_bytes()
+            for marker in markers:
+                self.assertNotIn(marker.encode("utf-8"), blob, str(path))
+
+    def test_title_is_first_qualified_user_message_capped_at_80_chars(self):
+        sid = "aaaaaaaa-2222-3333-4444-555555555555"
+        prefix = ("DR14 标题前缀：" + "x" * 100)[:80]
+        self.assertEqual(len(prefix), 80)
+        self.store.patch("claude", sid, locator={"kind": "cli", "cwd": "/work/cli"})
+        self.write_transcript(sid, prefix + self.TAIL)
+        health = collect_claude(self.store, self.home)
+        self.assertEqual(health["cli_titled"], 1)
+        row = self.store.rows()[0]
+        self.assertEqual(row["title"], prefix)
+        self.assertLessEqual(len(row["title"]), 80)
+        self.assert_not_persisted([self.TAIL, self.SECOND, self.ASSISTANT])
+
+    def test_title_at_exactly_80_chars_is_kept_whole(self):
+        sid = "bbbbbbbb-2222-3333-4444-555555555555"
+        whole = ("恰好八十字符的标题 " + "y" * 100)[:80]
+        self.assertEqual(len(whole), 80)
+        self.store.patch("claude", sid, locator={"kind": "cli", "cwd": "/work/cli"})
+        self.write_transcript(sid, whole)
+        health = collect_claude(self.store, self.home)
+        self.assertEqual(health["cli_titled"], 1)
+        row = self.store.rows()[0]
+        self.assertEqual(row["title"], whole)
+        self.assert_not_persisted([self.TAIL, self.SECOND, self.ASSISTANT])
+
+
 if __name__ == "__main__":
     unittest.main()
