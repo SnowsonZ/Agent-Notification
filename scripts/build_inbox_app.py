@@ -23,8 +23,8 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 contents = root / "build/Agent Notification.app/Contents"
 # 发布约束（AGENTS.md）：版本号两处同源，改版本只动这里。
-BUNDLE_SHORT_VERSION = "0.7.5"
-BUNDLE_VERSION = "23"
+BUNDLE_SHORT_VERSION = "0.8.0"
+BUNDLE_VERSION = "24"
 running = subprocess.run(
     ["/bin/ps", "-axo", "comm="], capture_output=True, text=True, check=True
 ).stdout.splitlines()
@@ -526,6 +526,21 @@ def build_widgets() -> bool:
                 }
             )
         )
+    # 官方来源图标进 appex（desktop-widgets.md §4：图标资源需复制进 appex）；
+    # zcode.png 由已安装 Zcode.app 图标现场提取，缺席时组件退化品牌色字牌。
+    for icon in sorted((root / "native/agent-icons").iterdir()):
+        shutil.copy2(icon, resources / icon.name)
+    zcode_icns = Path("/Applications/Zcode.app/Contents/Resources/icon.icns")
+    if zcode_icns.exists():
+        zcode_iconset = root / "build/zcode.iconset"
+        shutil.rmtree(zcode_iconset, ignore_errors=True)
+        if subprocess.run(
+            ["iconutil", "-c", "iconset", str(zcode_icns), "-o", str(zcode_iconset)],
+            check=False,
+        ).returncode == 0:
+            zcode_png = zcode_iconset / "icon_128x128.png"
+            if zcode_png.exists():
+                shutil.copy2(zcode_png, resources / "zcode.png")
     subprocess.run(
         [
             "codesign",

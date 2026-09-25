@@ -27,7 +27,7 @@ struct DayDetailView: View {
                             .padding(10)
                             .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                         }
-                        RhythmBandView(report: report).dailyReportCard()
+                        RhythmBandView(model: model, report: report).dailyReportCard()
                         HStack(alignment: .top, spacing: 14) {
                             SourceShareView(title: "来源占比", sources: report.totals.sources,
                                             unavailable: Set(report.tasks.filter { $0.fidelity == "unavailable" }.map(\.provider)))
@@ -35,7 +35,7 @@ struct DayDetailView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         }
                         .fixedSize(horizontal: false, vertical: true)
-                        TaskListView(report: report)
+                        TaskListView(model: model, report: report)
                     }
                 } else if let error = model.error {
                     HStack(alignment: .top, spacing: 8) {
@@ -69,22 +69,13 @@ struct SummaryCardView: View {
             UsageHeroView(total: report.totals.totalTokens, input: report.totals.inputTokens,
                           cache: report.totals.cacheTokens, output: report.totals.outputTokens,
                           caption: "token 合计", accent: liveLabel,
+                          money: usdTotal(report.totals.cost, rate: model.fxRate),
                           tiles: [("\(report.totals.tasks)", "任务"), ("\(report.totals.turns)", "轮次"),
                                   ("\(activeSourceCount)", "来源"), (activeSpanText, "活跃时长")])
-            // 金额行（§7 日视图补金额）：按标价估算；有未定价 token 时提示。
-            if let cost = report.totals.cost {
-                let total = widgetMoneyTotal(cost, currency: model.currency, rate: model.fxRate)
-                HStack(spacing: 8) {
-                    Text("金额").font(.caption).foregroundStyle(.secondary)
-                    Text(moneyText(total > 0 ? total : nil, currency: model.currency))
-                        .font(.system(size: 20, weight: .semibold))
-                    if cost.unpricedTokens > 0 {
-                        Text("另有 \(tokenText(cost.unpricedTokens)) tokens 未定价")
-                            .font(.caption2).foregroundStyle(.orange)
-                    }
-                    Spacer()
-                    Text("按标价估算 · 汇率 \(String(format: "%.2f", model.fxRate))").font(.caption2).foregroundStyle(.tertiary)
-                }
+            // 未定价 token 提示（金额本身已在 hero 的 token 下方展示）。
+            if let cost = report.totals.cost, cost.unpricedTokens > 0 {
+                Text("另有 \(tokenText(cost.unpricedTokens)) tokens 未定价")
+                    .font(.caption).foregroundStyle(.orange)
             }
             if let models = report.totals.models, !models.isEmpty {
                 ModelBreakdownView(models: models)
@@ -133,6 +124,7 @@ func mergedActiveSeconds(_ tasks: [ReportTask]) -> Double {
 }
 
 struct RhythmBandView: View {
+    @ObservedObject var model: DailyReportModel
     let report: DayReport
     var tasks: [ReportTask] { report.tasks }
     private var dayStart: Double { reportDate(report.date)?.timeIntervalSince1970 ?? 0 }
@@ -176,7 +168,8 @@ struct RhythmBandView: View {
                                                    lines: ["\(providerName(task.provider)) · \(reportClock(segment[0]))–\(reportClock(segment[1])) · 全天 \(reportTimeRange(task)) · \(task.turns) 轮"]
                                                        + classTipLines(input: task.inputTokens, cache: task.cacheTokens,
                                                                        output: task.outputTokens)
-                                                       + ["合计：\(tokenText(task.totalTokens))"])
+                                                       + ["合计：\(tokenText(task.totalTokens))"]
+                                                       + costTipLine(task.cost, rate: model.fxRate))
                             }
                         }
                     }
@@ -304,6 +297,7 @@ struct ProjectBarsView: View {
 }
 
 struct TaskListView: View {
+    @ObservedObject var model: DailyReportModel
     let report: DayReport
     var body: some View {
         let dayTotal = max(report.totals.totalTokens, 1)
@@ -340,8 +334,12 @@ struct TaskListView: View {
                     Text(task.fidelity == "unavailable" ? "无 token" : tokenText(task.totalTokens))
                         .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                         .foregroundStyle(task.fidelity == "unavailable" ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                    Text(usdText(usdTotal(task.cost, rate: model.fxRate)))
+                        .font(.system(size: 11)).monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 6) {
+                    AgentIconView(id: task.provider, size: 13)
                     Text(providerName(task.provider))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(color)

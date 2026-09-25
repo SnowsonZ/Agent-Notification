@@ -23,7 +23,8 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 - 聚合七类来源（Claude、Codex、Zcode、Pi、Kimi、OpenCode、Antigravity）的会话状态（运行中、等待输入、本轮已结束、发生错误、已中断、已退出），按最近活动排序，懒加载分页。
 - 「进行中」分段实时列出正在等待模型回复的回合（运行中态；等待用户确认权限或开着空闲不算），回合结束自动离场，3 秒轮询免刷新。
 - 其它工具（多 agent 协作等）拉起的会话默认过滤：不通知、不进待查看、不计入日报合计；工具栏可开关查看审计，日报注脚披露其 token 消耗。判定采用声明优于推断：工具拉起时设置 `SESSION_MANAGER_ORIGIN=agent|user` 即精确声明（最高优先级），未声明走各来源启发式；行内右键可手动改判并沉淀为目录规则。
-- 工作日报：按 token 消耗（输入/缓存/输出三类）统计每天会话任务，GitHub 式热力图回看近半年，附近 7 天 Top 项目与来源占比；当天实时计算，过去日在查看时定稿固化。
+- 工作日报：按 token 消耗（输入/缓存/输出三类）统计每天会话任务，GitHub 式热力图回看近半年，附近 7 天来源/模型/项目榜（含按 API 标价估算的 USD 金额，只展示美元）；日/周/月同一设计语言；当天实时计算，过去日在查看时定稿固化。
+- 桌面组件：会话通知、用量金额、最近任务三类，官方来源图标 + 品牌色；金额统一 USD 伴随展示，用量组件可配周期与视角（托盘菜单「组件默认设置…」）；CI 构建为配置式组件，本机 CLT 构建为降级静态组件。
 - Pi/Kimi 经受管理启动器运行，登记 run_id 与 session_id 绑定；跳转前复核运行锁、会话 ID 与前台进程组，进程退出后旧绑定一律拒绝。
 - Zcode 通过辅助功能接口打开任务搜索并预填标题，停在结果页，由使用者自行选择目标。
 - 从应用成功打开会话后自动标记已处理（携带 revision 校验，不吞并打开期间到达的新事件）；打开失败保留未读。待查看列表可勾选任意子集后批量标记已读（含「全选」），逐项按 revision 校验，确认瞬间已有新活动的项保留未读。
@@ -123,10 +124,11 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [CLI 会话绑定](docs/specs/cli-session-binding.md) | 规范 | 受管理启动、存活锁、会话 ID 与前台进程组校验 |
 | [Zcode 原生导航](docs/specs/zcode-native-navigation.md) | 规范 | task ID 查标题、AX 搜索、复制任务路径校验 |
 | [用量金额与跨周期统计](docs/specs/usage-cost.md) | 规范 | 按 model 计价、价格表三层与自适应拉取、USD/CNY、日/周/月（CLI 与日报金额已实施，界面与组件见执行计划） |
-| [桌面组件](docs/specs/desktop-widgets.md) | 规范（待实施） | 快照、刷新、三类组件、URL 跳转与构建要求 |
+| [桌面组件](docs/specs/desktop-widgets.md) | 已实施（本机降级形态） | 快照、刷新、三类组件、URL 跳转与构建要求 |
 | [会话收件箱方案](docs/plans/session-inbox.md) | 设计方案 | 五路接入、通知抓取评估与实现路径 |
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |
 | [用量金额与桌面组件执行计划](docs/plans/usage-cost-widgets-execution.md) | 设计方案 | 工作包、里程碑评审关口与交付要求 |
+| [日报与桌面组件重设计](docs/plans/2026-09-24-report-widget-redesign.md) | 设计决策记录 | 口径决定（金额伴随/USD-only/官方图标）、实施与已知边界 |
 | [日报金额与跨周期统计](docs/plans/usage-cost-report.md) | 设计方案 | 已定稿为规范，保留调研与取舍背景 |
 | [桌面组件](docs/plans/desktop-widgets.md) | 设计方案 | 已定稿为规范，保留设计背景与签名探针结论 |
 | [本机接入验证](docs/research/2026-09-13-integration-probe.md) | 调研记录 | 运行时证据、可复现检查与联调缺口 |

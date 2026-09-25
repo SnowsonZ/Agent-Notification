@@ -81,16 +81,6 @@ func heatMonthMarks(_ columns: [[OverviewDay?]], calendar: Calendar = .current) 
     return result
 }
 
-enum TokenClass { case input, cache, output }
-func tokenClassColor(_ cls: TokenClass) -> Color {
-    switch cls {
-    // 缓存是读取回放、通常占九成以上：用中性灰压住，让真正的输入/输出两端跳出来。
-    // 输入=主题蓝，输出=青绿（systemTeal），与来源色系不冲突，明暗模式各自自适应。
-    case .input: return Color.accentColor
-    case .cache: return Color.primary.opacity(0.13)
-    case .output: return Color(nsColor: .systemTeal)
-    }
-}
 // 日报自定义悬浮：多行卡片，鼠标进入即显（不走系统 tooltip 的长延迟通道）。
 // 黑色 80% 不透明底、白色文字（用户指定），尺寸随内容自适应、文本不折行。
 struct HoverTipCard: View {
@@ -253,31 +243,30 @@ extension View {
         modifier(ChartHoverEffect(scale: 1, highlight: true))
     }
 }
-// 金额悬浮行（usage-cost.md §7）：`金额：¥12.34（输入 ¥a · 缓存 ¥b · 输出 ¥c）` +
-// 未定价行；金额无值（全未定价）时不加行。
+// 金额悬浮行（usage-cost.md §7，2026-09-24 起 USD-only）：`金额：$12.34（输入 $a · 缓存 $b · 输出 $c）`；
+// 未定价 token 单独一行；金额无值（全未定价）时不加行。
 @MainActor
-func costTipLine(_ cost: WidgetSnapshotMoney?, model: DailyReportModel) -> [String] {
+func costTipLine(_ cost: WidgetSnapshotMoney?, rate: Double) -> [String] {
     guard let cost else { return [] }
-    let rate = model.fxRate
-    let currency = model.currency
     let amount = { (bucket: [String: Double]) in
-        convertAmount(usd: bucket["USD"] ?? 0, cny: bucket["CNY"] ?? 0, to: currency, rate: rate)
+        convertAmount(usd: bucket["USD"] ?? 0, cny: bucket["CNY"] ?? 0, to: "USD", rate: rate)
     }
     let input = amount(cost.input), cache = amount(cost.cache), output = amount(cost.output)
     let total = input + cache + output + convertAmount(
         usd: cost.nativeFallback?["USD"] ?? 0, cny: cost.nativeFallback?["CNY"] ?? 0,
-        to: currency, rate: rate
+        to: "USD", rate: rate
     )
     guard total > 0 else { return [] }
     var lines = [
-        "金额：\(moneyText(total, currency: currency))（输入 \(moneyText(input, currency: currency)) · "
-            + "缓存 \(moneyText(cache, currency: currency)) · 输出 \(moneyText(output, currency: currency))）"
+        "金额：\(usdText(total))（输入 \(usdText(input)) · "
+            + "缓存 \(usdText(cache)) · 输出 \(usdText(output))）"
     ]
     if cost.unpricedTokens > 0 {
         lines.append("未定价：\(tokenText(cost.unpricedTokens)) tokens")
     }
     return lines
 }
+
 
 func classTipLines(input: Int, cache: Int, output: Int) -> [String] {
     // 展示顺序遵循用户模板：缓存 / 输入 / 输出。

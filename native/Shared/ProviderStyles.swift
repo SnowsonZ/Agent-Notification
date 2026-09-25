@@ -43,3 +43,26 @@ func stateDotColor(_ state: String) -> Color {
     default: return Color.secondary
     }
 }
+
+// 模型名 → 家族图标 id（日报模型榜与组件共用）：前缀映射，未匹配返回 nil（调用方退化字牌）。
+func modelIconId(_ modelName: String) -> String? {
+    let name = modelName.lowercased()
+    if name.contains("claude") { return "claude" }
+    if name.contains("glm") { return "zcode" }
+    if name.contains("gpt") || name.contains("codex")
+        || name.range(of: "^o[134]", options: .regularExpression) != nil { return "codex" }
+    if name.contains("kimi") { return "kimi" }
+    if name.contains("gemini") { return "agy" }
+    return nil
+}
+
+// 三类 token 色（日报与组件同一份，2026-09-24 重设计）：
+// 输入=#0A84FF、缓存=#64D2FF、输出=#FF9F0A；不再随主题强调色漂移。
+enum TokenClass { case input, cache, output }
+func tokenClassColor(_ cls: TokenClass) -> Color {
+    switch cls {
+    case .input: return Color(red: 0.039, green: 0.518, blue: 1.0)
+    case .cache: return Color(red: 0.392, green: 0.824, blue: 1.0)
+    case .output: return Color(red: 1.0, green: 0.624, blue: 0.039)
+    }
+}

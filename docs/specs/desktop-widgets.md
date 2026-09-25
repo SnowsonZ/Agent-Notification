@@ -20,7 +20,7 @@
 {
   "schema": 1,
   "generated_at": 1790000000,
-  "prefs": {"currency": "CNY", "hide_titles": false, "fallback": {"period": "day", "dimension": "harness", "metric": "cost"}},
+  "prefs": {"currency": "USD", "hide_titles": false, "fallback": {"period": "day", "dimension": "harness"}},
   "fx": {"USD_CNY": 7.10, "as_of": "2026-09-23"},
   "inbox": {
     "pending": 3, "running": 2,
@@ -51,7 +51,7 @@
 |---|---|---|
 | inbox | pending、running 数量，以及各条目的 `id:revision:state` | 签名变化时，立即写快照并 reload `inbox` kind |
 | recent | 各条目的 `id:revision:state` | 签名变化时写快照；`recent` kind 的 reload 最小间隔 60 秒，间隔内的变化合并到下一次 |
-| usage | 无签名，按时间刷新 | 每 15 分钟执行一次 `inbox usage --period all --json`，写快照并 reload `usage` kind；打开日报窗口或切换币种时也立即刷新 |
+| usage | 无签名，按时间刷新 | 每 15 分钟执行一次 `inbox usage --period all --json`，写快照并 reload `usage` kind；打开日报窗口时也立即刷新 |
 | prefs / fx | 值本身 | 变化时写快照，reload 全部 kind |
 
 - **签名没变就不写文件、不 reload。** 这段判断写成纯函数 `WidgetRefreshPolicy`，放在 `native/InboxPolicy.swift` 或同级文件，并编写单测。
@@ -66,15 +66,15 @@
 | `inbox` 消息 | 小 | 待查看数量大字、进行中数量、最新一条的来源图标 | 无 |
 | | 中 | 最近 3 条待处理：图标、标题、状态、相对时间 | 无 |
 | | 大 | 待处理最多 6 条，加进行中最多 3 条 | 无 |
-| `usage` 用量 | 小 | 所选周期金额（或 token）大字、另一度量小字、环比箭头 | 周期、度量、币种 |
-| | 中 | 左侧为合计；右侧为所选视角的 Top 4 横向条，第 5 名及以后合并为「其他」 | 周期、视角（harness / model / 项目）、度量（金额 / token）、币种（跟随 App / USD / CNY） |
+| `usage` 用量 | 小 | 所选周期 token 大字（中上）、金额伴随行（USD、放大无标签）、环比（涨红降绿） | 周期、视角 |
+| | 中 | 左侧 token 大字 + $ 金额伴随 + 环比（上对齐）；右侧所选视角 Top 4（官方图标 + token + $，无横条——行宽不足）；行内不足五名按实有数 | 周期、视角（harness / model / 项目） |
 | | 大 | 中尺寸内容，加上周期内逐天柱图（Swift Charts） | 同上 |
 | `recent` 最近任务 | 中 / 大 | 最近 4 / 8 个任务：图标、标题、状态、相对时间、今日 token 与金额 | 来源过滤（全部 / 指定 harness） |
 
-- **配置的默认值**：周期 = 今日，视角 = harness，度量 = 金额，币种 = 跟随 App。
+- **配置的默认值**：周期 = 今日，视角 = harness。度量与币种配置已取消（2026-09-24 重设计）：token 恒为主线、金额恒为 USD 伴随。App 设置里提供这两个默认项（组件默认设置面板）。
 - **降级构建**：构建环境缺少 AppIntents 元数据工具时（见 §6），`usage` 与 `recent` 改为 `StaticConfiguration`，读取快照中的 `prefs.fallback`。App 设置里提供这三个默认项，并注明「当前构建不支持在组件上配置」。
 - 组件上不放切换按钮：ad-hoc 签名下没有 App Group，切换状态无法写回。
-- 来源图标和颜色复用 `ProviderStyles.swift` 与 `native/agent-icons`；组件用到的图标资源需要复制进 appex。
+- 来源图标和颜色复用 `ProviderStyles.swift`（Shared，主 App 与组件共用）与 `native/agent-icons`；构建脚本把图标资源复制进 appex，`zcode.png` 由已安装 Zcode.app 图标现场提取（缺席退化品牌色字牌）；暗色变体（pi/opencode）走 Shared/IconPipeline。
 - 金额显示使用 [用量金额规范](usage-cost.md) §5 的 `money_text` 与换算规则。所有数字都要能从快照推出，组件不自行计算任何口径。
 
 ## 5. URL 与跳转
