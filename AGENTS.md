@@ -7,7 +7,7 @@
 - Python 后端和适配器在 `scripts/`，Swift 原生界面与 Zcode 导航在 `native/`，统一 CLI 在 `bin/session-manager`。
 - 统一验证：`bin/verify`（lint、仓库卫生、Python 测试、macOS 上的 Swift 测试，与 CI 同口径）。修复提交带 `Defect: <编号>` trailer，通过与否只认 verify 与 CI 输出，不手写。约定与护栏见 docs/specs/delivery-harness.md。
 - 新环境准备由 Agent 自行完成，不交给人（均幂等，可重复执行）：`scratch/iterm-probe-venv` 缺失时按 README.zh-CN.md「快速上手」重建；`scratch/iterm-probe-venv/bin/python -m pip install -r requirements-dev.txt`；`python3 harness/git_guard.py install`；最后 `bin/verify`，它会检查前两步。
-- Agent 工具的项目守卫需要人确认一次信任，Agent 不得代为授权（自授信任等于执行者给自己放行）。开工时自查，未信任就把命令交给用户：Zcode 用 `zcode hooks trust status --workspace <仓库根>` 查看，按其提示由用户 `grant`；Pi 由用户在仓库根启动 `pi` 执行 `/trust`；Claude Code 首次启动时由用户确认项目钩子；OpenCode 无需确认。未信任时 Agent 层守卫不生效，只剩 git 与服务端两层。
+- Agent 工具的项目守卫需要人确认一次信任，Agent 不得代为授权（自授信任等于执行者给自己放行）。开工时自查，未信任就把命令交给用户：Zcode 由用户在本机运行一次 `python3 harness/zcode_hook.py install`（装成用户级钩子，新项目无需信任；它改用户配置，Agent 不代装），Agent 用 `status` 自查；Pi 由用户在仓库根启动 `pi` 执行 `/trust`；Claude Code 首次启动时由用户确认项目钩子；OpenCode 无需确认。未信任时 Agent 层守卫不生效，只剩 git 与服务端两层。
 - Python 检查：`python3 -W error::ResourceWarning -m unittest discover -s tests -v`（ResourceWarning 按错误对待，与 CI 同口径）。
 - Zcode 辅助程序：`xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus`；无 UI 自检：`build/zcode-focus --self-test`。
 - 原生收件箱构建：`python3 scripts/build_inbox_app.py`；先退出正在运行的本项目 App，再覆盖可执行文件。

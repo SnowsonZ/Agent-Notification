@@ -76,7 +76,7 @@ Agent 层按角色接入：
 | Codex | 设计与评审 | 用户级配置，需手动添加（见 §5），不自动改用户配置 |
 | OpenCode | 执行 | 项目级插件 `.opencode/plugin/harness-guard.js`，`--role implementer` |
 | Pi | 执行 | 项目级扩展 `.pi/extensions/harness-guard.ts`（`tool_call` 事件拦截，`--role implementer`）。**只在项目被信任后加载**：未信任时（含 `pi -p` 且无保存的信任）扩展不加载、命令照常执行，只剩 git 与服务端两层；须按 §5 第 5 步信任本项目 |
-| Zcode | 执行 | 项目级 `.zcode/config.json` 的 `PreToolUse`（Bash、Edit、Write 与 MCP 合并工具），调用 `command_guard.py --format claude --role implementer`，退出码 2 即拦截。工作区钩子须经用户信任后才执行（§5 第 6 步），未信任时状态为 `pending_trust`、不执行。**只在桌面版 ZCode.app（协议服务端宿主）生效，CLI 与 TUI 不执行工作区钩子**（§6）。`.zcode/` 其余内容是 Zcode 运行数据，仍禁止入库（`[hygiene] allowed` 只放行这一个文件） |
+| Zcode | 执行 | 用户级钩子：`python3 harness/zcode_hook.py install` 在 `~/.zcode/cli/config.json` 加一条 `PreToolUse`（Bash、Edit、Write 与 MCP 合并工具），只在含 `harness/command_guard.py` 的仓库里调用 `command_guard.py --format claude --role implementer`（退出码 2 拦截），其他项目放行。用户级钩子不需要逐项目信任，CLI 与桌面版都加载。项目级 `.zcode/config.json` 已弃用：须逐工作区授信任，且实测 CLI 与 TUI 不执行（§6） |
 
 ## 5. 一次性设置（用户）
 
@@ -85,7 +85,7 @@ Agent 层按角色接入：
 3. 发版审批：Settings → Environments → New environment，名称 `release`，勾选 Required reviewers 并加上自己；只有一个维护者时不要勾选 Prevent self-review。
 4. Codex（可选）：在 `~/.codex/hooks.json` 的 `PreToolUse` 中加一项，命令为 `python3 <仓库>/harness/command_guard.py --format claude --role designer`，然后在 Codex 里执行 `/hooks` 信任它（改动脚本后需重新信任）。若 Codex 接了 GitHub MCP，再为合并类工具加一项同样的钩子（D4）。
 5. Pi（执行方用 Pi 时必做）：在仓库根目录启动 `pi`，执行 `/trust` 保存对本项目的信任（写入用户级 `~/.pi/agent/trust.json`，由用户自行执行），重启 pi 后项目扩展才会加载；或每次运行都加 `-a`。
-6. Zcode（执行方用 Zcode 时必做，每个克隆一次，`.zcode/config.json` 改动后需重做）：`zcode hooks trust status --workspace <仓库根>` 查看，确认声明内容后由用户执行它提示的 `zcode hooks trust grant --workspace <仓库根> --hook-digest <sha256>`。
+6. Zcode（执行方用 Zcode 时必做，每台机器一次）：`python3 harness/zcode_hook.py install`（写入前备份原配置、保留已有钩子，可重复执行；`status` 查看、`uninstall` 卸载）。
 7. 设置后自检（只看、不改）：Rulesets 列表中两条规则均为 Active；任一 PR 页面上 `build` 与 `harness` 标为 Required。不要用真实推送 main 的方式测试：规则没生效时会真的改掉 main。
 
 ## 6. 验证状态
@@ -101,7 +101,7 @@ Agent 层按角色接入：
 | Claude Code PreToolUse | 2026-09-25 本仓库会话中真实拦截 3 次（均为命令文本含危险字样的误报，拦截本身生效） | ✅ 真实会话 |
 | OpenCode 插件 | node 加载插件的单测；2026-09-26 真实 OpenCode（`opencode run`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改 | ✅ 真实会话 |
 | Pi 扩展 | node 加载扩展的单测（`PiExtensionTest`）；2026-09-26 真实 Pi（`pi -a -p`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改；**未信任项目时（`pi -p` 不带 `-a`）同一命令照常执行**，扩展未加载 | ✅ 已信任时；⚠️ 依赖用户按 §5 第 5 步信任项目 |
-| Zcode 钩子 | `.zcode/config.json` 按声明运行钩子命令的单测（`ZcodeHookConfigTest`）。2026-09-26 真实 Zcode 0.16.9 实测：CLI（`zcode -p`）识别到声明并可授予信任，但**信任后两项探针仍放行**。日志为 `workspace_hook.feature_disabled`：源码中只有协议服务端（桌面 ZCode.app 等宿主）显式打开工作区钩子（`workspaceHookTrustEnabled: true`，注释称灰度开关），CLI 与 TUI 未打开 | ❌ CLI 不生效；⚠️ 桌面版待实测（方案 §13 V7） |
+| Zcode 钩子 | 用户级安装脚本单测（`ZcodeUserHookTest`：保留已有钩子、幂等、卸载复原；钩子命令只在本仓库及其子目录拦截，非仓库与其他仓库放行）。2026-09-26 项目级 `.zcode/config.json` 实测：CLI 授信任后仍放行（`workspace_hook.feature_disabled`，源码中只有桌面宿主打开工作区钩子），已弃用 | ⚠️ 用户级钩子待用户安装后在 CLI 与桌面版实测（方案 §13 V7） |
 | Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
 | ruleset | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`）；2026-09-25 导入后经 GitHub API 核对：两条均 Active、规则与文件一致（GitHub 为 PR 规则补了默认参数）、无绕过名单，main 上生效的规则为禁删、禁强推、必须经 PR、`build` 与 `harness` 必须通过 | ✅ |
 | environment `release` | 2026-09-25 创建。本会话代理禁止读取 environments 接口，由用户转贴 API 输出核对：`required_reviewers` 为用户本人、`prevent_self_review` 为 false、`can_admins_bypass` 为 false（管理员即与 Agent 共用的身份也不能跳过审批）、部署限制为只允许 tag `v*` | ✅ 配置；实际拦停待首次发版确认（方案 §13 V6） |

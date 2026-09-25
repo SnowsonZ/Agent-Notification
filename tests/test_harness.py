@@ -98,9 +98,10 @@ class HygieneTest(unittest.TestCase):
         self.assertEqual(flagged, {"widget/snapshot.json", "native/Widget.o", "scratch/r2.json"})
 
     def test_only_listed_exception_under_forbidden_dir(self):
-        """.zcode/ 是 Zcode 运行数据，只有项目守卫配置可以入库。"""
+        """allowed 逐个放行具体文件：同目录的其他文件、相似文件名仍然禁止。"""
+        rules = {**self.rules, "hygiene": {**self.rules["hygiene"], "allowed": [".zcode/config.json"]}}
         paths = [".zcode/config.json", ".zcode/plans/plan-sess_x.md", ".zcode/config.json.bak"]
-        flagged = {v.path for v in hygiene.check_paths(paths, self.rules)}
+        flagged = {v.path for v in hygiene.check_paths(paths, rules)}
         self.assertEqual(flagged, {".zcode/plans/plan-sess_x.md", ".zcode/config.json.bak"})
 
     def test_secret_and_home_path_in_added_lines(self):

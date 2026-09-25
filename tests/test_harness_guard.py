@@ -4,6 +4,8 @@ git 钩子用例在临时仓库里把 core.hooksPath 指向本仓库的 .githook
 v0.8.0 X3（filter-repo 改写 main 与 tag）等场景，而不是只测判定函数。
 """
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -488,49 +490,72 @@ console.log(JSON.stringify(out));
         self.assertEqual(json.loads(result.stdout), ["deny", "allow", "deny", "deny", "allow", "allow", "deny"])
 
 
-class ZcodeHookConfigTest(unittest.TestCase):
-    """按 .zcode/config.json 的声明运行 PreToolUse 钩子：Zcode 以 Claude 兼容载荷调用，退出码 2 即拦截。
-
-    Zcode 真实加载另需实测，且工作区钩子要经用户信任（规范 §5）。
-    """
+class ZcodeUserHookTest(unittest.TestCase):
+    """用户级 Zcode 钩子：不需要逐项目信任，CLI 与桌面版都加载；只在含 harness 守卫的仓库里生效。"""
 
     def setUp(self):
-        config = json.loads((ROOT / ".zcode/config.json").read_text())
-        [self.entry] = config["hooks"]["events"]["PreToolUse"]
-        [self.hook] = self.entry["hooks"]
+        import zcode_hook
 
-    def run_hook(self, tool_name: str, tool_input: dict) -> int:
-        payload = {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": tool_input}
+        self.zcode_hook = zcode_hook
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.config = self.tmp / "config.json"
+        self.existing = {
+            "plugins": {"x": 1},
+            "hooks": {
+                "enabled": True,
+                "events": {
+                    "PostToolUse": [{"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "lint"}]}],
+                    "PreToolUse": [{"hooks": [{"type": "command", "command": "orca"}]}],
+                },
+            },
+        }
+        self.config.write_text(json.dumps(self.existing))
+
+    def run_cli(self, *args):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = self.zcode_hook.main([*args, "--config", str(self.config)])
+        return code, out.getvalue()
+
+    def test_install_keeps_existing_hooks_and_is_idempotent(self):
+        self.assertEqual(self.run_cli("status")[0], 1)
+        self.assertEqual(self.run_cli("install")[0], 0)
+        config = json.loads(self.config.read_text())
+        self.assertEqual(config["plugins"], {"x": 1})
+        self.assertEqual(config["hooks"]["events"]["PostToolUse"], self.existing["hooks"]["events"]["PostToolUse"])
+        pre = config["hooks"]["events"]["PreToolUse"]
+        self.assertEqual(pre[0], self.existing["hooks"]["events"]["PreToolUse"][0])
+        self.assertEqual(len(pre), 2)
+        self.assertTrue(list(self.tmp.glob("config.json.bak-harness-*")), "安装前要备份原文件")
+        before = self.config.read_text()
+        code, out = self.run_cli("install")
+        self.assertEqual((code, self.config.read_text()), (0, before))
+        self.assertIn("无需改动", out)
+        self.assertEqual(self.run_cli("uninstall")[0], 0)
+        self.assertEqual(json.loads(self.config.read_text()), self.existing)
+
+    def run_hook(self, project: Path, command: str) -> int:
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command}}
         result = subprocess.run(
-            self.hook["command"],
+            self.zcode_hook.COMMAND,
             shell=True,
             input=json.dumps(payload),
             capture_output=True,
             text=True,
-            cwd=ROOT,
-            env={**os.environ, "ZCODE_PROJECT_DIR": str(ROOT)},
+            env=clean_git_env({"ZCODE_PROJECT_DIR": str(project)}),
             check=False,
         )
         return result.returncode
 
-    def test_matcher_covers_executor_tools(self):
-        for tool in ("Bash", "Edit", "Write", "mcp__github__merge_pull_request"):
-            with self.subTest(tool=tool):
-                self.assertTrue(re.fullmatch(self.entry["matcher"], tool), tool)
-        self.assertIsNone(re.fullmatch(self.entry["matcher"], "Read"))
-
-    def test_hook_runs_guard_as_implementer(self):
-        cases = [
-            ("Bash", {"command": "git push --force origin x"}, 2),
-            ("Bash", {"command": "git status"}, 0),
-            ("Edit", {"file_path": "harness/verify.py"}, 2),
-            ("Write", {"file_path": ".zcode/config.json"}, 2),
-            ("Edit", {"file_path": "scripts/inbox.py"}, 0),
-            ("mcp__github__merge_pull_request", {"pullNumber": 7}, 2),
-        ]
-        for tool, tool_input, expected in cases:
-            with self.subTest(tool=tool, tool_input=tool_input):
-                self.assertEqual(self.run_hook(tool, tool_input), expected)
+    def test_hook_guards_this_repo_only(self):
+        dangerous = "git push --force origin x"
+        self.assertEqual(self.run_hook(ROOT, dangerous), 2)
+        self.assertEqual(self.run_hook(ROOT / "scripts", dangerous), 2)  # 子目录里同样生效
+        self.assertEqual(self.run_hook(ROOT, "git status"), 0)
+        self.assertEqual(self.run_hook(self.tmp, dangerous), 0)  # 不是 git 仓库：放行
+        other = TempRepo()
+        self.addCleanup(other.close)
+        self.assertEqual(self.run_hook(other.path, dangerous), 0)  # 别的仓库：放行
 
 
 if __name__ == "__main__":
