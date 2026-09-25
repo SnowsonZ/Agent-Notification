@@ -232,6 +232,31 @@ class CollectTest(unittest.TestCase):
         self.assertAlmostEqual(top["cost"]["output"]["CNY"], 5.6 + 2.8)
 
 
+class BackfillAgentStatsTest(unittest.TestCase):
+    """V080-R12：`inbox usage` 补录过去日时必须带上 agent 统计，定稿报告才有 agent_excluded 注脚。
+
+    事故回放发现 v0.8.0 标为已修的 R12 没有任何回归测试：把 agent_stats 参数去掉，全部测试仍通过。"""
+
+    def test_backfilled_report_keeps_agent_footnote(self):
+        from unittest import mock
+
+        import usage_report
+        from daily_report import load_report
+
+        day = date(2026, 8, 3)
+
+        def fake_scan(store, home, first_day, last_day, agent_stats=None):
+            if agent_stats is not None:
+                agent_stats[day] = {"tasks": {("codex", "agent-1")}, "total_tokens": 1234}
+            return {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(usage_report, "scan_buckets", fake_scan):
+                usage_report.collect(Store(root), root, "day", day, tables=PricingTables())
+            report = load_report(root, day.isoformat())
+        self.assertEqual(report.get("agent_excluded"), {"tasks": 1, "total_tokens": 1234})
+
 
 if __name__ == "__main__":
     unittest.main()

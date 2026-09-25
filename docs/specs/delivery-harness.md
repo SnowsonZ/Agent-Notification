@@ -10,7 +10,10 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 |---|---|---|
 | `bin/verify` | 工具版本、git 守卫、lint、仓库卫生、Python 测试、Swift 测试（仅 macOS） | 所有人；pre-push 自动运行 |
 | `bin/verify --quick` | 工具版本、lint、仓库卫生 | pre-commit 自动运行 |
+| `bin/verify --full` | 默认档 + 事故回放 | macOS CI（`--strict --full`）；改动测试或产品逻辑后 |
 | `bin/verify --strict` | 被跳过的检查算失败 | macOS CI |
+| `python3 harness/replay.py [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
+| `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
 | `python3 harness/evidence.py --base origin/main` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过 | CI harness job；实现方自查 |
 | `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3 | CI harness job |
 | `python3 harness/hygiene.py --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |
@@ -21,8 +24,11 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 
 ## 2. 约定
 
-- **修复提交**：说明末尾加 trailer `Defect: <编号>`；纯规格或文档修复写 `Defect: <编号> doc`。测试里用同一个编号标注（注释或文件说明均可），evidence 据此定位测试。
-- **缺陷编号全局唯一**：`<来源>-<序号>`，例如 `V080-R17`（v0.8.0 交付评审第 17 项）、`REV0921-R2`（2026-09-21 评估第 2 项）。不再使用裸 `R17`。
+- **修复提交**：说明中加一行 `Defect: <编号>`（放在哪一段都行，不依赖 git trailer 规则）；纯规格或文档修复写 `Defect: <编号> doc`。测试里用同一个编号标注（注释或说明均可），evidence 据此定位测试。
+- **缺陷编号全局唯一**：`<来源>-<序号>`，例如 `V080-R17`（v0.8.0 交付评审第 17 项）、`REV0921-R2`（2026-09-21 评估第 2 项）、`H0925-4`（2026-09-25 harness 建设中的发现）。不再使用裸 `R17`。
+- **每个修复都要能被回放**：修复评审发现的缺陷时，在 `harness/replay_cases.py` 加注入用例（或守卫测试）；无法回放的写进 `DEFERRED` 并说明原因。
+- **已知缺陷登记**：发现但暂不修的缺陷写成确定性测试并标 `@unittest.expectedFailure`，说明里写编号与待决事项；修好后它会「意外通过」并报错，逼着移除登记。
+- **测试的几种形态**：种子固定的性质测试（`tests/test_properties.py`，`PROPTEST_SEEDS=N` 放大搜索）、架构适应度（`tests/test_architecture.py`，同一口径只实现一次）、CLI 黄金快照（`tests/test_golden.py`，有意改变时 `UPDATE_GOLDEN=1` 重新生成，按 R2 评审）。
 - **行为不变的重构**：每个提交带 `Risk: R1`；risk.py 核对只改产品代码、已有测试与黄金快照零改动，否则按 R2。
 - **不手写通过状态**：PR 与交付说明里的「测试通过」「CI 通过」「已修复」一律由 CI 的 harness job summary 与 run 链接代替。
 
@@ -85,6 +91,9 @@ Agent 层按角色接入：
 | Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
 | ruleset 与 environment | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`） | ⚠️ 待用户导入后按 §5 第 5 步自检 |
 | 发版核对 | 临时仓库单测：版本不一致、构建号未递增、tag 不在 main | ✅ 单测；首次真实发版时再确认 |
+| 事故回放 | 18 个注入用例在 Linux 上实跑（15 个）、Swift 3 个由 macOS CI `--strict --full` 运行；回放自检（注入点未过期、基线全覆盖）在默认档 | ✅ Linux；Swift 部分待 macOS CI |
+| 修复证据 | 本 PR 的 H0925-1、H0925-2、H0925-5 三个修复提交由 evidence 生成「修复前失败、修复后通过」 | ✅ |
+| 变异测试 | 4 个目标的基线得分（见基线评审 §6） | ✅ Linux 实跑 |
 
 ## 7. 已知边界
 

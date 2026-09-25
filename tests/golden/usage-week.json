@@ -1,0 +1,371 @@
+{
+  "by": {
+    "harness": [
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.6,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 4.5,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 4.05,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 0
+        },
+        "key": "codex",
+        "total_tokens": 2650000
+      },
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.046,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 2.4000000000000004,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 2.52,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 0
+        },
+        "key": "pi",
+        "total_tokens": 4100000
+      },
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.0,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 0.0,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 0.0,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 300000
+        },
+        "key": "zcode",
+        "total_tokens": 300000
+      }
+    ],
+    "model": [
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.6,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 4.5,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 4.05,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 0
+        },
+        "key": "deepseek-v4-pro",
+        "total_tokens": 2650000
+      },
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.046,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 2.4000000000000004,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 2.52,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 0
+        },
+        "key": "glm-5.3-flash",
+        "total_tokens": 4100000
+      },
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.0,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 0.0,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 0.0,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 300000
+        },
+        "key": "k3",
+        "total_tokens": 300000
+      }
+    ],
+    "project": [
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.6,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 4.5,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 4.05,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 0
+        },
+        "key": "/work/other",
+        "total_tokens": 2650000
+      },
+      {
+        "cost": {
+          "cache": {
+            "CNY": 0.046,
+            "USD": 0.0
+          },
+          "input": {
+            "CNY": 2.4000000000000004,
+            "USD": 0.0
+          },
+          "output": {
+            "CNY": 2.52,
+            "USD": 0.0
+          },
+          "unpriced_tokens": 300000
+        },
+        "key": "/work/demo",
+        "total_tokens": 4400000
+      }
+    ]
+  },
+  "end": "2026-08-09",
+  "fx": {
+    "USD_CNY": 7.1,
+    "as_of": ""
+  },
+  "period": "week",
+  "previous": {
+    "cost": {
+      "cache": {
+        "CNY": 0.0,
+        "USD": 0.0
+      },
+      "input": {
+        "CNY": 0.32,
+        "USD": 0.0
+      },
+      "output": {
+        "CNY": 0.28,
+        "USD": 0.0
+      },
+      "unpriced_tokens": 0
+    },
+    "total_tokens": 500000
+  },
+  "pricing": {
+    "fetched_at": 0.0,
+    "unpriced_models": [
+      "k3"
+    ]
+  },
+  "series": [
+    {
+      "cache_tokens": 2200000,
+      "cost": {
+        "cache": {
+          "CNY": 0.646,
+          "USD": 0.0
+        },
+        "input": {
+          "CNY": 5.3,
+          "USD": 0.0
+        },
+        "output": {
+          "CNY": 4.89,
+          "USD": 0.0
+        },
+        "unpriced_tokens": 0
+      },
+      "date": "2026-08-03",
+      "input_tokens": 1500000,
+      "output_tokens": 450000,
+      "total_tokens": 4150000
+    },
+    {
+      "cache_tokens": 0,
+      "cost": {
+        "cache": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "input": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "output": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "unpriced_tokens": 300000
+      },
+      "date": "2026-08-04",
+      "input_tokens": 250000,
+      "output_tokens": 50000,
+      "total_tokens": 300000
+    },
+    {
+      "cache_tokens": 0,
+      "cost": {
+        "cache": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "input": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "output": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "unpriced_tokens": 0
+      },
+      "date": "2026-08-05",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "cache_tokens": 0,
+      "cost": {
+        "cache": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "input": {
+          "CNY": 1.6,
+          "USD": 0.0
+        },
+        "output": {
+          "CNY": 1.68,
+          "USD": 0.0
+        },
+        "unpriced_tokens": 0
+      },
+      "date": "2026-08-06",
+      "input_tokens": 2000000,
+      "output_tokens": 600000,
+      "total_tokens": 2600000
+    },
+    {
+      "cache_tokens": 0,
+      "cost": {
+        "cache": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "input": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "output": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "unpriced_tokens": 0
+      },
+      "date": "2026-08-07",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "cache_tokens": 0,
+      "cost": {
+        "cache": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "input": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "output": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "unpriced_tokens": 0
+      },
+      "date": "2026-08-08",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
+    },
+    {
+      "cache_tokens": 0,
+      "cost": {
+        "cache": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "input": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "output": {
+          "CNY": 0.0,
+          "USD": 0.0
+        },
+        "unpriced_tokens": 0
+      },
+      "date": "2026-08-09",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0
+    }
+  ],
+  "start": "2026-08-03",
+  "totals": {
+    "cache_tokens": 2200000,
+    "cost": {
+      "cache": {
+        "CNY": 0.646,
+        "USD": 0.0
+      },
+      "input": {
+        "CNY": 6.9,
+        "USD": 0.0
+      },
+      "output": {
+        "CNY": 6.569999999999999,
+        "USD": 0.0
+      },
+      "unpriced_tokens": 300000
+    },
+    "input_tokens": 3750000,
+    "output_tokens": 1100000,
+    "tasks": 4,
+    "total_tokens": 7050000
+  }
+}
