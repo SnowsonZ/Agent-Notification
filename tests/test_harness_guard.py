@@ -93,6 +93,31 @@ class CommandGuardTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(command_guard.check_command(command), [], command)
 
+    def test_remote_writes_and_split_override_variables(self):
+        """PR7-R6：gh api / curl 写请求可绕过分支保护；覆盖变量拆开拼接可绕过检查。"""
+        denied = [
+            "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc -F force=true",
+            "gh api --method PUT repos/o/r/contents/scripts/x.py -f message=m -f content=Zm9v",
+            "gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=abc",
+            "gh api --method=POST repos/o/r/releases",
+            "curl -X PATCH https://api.github.com/repos/o/r/git/refs/heads/main -d '{}'",
+            "X=HARNESS; export ${X}_ALLOW_TAG=1; git push origin v1",
+            "export \"HARNESS\"'_ALLOW_REWRITE'=1",
+            "env HAR\\NESS_SKIP_VERIFY=1 git push",
+        ]
+        allowed = [
+            "gh api repos/o/r/pulls/7",
+            "gh api -X GET repos/o/r/actions/runs",
+            "gh pr view 7",
+            "curl -s https://api.github.com/repos/o/r",
+        ]
+        for command in denied:
+            with self.subTest(command=command):
+                self.assertTrue(command_guard.check_command(command), command)
+        for command in allowed:
+            with self.subTest(command=command):
+                self.assertEqual(command_guard.check_command(command), [], command)
+
     def test_implementer_cannot_edit_verifiers(self):
         for path in (".github/workflows/build.yml", "harness/verify.py", str(ROOT / ".githooks/pre-push")):
             with self.subTest(path=path):
