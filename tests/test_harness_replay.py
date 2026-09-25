@@ -80,6 +80,11 @@ class MutateTest(unittest.TestCase):
                 found = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
                 self.assertLessEqual(set(target.functions), found)
 
+    def test_equal_score_is_not_below_rounded_baseline(self):
+        self.assertFalse(mutate.below_baseline(43 / 45, round(43 / 45, 4)))
+        self.assertTrue(mutate.below_baseline(42 / 45, round(43 / 45, 4)))
+        self.assertFalse(mutate.below_baseline(0.5, None))
+
     def test_baseline_covers_every_target(self):
         import json
 

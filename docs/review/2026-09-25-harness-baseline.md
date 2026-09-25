@@ -131,7 +131,9 @@ P6 真实任务试跑时，按同一口径对比。
 
 ## 6. 测试强度基线
 
-事故回放（`bin/verify --full`）：v0.8.0 基线 25 条中，11 条有注入用例（共 18 个，全部被拦住；其中 3 个 Swift 用例在 macOS CI 上运行），5 条过程类失败由守卫测试覆盖，9 条写明原因暂缓（`harness/replay_cases.py` 的 `DEFERRED`）。
+事故回放（`bin/verify --full`）：v0.8.0 基线 25 条中，11 条有注入用例（15 个），5 条过程类失败由守卫测试覆盖，9 条写明原因暂缓（`harness/replay_cases.py` 的 `DEFERRED`）；另有 4 个用例回放本次新发现的 H0925-1、H0925-2、H0925-5。19 个注入全部被拦住，其中 3 个 Swift 用例在 macOS CI 上以 `--strict` 运行。
+
+Python 测试从 267 项增至 365 项（另有 1 项以 `expectedFailure` 登记的已知缺陷 H0925-4）。
 
 定向变异测试（`python3 harness/mutate.py`，基线 `harness/mutation-baseline.json`，只升不降）：
 

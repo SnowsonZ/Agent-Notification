@@ -188,6 +188,17 @@ class RiskTest(unittest.TestCase):
         self.assertEqual(report.label, "R2")
         self.assertIn("机器核对不满足", report.notes[0])
 
+    def test_shrinking_gap_list_is_r0_but_growing_is_r3(self):
+        self.repo.write("harness/acceptance-gaps.txt", "DR14  # a\nIN99  # b\n")
+        self.repo.commit("gaps")
+        self.base = self.repo.git("rev-parse", "HEAD")
+        self.repo.write("harness/acceptance-gaps.txt", "DR14  # a\n")
+        self.repo.commit("close IN99")
+        self.assertEqual(self.classify().label, "R0")
+        self.repo.write("harness/acceptance-gaps.txt", "DR14  # a\nXX1  # new\n")
+        self.repo.commit("grow")
+        self.assertEqual(self.classify().label, "R3")
+
     def test_new_golden_file_is_a_new_test(self):
         self.repo.write("tests/golden/new.json", "{}\n")
         self.repo.commit("golden")

@@ -14,6 +14,8 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `bin/verify --strict` | 被跳过的检查算失败 | macOS CI |
 | `python3 harness/acceptance.py [--manual]` | 规格验收编号 ↔ 测试映射检查；列出人工验收清单 | verify 各档；写 PR 的人工验收部分时 |
 | `python3 harness/review_pack.py --base origin/main` | 评审证据包：风险等级、修复证据、verify、涉及的验收编号 | 评审方评审前 |
+| `python3 harness/quality.py [--update]` | 熵治理棘轮：复杂度超标函数数、超长文件数只降不升 | verify 默认档；每周 quality workflow |
+| `python3 harness/metrics.py --base origin/main [--github]` | 交付度量：修复数、声称已修、修复带回放比例、新增测试、CI 轮次，并列 v0.8.0 基线 | CI harness job；试跑记录 |
 | `python3 harness/replay.py [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
 | `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
 | `python3 harness/evidence.py --base origin/main` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过 | CI harness job；实现方自查 |
@@ -96,11 +98,13 @@ Agent 层按角色接入：
 | Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
 | ruleset 与 environment | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`） | ⚠️ 待用户导入后按 §5 第 5 步自检 |
 | 发版核对 | 临时仓库单测：版本不一致、构建号未递增、tag 不在 main | ✅ 单测；首次真实发版时再确认 |
-| 事故回放 | 18 个注入用例在 Linux 上实跑（15 个）、Swift 3 个由 macOS CI `--strict --full` 运行；回放自检（注入点未过期、基线全覆盖）在默认档 | ✅ Linux；Swift 部分待 macOS CI |
+| 事故回放 | 19 个注入用例：Linux 实跑 16 个，Swift 3 个由 macOS CI `--strict --full` 运行（run 36152060546）；回放自检（注入点未过期、基线全覆盖）在默认档 | ✅ |
 | 修复证据 | 本 PR 的 H0925-1、H0925-2、H0925-5 三个修复提交由 evidence 生成「修复前失败、修复后通过」 | ✅ |
 | 变异测试 | 4 个目标的基线得分（见基线评审 §6） | ✅ Linux 实跑 |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
-| Swift 回放与 zcode 自检 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
+| Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
+| zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |
+| 每周 quality workflow | 本地实跑变异 `--check`、回放、质量棘轮 | ⚠️ 定时与手动触发只对默认分支生效，合并后首次运行 |
 
 ## 7. 已知边界
 
