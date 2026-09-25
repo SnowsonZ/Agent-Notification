@@ -6,6 +6,7 @@ v0.8.0 X3（filter-repo 改写 main 与 tag）等场景，而不是只测判定�
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -145,6 +146,29 @@ class CommandGuardTest(unittest.TestCase):
         for command in allowed:
             with self.subTest(command=command):
                 self.assertEqual(command_guard.check_command(command), [], command)
+
+    def test_agent_cannot_merge_pull_requests(self):
+        """D4（用户 2026-09-25 决定）：R0/R1 由仓库 auto-merge 合并，R2 以上由用户合并，Agent 不自行合并。"""
+        for command in ("gh pr merge 7 --squash", "gh pr merge --auto 7", "cd x && gh  pr  merge 7"):
+            with self.subTest(command=command):
+                self.assertTrue(command_guard.check_command(command), command)
+        for command in ("gh pr view 7", "gh pr checks 7", "git merge origin/main"):
+            with self.subTest(command=command):
+                self.assertEqual(command_guard.check_command(command), [], command)
+        for tool in ("mcp__github__merge_pull_request", "mcp__github__enable_pr_auto_merge", "github_merge_pr"):
+            with self.subTest(tool=tool):
+                self.assertTrue(command_guard.evaluate({"tool_name": tool, "tool_input": {}}), tool)
+        for tool in ("mcp__github__pull_request_read", "mcp__github__disable_pr_auto_merge", "Bash"):
+            with self.subTest(tool=tool):
+                self.assertEqual(command_guard.evaluate({"tool_name": tool, "tool_input": {}}), [], tool)
+
+    def test_claude_code_hook_covers_mcp_merge_tools(self):
+        """D4：Claude Code 的 PreToolUse 除 Bash 外还要把 MCP 合并工具交给守卫。"""
+        settings = json.loads((ROOT / ".claude/settings.json").read_text())
+        matchers = [entry["matcher"] for entry in settings["hooks"]["PreToolUse"]]
+        for tool in ("mcp__github__merge_pull_request", "mcp__github__enable_pr_auto_merge"):
+            with self.subTest(tool=tool):
+                self.assertTrue(any(re.fullmatch(matcher, tool) for matcher in matchers), matchers)
 
     def test_implementer_cannot_edit_verifiers(self):
         for path in (".github/workflows/build.yml", "harness/verify.py", str(ROOT / ".githooks/pre-push")):
@@ -390,6 +414,7 @@ console.log(JSON.stringify(out));
             ["edit", {"filePath": "harness/verify.py"}],
             ["edit", {"filePath": "scripts/inbox.py"}],
             ["read", {"filePath": "harness/verify.py"}],
+            ["github_merge_pull_request", {"pullNumber": 7}],
         ]
         result = subprocess.run(
             ["node", "--input-type=module", "-e", script, json.dumps(cases)],
@@ -398,7 +423,7 @@ console.log(JSON.stringify(out));
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), ["deny", "allow", "deny", "allow", "allow"])
+        self.assertEqual(json.loads(result.stdout), ["deny", "allow", "deny", "allow", "allow", "deny"])
 
 
 if __name__ == "__main__":
