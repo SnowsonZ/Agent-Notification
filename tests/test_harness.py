@@ -480,15 +480,11 @@ class VerifyTest(unittest.TestCase):
         repo.write("a.txt", "a\n")
         expected = repo.commit("temp")
         check = verify.Check("git-env-probe", ("quick",), shell=f"git -C '{repo.path}' rev-parse HEAD")
-        real_git_dir = subprocess.run(
-            ["git", "rev-parse", "--absolute-git-dir"],
-            cwd=ROOT,
-            env=clean_git_env(),
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        hook_env = {"GIT_DIR": real_git_dir}
+        other = TempRepo()  # 钩子所属的「真实仓库」
+        self.addCleanup(other.close)
+        other.write("b.txt", "b\n")
+        other.commit("other")
+        hook_env = {"GIT_DIR": str(other.path / ".git")}
         verify.LOG_DIR.mkdir(parents=True, exist_ok=True)  # 新检出（如 evidence 的临时 worktree）没有 build/
         with mock.patch.dict(os.environ, hook_env):
             result = verify.run_check(check)
