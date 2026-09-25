@@ -174,6 +174,12 @@ class RiskTest(unittest.TestCase):
         self.repo.commit("unclaimed")
         self.assertEqual(self.classify().label, "R2")
 
+    def test_r1_claim_before_co_author_paragraph_is_recognized(self):
+        """H0925-5：`Risk: R1` 不在最后一段也要识别。"""
+        self.repo.write("scripts/mod.py", "X = 2\n")
+        self.repo.commit("refactor\n\nRisk: R1\n\nCo-Authored-By: someone <someone@example.com>")
+        self.assertEqual(self.classify().label, "R1")
+
     def test_r1_claim_rejected_when_tests_modified(self):
         self.repo.write("scripts/mod.py", "X = 2\n")
         self.repo.write("tests/test_mod.py", "A = 9\nB = 2\n")
@@ -255,6 +261,16 @@ class EvidenceTest(unittest.TestCase):
         result = self.analyse()["T-R3"]
         self.assertEqual(result.before, "pass")
         self.assertIn("测试没有检查到这个缺陷", result.problems[0])
+
+    def test_defect_before_co_author_paragraph_is_recognized(self):
+        """H0925-5：`Defect:` 与 `Co-Authored-By:` 之间隔空行时，git 不把它当 trailer，
+        证据检查曾因此静默跳过全部修复。"""
+        self.repo.write("scripts/mod.py", FIXED)
+        self.repo.write("tests/test_mod.py", TEST_MODULE)
+        self.repo.commit("fix sort\n\nDefect: T-R1\n\nCo-Authored-By: someone <someone@example.com>")
+        result = self.analyse()
+        self.assertIn("T-R1", result)
+        self.assertEqual(result["T-R1"].after, "pass")
 
     def test_fix_without_referencing_test(self):
         self.repo.write("scripts/mod.py", FIXED)
