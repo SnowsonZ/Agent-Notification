@@ -127,8 +127,8 @@
 
 | # | 事项 | 负责人 | 前置 | 状态 |
 |---|---|---|---|---|
-| A1 | 独立评审 PR #7（交接书：[harness-review-brief](../review/2026-09-25-harness-review-brief.md)） | 另一评审 Agent | — | 完成（评审报告 `docs/review/2026-09-26-harness-review.md`：修改后可合并；PR7-R1..R6 已在本 PR 修复，待复评） |
-| A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 复评确认修复 | 待开始 |
+| A1 | 独立评审 PR #7（交接书：[harness-review-brief](../review/2026-09-25-harness-review-brief.md)） | 另一评审 Agent | — | 完成（[评审报告](../review/2026-09-26-harness-review.md)：首轮修改后可合并，PR7-R1..R6 已修；复评可合并，新增 PR7-R7..R9 已在本 PR 修复） |
+| A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 | 待开始 |
 | A4 | 导入 `.github/rulesets/main.json`、`release-tags.json`；新建 environment `release` 并设审批人（[harness 规范](../specs/delivery-harness.md) §5） | 用户 | A2 | 待开始（先于 A3：本机护栏只防误操作，评审 PR7-R3） |
 | A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 待开始 |
 | A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 待开始 |
@@ -140,6 +140,7 @@
 | D1 | H0925-4：过去日合并的口径（选项见 §11） | 决定后作为缺陷修复任务交执行方，并移除 `expectedFailure` 登记 | 待决定 |
 | D2 | H0925-6：Zcode「前往会话」CLI 与 App 入口各自的现役语义 | 决定后统一两份规格与 ZN/IN14 验收 | 待决定 |
 | D3 | 执行方是否使用单独的 GitHub 身份（机器账号或 GitHub App） | 决定是否能接上 L4 自动合并（E1） | 待决定 |
+| D4 | Agent 层是否一律拒绝 Agent 自己合并 PR（评审 PR7-R9 附带问题） | L4 下 R0/R1 由仓库 auto-merge 合并、R2 以上由用户合并，Agent 本身不需要合并权限；拒绝后「由用户合并」不再只靠约定 | 待决定 |
 
 ### 13.3 首个试跑
 
@@ -164,9 +165,9 @@
 
 | # | 事项 | 说明 | 状态 |
 |---|---|---|---|
-| E1 | 接上 L4 自动合并 | `risk.py` 已输出 `auto_merge`；需开启仓库 auto-merge，并在 harness job 中对 R0/R1 的 PR 启用；依赖 D3 | 待 D3 |
+| E1 | 接上 L4 自动合并 | `risk.py` 已输出 `auto_merge`；需开启仓库 auto-merge，并在 harness job 中对 R0/R1 的 PR 启用；依赖 D3；接通前复核 base_tests 同进程篡改检查的残余（规范「已知边界」，评审 PR7-R7） | 待 D3 |
 | E2 | 暂缓回放项转为自动化 | `replay_cases.py` 的 `DEFERRED`：R7（经 generate_overview 的夹具）、R9（macOS 快照端到端）优先；R6 做成本机真实数据回放脚本（数据不入库）；X5 在 metrics 中按任务预算自动比对 CI 轮次 | 待开始 |
-| E3 | 命令守卫改为按命令结构解析 | 目前按字符串匹配，已有 5 次误报，另有漏报面（变量间接展开、eval 拼接，评审 PR7-R6 已补去引号检查与 GitHub API 写请求）；改用 shlex 切分，只看真正执行的命令与参数 | 待开始（评审建议优先） |
+| E3 | 命令守卫改为按命令结构解析 | 目前按字符串匹配，已有 5 次误报，另有漏报面（变量间接展开、eval 拼接、wget 与脚本语言发起的请求；评审 PR7-R6、R9 已补去引号检查与不依赖参数顺序的 GitHub API 写请求）；改用 shlex 切分，只看真正执行的命令与参数 | 待开始（评审建议优先） |
 | E4 | Swift 的「修复前失败」检查 | `evidence.py` 目前只对 Python 测试做退回重跑，Swift 引用只列出位置；在 macOS CI 中补上 | 待开始 |
 | E5 | 扩大变异测试目标、提高报告合并得分 | 增加 `usage_cost`、`usage_report`；`_merge_day_tasks` 的 76% 中区分真实缺口与等价变异 | 待开始 |
 | E6 | 熵治理：降低复杂度 | 20 个 C901 超标函数、`daily_report.py` 1693 行；每次顺带拆一处，棘轮自动收紧基线 | 持续 |
