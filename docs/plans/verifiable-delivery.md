@@ -127,8 +127,8 @@
 
 | # | 事项 | 负责人 | 前置 | 状态 |
 |---|---|---|---|---|
-| A1 | 独立评审 PR #7（交接书：[harness-review-brief](../review/2026-09-25-harness-review-brief.md)） | 另一评审 Agent | — | 待开始 |
-| A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 结论为可合并 | 待开始 |
+| A1 | 独立评审 PR #7（交接书：[harness-review-brief](../review/2026-09-25-harness-review-brief.md)） | 另一评审 Agent | — | 完成（评审报告 `docs/review/2026-09-26-harness-review.md`：修改后可合并；PR7-R1..R6 已在本 PR 修复，待复评） |
+| A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 复评确认修复 | 待开始 |
 | A4 | 导入 `.github/rulesets/main.json`、`release-tags.json`；新建 environment `release` 并设审批人（[harness 规范](../specs/delivery-harness.md) §5） | 用户 | A2 | 待开始（先于 A3：本机护栏只防误操作，评审 PR7-R3） |
 | A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 待开始 |
 | A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 待开始 |
@@ -166,12 +166,13 @@
 |---|---|---|---|
 | E1 | 接上 L4 自动合并 | `risk.py` 已输出 `auto_merge`；需开启仓库 auto-merge，并在 harness job 中对 R0/R1 的 PR 启用；依赖 D3 | 待 D3 |
 | E2 | 暂缓回放项转为自动化 | `replay_cases.py` 的 `DEFERRED`：R7（经 generate_overview 的夹具）、R9（macOS 快照端到端）优先；R6 做成本机真实数据回放脚本（数据不入库）；X5 在 metrics 中按任务预算自动比对 CI 轮次 | 待开始 |
-| E3 | 命令守卫改为按命令结构解析 | 目前按字符串匹配，已有 4 次误报；改用 shlex 切分，只看真正执行的命令与参数 | 待开始 |
+| E3 | 命令守卫改为按命令结构解析 | 目前按字符串匹配，已有 5 次误报，另有漏报面（变量间接展开、eval 拼接，评审 PR7-R6 已补去引号检查与 GitHub API 写请求）；改用 shlex 切分，只看真正执行的命令与参数 | 待开始（评审建议优先） |
 | E4 | Swift 的「修复前失败」检查 | `evidence.py` 目前只对 Python 测试做退回重跑，Swift 引用只列出位置；在 macOS CI 中补上 | 待开始 |
 | E5 | 扩大变异测试目标、提高报告合并得分 | 增加 `usage_cost`、`usage_report`；`_merge_day_tasks` 的 76% 中区分真实缺口与等价变异 | 待开始 |
 | E6 | 熵治理：降低复杂度 | 20 个 C901 超标函数、`daily_report.py` 1693 行；每次顺带拆一处，棘轮自动收紧基线 | 持续 |
 | E7 | SwiftUI 截图回归（P5 暂缓项） | 需要稳定的 macOS 渲染基准 | 暂缓 |
 | E8 | `review_pack` 在大面积改规格时列出过多验收编号 | 只列真正被改动的行对应的编号 | 待开始 |
 | E9 | GitHub Actions 的 Node 20 弃用警告 | 升级 `actions/checkout`、`setup-python` 的主版本 | 待开始 |
+| E11 | 执行方角色首次真实运行 | 评审指出：本 PR 的实现方也是 Claude，「设计评审 / 执行」分工尚未实际走过；由 T1 首次验证，执行方用 OpenCode 或 Zcode | 待 T1 |
 | E10 | 同步调研报告里的「落地交接说明」 | 报告（Claude 文档）中的交接节仍写着「从 P0 继续」，应改为指向本文 §13 | 待开始 |
 

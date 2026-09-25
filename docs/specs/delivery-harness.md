@@ -20,6 +20,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
 | `python3 harness/evidence.py --base origin/main` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过 | CI harness job；实现方自查 |
 | `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3 | CI harness job |
+| `python3 harness/base_tests.py --base origin/main` | 用 base 版本的已有测试在 head 上重跑：追加进已有测试文件的代码禁用不了判定器（有意改动已有测试的 PR 按 R2 评审，此项只报告） | CI harness job |
 | `python3 harness/hygiene.py --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |
 | `python3 harness/git_guard.py install` | 把 `core.hooksPath` 指向 `.githooks`（幂等，不覆盖已有设置） | 每个新环境一次 |
 | `python3 harness/release_check.py --tag vX.Y.Z` | tag 与构建版本一致、构建号递增、tag 在 main 上 | 推 tag 时 CI 自动运行 |
@@ -54,7 +55,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 |---|---|---|
 | 服务端 | `.github/rulesets/main.json`：main 禁删除与改写，必须经 PR，`build` 与 `harness` 检查必须通过；`release-tags.json`：`v*` tag 禁移动与删除；release job 走 environment `release`，由用户批准 | 本机 Agent 无法绕过 |
 | git | `.githooks/pre-commit`（保护分支上禁止提交、暂存区卫生、快速 verify）；`pre-push`（禁推 main 与 tag、禁强制推送、本次推送的改动卫生、完整 verify）；`reference-transaction`（禁本地改写或删除 main、移动或删除 tag，含 filter-repo） | 防误操作，不防有意绕过：`--no-verify`、改 `core.hooksPath`、改守卫代码或运行时解释器都能绕过（规则文件已改为读 origin/main）；Agent 层拒绝其中能识别的命令 |
-| Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release` 与删除 CI 记录；`--role implementer` 另禁编辑判定器与护栏 | 取决于各家 hook 能力 |
+| Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release` 与删除 CI 记录、GitHub API 写请求（`gh api` 写方法与对 api.github.com 的 curl 写请求）；引号或反斜杠拆写的命令另按去掉引号的形式再查一遍；`--role implementer` 另禁编辑判定器与护栏 | 取决于各家 hook 能力 |
 
 覆盖变量只供人使用（Agent 层会拒绝设置它们的命令）：
 
@@ -98,8 +99,9 @@ Agent 层按角色接入：
 | Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
 | ruleset 与 environment | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`） | ⚠️ 待用户导入后按 §5 第 5 步自检 |
 | 发版核对 | 临时仓库单测：版本不一致、构建号未递增、tag 不在 main | ✅ 单测；首次真实发版时再确认 |
-| 事故回放 | 19 个注入用例：Linux 实跑 16 个，Swift 3 个由 macOS CI `--strict --full` 运行（run 36152060546）；回放自检（注入点未过期、基线全覆盖）在默认档 | ✅ |
-| 修复证据 | 本 PR 的 H0925-1、H0925-2、H0925-5 三个修复提交由 evidence 生成「修复前失败、修复后通过」 | ✅ |
+| 事故回放 | 26 个注入用例（含评审 PR7-R1..R6 的 7 个）：Linux 实跑 23 个，Swift 3 个由 macOS CI `--strict --full` 运行（run 36152060546）；回放自检（注入点未过期、基线全覆盖）在默认档 | ✅ |
+| 修复证据 | 本 PR 的 H0925 与 PR7-R1..R6 修复提交由 evidence 生成「修复前失败、修复后通过」；修复前以出错结束不算证据，只退回修复提交自身的改动 | ✅ |
+| 已有测试按 base 版本重跑 | 临时仓库单测四个场景（`tests/test_harness.py` BaseTestsTest）；本 PR 上 main 的 267 个测试在 head 通过 | ✅ 本地；CI 步骤随本 PR 首次运行 |
 | 变异测试 | 4 个目标的基线得分（见基线评审 §6） | ✅ Linux 实跑 |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
@@ -109,6 +111,6 @@ Agent 层按角色接入：
 ## 7. 已知边界
 
 - **身份不可区分**：Agent 与用户共用同一个 GitHub 身份时（本会话触发的 CI 记录的 actor 即为用户），服务端分不清谁在合并。R2 以上「由用户合并」目前靠约定，彻底解决需要给执行者单独身份（机器账号或 GitHub App），待用户决定。
-- **命令守卫按字符串匹配**：命令文本里出现危险字样就会拒绝，哪怕只是被 echo 或写进注释。误报的处理方式是换一种写法（例如用编辑工具改文件），不是放宽规则。已记录 4 次误报（最近一次：只读查询 `core.hooksPath` 被拒，已改为只拦设置与取消）；改为按命令结构解析列入后续工作（方案 §13 E3）。
+- **命令守卫按字符串匹配**：命令文本里出现危险字样就会拒绝，哪怕只是被 echo 或写进注释。误报的处理方式是换一种写法（例如用编辑工具改文件），不是放宽规则。已记录 5 次误报（最近两次：只读查询 `core.hooksPath` 被拒，已改为只拦设置与取消；命令里的文档文字提到危险命令被拒，改用编辑工具）。变量间接展开等写法字符串规则仍识别不了；改为按命令结构解析列入后续工作（方案 §13 E3）。
 - **Zcode 与 Pi 无 Agent 层拦截**：它们设置覆盖变量或使用 `--no-verify` 时，本机两层都挡不住，只有服务端兜底。
 - **本机护栏的信任根在可写路径**（评审 PR7-R3）：git 钩子的规则文件曾在执行者可写的工作区，改掉 `protected_branches` 即可让本机改写 main 不受拦截。现在钩子按 origin/main 上的 `harness/rules.toml` 执行，工作区版本不一致时告警；但守卫代码（`harness/git_guard.py`、`.githooks/`）与运行时解释器（`scratch/iterm-probe-venv`）仍可被改。本机两层定位为防误操作，防有意绕过只能靠服务端 ruleset 与发版审批，所以一次性设置里 ruleset 排在第一步。
