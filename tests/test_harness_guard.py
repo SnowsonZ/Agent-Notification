@@ -182,6 +182,16 @@ class CommandGuardTest(unittest.TestCase):
                 self.assertEqual(command_guard.evaluate({"file_path": path}, "designer", ROOT), [])
         self.assertEqual(command_guard.evaluate({"file_path": "scripts/inbox.py"}, "implementer", ROOT), [])
 
+    def test_implementer_may_shrink_gap_list_but_not_edit_other_verifiers(self):
+        """H0926-2：规范要求执行方补完测试后删缺口清单的行，守卫却把整个 harness/ 禁改（trial-001 卡在这里）。"""
+        for path in ("harness/acceptance-gaps.txt", str(ROOT / "harness/acceptance-gaps.txt")):
+            with self.subTest(path=path):
+                self.assertEqual(command_guard.evaluate({"file_path": path}, "implementer", ROOT), [])
+        # 回放用例是会被执行的判定器代码，追加一行即可删掉别的用例：仍只由评审方维护。
+        for path in ("harness/replay_cases.py", "harness/rules.toml", "harness/acceptance.py"):
+            with self.subTest(path=path):
+                self.assertTrue(command_guard.evaluate({"file_path": path}, "implementer", ROOT))
+
     def test_payload_shapes(self):
         claude = {"tool_name": "Bash", "tool_input": {"command": "git push --tags"}}
         codex_list = {"tool_name": "shell", "tool_input": {"command": ["bash", "-lc", "git push --tags"]}}
