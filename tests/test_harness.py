@@ -188,8 +188,24 @@ class RiskTest(unittest.TestCase):
         self.assertEqual(report.label, "R2")
         self.assertIn("机器核对不满足", report.notes[0])
 
+    def test_new_golden_file_is_a_new_test(self):
+        self.repo.write("tests/golden/new.json", "{}\n")
+        self.repo.commit("golden")
+        self.assertEqual((self.classify().label, self.classify().flags), ("R0", []))
+
+    def test_r3_paths_are_reported_as_one_flag(self):
+        for index in range(10):
+            self.repo.write(f"harness/tool{index}.py", "X = 1\n")
+        self.repo.commit("harness")
+        flags = self.classify().flags
+        self.assertEqual(len(flags), 1)
+        self.assertIn("等 10 个", flags[0])
+
     def test_golden_change_is_flagged(self):
         self.repo.write("tests/golden/usage.json", "{}\n")
+        self.repo.commit("golden base")
+        self.base = self.repo.git("rev-parse", "HEAD")
+        self.repo.write("tests/golden/usage.json", '{"changed": true}\n')
         self.repo.commit("golden")
         report = self.classify()
         self.assertEqual(report.label, "R2")
