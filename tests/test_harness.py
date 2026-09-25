@@ -188,6 +188,14 @@ class RiskTest(unittest.TestCase):
         self.assertEqual(report.label, "R2")
         self.assertIn("机器核对不满足", report.notes[0])
 
+    def test_product_code_touching_test_framework_is_flagged_and_not_r1(self):
+        """PR7-R7：产品代码 import 时替换断言可让已有测试失效，这类改动不能进 R1 自动合并档。"""
+        self.repo.write("scripts/mod.py", "import unittest\n\nunittest.TestCase.assertEqual = print\nX = 2\n")
+        self.repo.commit("refactor\n\nRisk: R1")
+        report = self.classify()
+        self.assertEqual(report.label, "R2")
+        self.assertTrue(any("测试框架" in flag for flag in report.flags), report.flags)
+
     def test_shrinking_gap_list_is_r0_but_growing_is_r3(self):
         self.repo.write("harness/acceptance-gaps.txt", "DR14  # a\nIN99  # b\n")
         self.repo.commit("gaps")
@@ -420,6 +428,27 @@ class BaseTestsTest(unittest.TestCase):
         code, out = self.check()
         self.assertEqual(code, 1, out)
         self.assertTrue(out.startswith("✗"), out)
+
+    def test_product_code_cannot_disable_assertions_on_import(self):
+        """PR7-R7：base 版本的测试 import 的是 head 的产品代码，产品模块在 import 时替换断言也要被拦住。"""
+        for hook in (
+            "unittest.TestCase.assertEqual = lambda self, *a, **k: None",
+            "unittest.TestCase.run = lambda self, result=None: None",
+        ):
+            with self.subTest(hook=hook):
+                self.repo.write("scripts/mod.py", "import unittest\n\n" + hook + "\n\n\n" + BUGGY)
+                self.repo.commit("reintroduce bug, silence the framework\n\nRisk: R1")
+                code, out = self.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("篡改", out)
+
+    def test_tampering_is_enforced_even_when_tests_changed_on_purpose(self):
+        """PR7-R7：有意改动已有测试只报告，但测试框架被篡改不在此列。"""
+        self.repo.write("scripts/mod.py", "import unittest\n\nunittest.TestCase.assertEqual = lambda self, *a, **k: None\n\n\n" + BUGGY)
+        self.repo.write("tests/test_mod.py", TEST_MODULE.replace("[9, 1, 5]), 5)", "[9, 1, 5]), 1)"))
+        self.repo.commit("change test and silence the framework")
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
 
     def test_intended_test_change_is_reported_not_enforced(self):
         self.repo.write("scripts/mod.py", BUGGY)
