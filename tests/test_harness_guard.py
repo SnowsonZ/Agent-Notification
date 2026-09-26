@@ -297,6 +297,23 @@ class GitGuardTest(unittest.TestCase):
         self.assertNotEqual(deleted.returncode, 0)
         self.assertIn("删除已有 tag", deleted.stderr)
 
+    def test_packing_refs_is_not_a_tag_deletion(self):
+        """H0926-5：pack-refs 把散落的 tag 并入 packed-refs 时会删除散文件，钩子曾把它当作删 tag 拒绝，
+        git 自动维护（fetch 后的 maintenance）因此每次失败。打包后 tag 仍在，真正删除仍被拒绝。"""
+        self.repo.run_git("tag", "v1")
+        tag = self.repo.sha("v1")
+        packed = self.repo.run_git("pack-refs", "--all")
+        self.assertEqual(packed.returncode, 0, packed.stderr)
+        self.assertEqual(self.repo.sha("v1"), tag)
+        self.assertIn(f"{tag} refs/tags/v1", (self.repo.path / ".git/packed-refs").read_text())
+        deleted = self.repo.run_git("tag", "-d", "v1")
+        self.assertNotEqual(deleted.returncode, 0)
+        self.assertIn("删除已有 tag", deleted.stderr)
+        # 指定旧值的删除与打包在钩子里呈现相同形态，只凭 packed-refs 不能放行。
+        explicit = self.repo.run_git("update-ref", "-d", "refs/tags/v1", tag)
+        self.assertNotEqual(explicit.returncode, 0)
+        self.assertEqual(self.repo.sha("v1"), tag)
+
     def test_override_is_explicit(self):
         before = self.repo.sha("main")
         result = self.repo.run_git(
