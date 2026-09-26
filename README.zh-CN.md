@@ -137,6 +137,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [任务 004：今日 token 从未显示](docs/plans/task-004-today-tokens.md) | 设计方案 | H0926-7 会话 ID 解码失败、H0926-8 签名不含用量，交执行方 |
 | [待办清单](docs/plans/backlog.md) | 设计方案 | 未关闭事项的唯一清单（有日期或触发条件、可做未排期、持续或暂缓、用户本机环境） |
 | [harness 说明](harness/README.md) | 设计方案 | 可验证交付的愿景、理念出处、原则与组件对照、阅读顺序 |
+| [2026-09-25 落地交接说明](docs/plans/2026-09-25-harness-rollout-handoff.md) | 设计方案（历史） | harness 开工时的基线、失败分类、可验证性地图与 P0–P6 路线，原为调研报告最后一节 |
 | [可验证交付方案](docs/plans/verifiable-delivery.md) | 设计方案 | 以本项目为标杆的全链路 harness：可验证定义、角色、风险等级、护栏分层与 P0–P6 阶段 |
 | [日报与桌面组件重设计](docs/plans/2026-09-24-report-widget-redesign.md) | 设计决策记录 | 口径决定（金额伴随/USD-only/官方图标）、实施与已知边界 |
 | [日报金额与跨周期统计](docs/plans/usage-cost-report.md) | 设计方案 | 已定稿为规范，保留调研与取舍背景 |
