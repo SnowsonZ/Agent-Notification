@@ -286,5 +286,73 @@ class DisplayConvertTest(unittest.TestCase):
         self.assertAlmostEqual(output_v, 2.0)
 
 
+# ---- 变异测试缺口（2026-09-26 任务 002，只新增） ------------------------------------------
+# merge_cost 的多次累加、model_cost 的 cache_write 计价项、缺价提示经 cost_for_models 透传。
+
+
+class MutationGapTests(unittest.TestCase):
+    def _empty(self):
+        return {
+            "input": {"USD": 0.0, "CNY": 0.0},
+            "cache": {"USD": 0.0, "CNY": 0.0},
+            "output": {"USD": 0.0, "CNY": 0.0},
+            "unpriced_tokens": 0,
+        }
+
+    def test_merge_cost_accumulates_native_fallback(self):
+        target = merge_cost(
+            merge_cost(self._empty(), {"native_fallback": {"USD": 1.5}}),
+            {"native_fallback": {"USD": 0.5}},
+        )
+        self.assertAlmostEqual(target["native_fallback"]["USD"], 2.0)
+        self.assertEqual(target["unpriced_tokens"], 0)  # addition 未带该字段时保持 0
+
+    def test_model_cost_prices_cache_write_tokens(self):
+        entry = {
+            "input": 1.0,
+            "cache_write": 0.5,
+            "cache_read": 0.2,
+            "output": 8.0,
+            "currency": "CNY",
+        }
+        cost = model_cost(
+            {
+                "fresh_input": MILLION,
+                "cache_write": 2 * MILLION,
+                "cache_read": 0,
+                "output": 0,
+            },
+            entry,
+            DAY,
+        )
+        # input 类 = fresh_input×输入价 + cache_write×写入价；写入价 ≠ 输入价才守得住计价项。
+        self.assertAlmostEqual(cost["input"]["CNY"], 1.0 + 2 * 0.5)
+        self.assertEqual(cost["cache"]["CNY"], 0.0)
+        self.assertEqual(cost["output"]["CNY"], 0.0)
+
+    def test_cost_for_models_notes_missing_cache_prices(self):
+        models = {
+            "glm-x": {
+                "fresh_input": MILLION,
+                "cache_write": MILLION,
+                "cache_read": 0,
+                "output": 0,
+                "native_cost_usd": None,
+            }
+        }
+        tables = PricingTables(
+            official={"glm-x": {"input": 2.0, "output": 8.0, "currency": "CNY"}}
+        )
+        cost, _, notes = cost_for_models(models, DAY, tables)
+        self.assertEqual(
+            notes,
+            [
+                "glm-x (official): cache_write falls back to input price",
+                "glm-x (official): cache_read falls back to input price",
+            ],
+        )
+        self.assertAlmostEqual(cost["input"]["CNY"], 4.0)  # (1M + 1M 回退价) × 2 元
+
+
 if __name__ == "__main__":
     unittest.main()

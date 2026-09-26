@@ -1786,5 +1786,143 @@ class DailyReportPrivacyTests(unittest.TestCase):
                 self.assertNotIn(marker.encode("utf-8"), blob, str(file))
 
 
+# ---- 合并关口的精确合同与总览金额分级（2026-09-26 任务 002，只新增） -----------------------
+
+
+class MergeDayTasksContractTests(unittest.TestCase):
+    """变异测试缺口：性质测试只断言合并的内部一致与不降级，以下精确行为此前无测试。"""
+
+    def _task(self, provider, session, input_tokens, cache_tokens, output_tokens, **extra):
+        record = {
+            "provider": provider,
+            "session_id": session,
+            "title": "t",
+            "project": "/work/x",
+            "input_tokens": input_tokens,
+            "cache_tokens": cache_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + cache_tokens + output_tokens,
+            "fidelity": "exact",
+            "models": {
+                "m": {
+                    "fresh_input": input_tokens,
+                    "cache_write": 0,
+                    "cache_read": cache_tokens,
+                    "output": output_tokens,
+                }
+            },
+        }
+        record.update(extra)
+        return record
+
+    def test_equal_totals_with_different_classes_take_rescan(self):
+        # 三类合计相等但类别不同：采用重扫记录原样，不走差额补 unknown（<= 不能弱化为 <）。
+        from daily_report import _merge_day_tasks
+
+        old = self._task("pi", "s1", 100, 0, 100)
+        new = self._task("pi", "s1", 0, 200, 0)
+        merged, restored = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
+        self.assertFalse(restored)
+        self.assertEqual(merged, [new])
+
+    def test_downgrade_protection_caps_each_class_at_max(self):
+        # 重扫合计更小时：每一类恰等于 max(现有, 重扫)，正差额如数记入 unknown，
+        # model 明细与三类合计保持一致（H0925-4 的量化口径）。
+        from daily_report import _merge_day_tasks
+
+        old = self._task("pi", "s1", 0, 100, 0)
+        new = self._task("pi", "s1", 0, 30, 0)
+        merged, _ = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
+        task = merged[0]
+        self.assertEqual(
+            (task["input_tokens"], task["cache_tokens"], task["output_tokens"]),
+            (0, 100, 0),
+        )
+        self.assertEqual(task["total_tokens"], 100)
+        self.assertEqual(
+            task["models"]["m"],
+            {"fresh_input": 0, "cache_write": 0, "cache_read": 30, "output": 0},
+        )
+        self.assertEqual(
+            task["models"]["unknown"],
+            {"fresh_input": 0, "cache_write": 0, "cache_read": 70, "output": 0},
+        )
+
+    def test_zero_total_restored_task_dropped_unless_unavailable(self):
+        # 只在现有报告中的任务：合计为 0 丢弃，除非 fidelity 为 unavailable；
+        # 合计为 1 的任务必须保留（> 0 不能弱化为 > 1）。
+        from daily_report import _merge_day_tasks
+
+        zero = self._task("pi", "z1", 0, 0, 0)
+        unavailable = self._task("pi", "z2", 0, 0, 0, fidelity="unavailable")
+        tiny = self._task("pi", "z3", 1, 0, 0)
+        merged, _ = _merge_day_tasks(
+            {"tasks": []}, {"tasks": [zero, unavailable, tiny]}, set()
+        )
+        self.assertEqual(
+            {(task["provider"], task["session_id"]) for task in merged},
+            {("pi", "z2"), ("pi", "z3")},
+        )
+
+
+class OverviewCostLevelTests(unittest.TestCase):
+    """V080-R7：热力图按金额着色——阈值来自每日金额分位，分级不得恒为 0。"""
+
+    def test_cost_levels_graded_by_daily_amount(self):
+        from daily_report import day_bounds, finalize_day_report
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            store = Store(home / "state")
+            pricing = store.root / "pricing"
+            pricing.mkdir(parents=True, exist_ok=True)
+            (pricing / "override.json").write_text(
+                json.dumps(
+                    {"glm-x": {"input": 1.0, "output": 2.0, "currency": "CNY"}}
+                )
+            )
+            today = date.today()
+            for amount in range(1, 11):
+                day = today - timedelta(days=11 - amount)
+                tokens = amount * 1_000_000
+                record = {
+                    "provider": "pi",
+                    "session_id": f"s{amount}",
+                    "title": "t",
+                    "project": "/work/x",
+                    "first_at": 0,
+                    "last_at": 1,
+                    "input_tokens": tokens,
+                    "cache_tokens": 0,
+                    "output_tokens": 0,
+                    "total_tokens": tokens,
+                    "turns": 1,
+                    "state": "idle",
+                    "fidelity": "exact",
+                    "segments": [],
+                    "models": {
+                        "glm-x": {
+                            "fresh_input": tokens,
+                            "cache_write": 0,
+                            "cache_read": 0,
+                            "output": 0,
+                            "native_cost_usd": None,
+                        }
+                    },
+                }
+                report = build_report(day, [record], 0.0)
+                report["generated_at"] = day_bounds(day)[1] + 100
+                finalize_day_report(store.root, day, report)
+            overview = generate_overview(store, home, days=11)
+            levels = {row["date"]: row["cost_level"] for row in overview["days"]}
+            # 10 个有消耗日的金额恰为 1..10 元：50/75/90 分位 = 6/8/10，分级覆盖 1–4。
+            self.assertNotEqual(set(levels.values()), {0})  # 缺陷形态：全为 0
+            self.assertEqual(levels[(today - timedelta(days=10)).isoformat()], 1)
+            self.assertEqual(levels[(today - timedelta(days=5)).isoformat()], 2)
+            self.assertEqual(levels[(today - timedelta(days=3)).isoformat()], 3)
+            self.assertEqual(levels[(today - timedelta(days=1)).isoformat()], 4)
+            self.assertEqual(levels[today.isoformat()], 0)  # 无消耗日仍为 0
+
+
 if __name__ == "__main__":
     unittest.main()
