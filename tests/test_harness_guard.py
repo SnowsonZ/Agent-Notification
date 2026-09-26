@@ -155,8 +155,15 @@ class CommandGuardTest(unittest.TestCase):
             # 只有去掉引号后才能识别的拆写（回放发现上面几条靠别的规则也能拦，没测到去引号这一步）
             "export HARN'ESS_ALL'OW_TAG=1",
             'gh a"pi" -X PATCH repos/o/r/git/refs/heads/main',
+            # GraphQL 的写操作：mutation、或看不到内容的文件与 stdin 输入
+            "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'",
+            "gh api graphql -F query=@q.graphql",
+            "gh api graphql --input q.json",
         ]
         allowed = [
+            # H0926-5：只读的 GraphQL 查询同样用 -f 传参，曾被当成写请求拒绝
+            "gh api graphql -f query='{repository(owner:\"o\",name:\"r\"){pullRequest(number:7){reviews(first:5){nodes{state}}}}}'",
+            "gh api graphql -f query='query { viewer { login } }' -q .data",
             "gh api repos/o/r/pulls/7",
             "gh api -X GET repos/o/r/actions/runs",
             "gh pr view 7",
