@@ -159,6 +159,7 @@ class CostThresholdProperties(Property):
 def random_task(rng, provider, session, v7=False):
     """任务记录；约一成三类合计为 0。v7=True 时模拟旧版报告（没有 models）。"""
     parts = [0, 0, 0] if rng.random() < 0.1 else [rng.randint(0, 5000) for _ in range(3)]
+    fresh = rng.randint(0, parts[0]) if parts[0] else 0
     record = {
         "provider": provider,
         "session_id": session,
@@ -169,7 +170,14 @@ def random_task(rng, provider, session, v7=False):
         "output_tokens": parts[2],
         "total_tokens": sum(parts),
         "fidelity": "exact",
-        "models": {"m": {"fresh_input": parts[0], "cache_write": 0, "cache_read": parts[1], "output": parts[2]}},
+        "models": {
+            "m": {
+                "fresh_input": fresh,
+                "cache_write": parts[0] - fresh,
+                "cache_read": parts[1],
+                "output": parts[2],
+            }
+        },
     }
     if v7:
         del record["models"]
@@ -177,26 +185,19 @@ def random_task(rng, provider, session, v7=False):
 
 
 def model_sums(task):
+    """规范口径：输入 = fresh_input + cache_write，缓存 = cache_read，输出 = output。"""
     models = task.get("models") or {}
     return (
-        sum(int(entry.get("fresh_input") or 0) for entry in models.values()),
-        sum(int(entry.get("cache_write") or 0) + int(entry.get("cache_read") or 0) for entry in models.values()),
+        sum(int(entry.get("fresh_input") or 0) + int(entry.get("cache_write") or 0) for entry in models.values()),
+        sum(int(entry.get("cache_read") or 0) for entry in models.values()),
         sum(int(entry.get("output") or 0) for entry in models.values()),
     )
 
 
-def category_shift(old, new):
-    """重扫总量更小、但某一类比现有报告大：H0925-4 的触发条件。"""
-    fields = ("input_tokens", "cache_tokens", "output_tokens")
-    return _task_total(new) < _task_total(old) and any(int(new[f]) > int(old[f]) for f in fields)
-
-
 class KnownDefectTest(unittest.TestCase):
-    @unittest.expectedFailure
     def test_h0925_4_category_totals_match_models_after_downgrade_protection(self):
-        """H0925-4（2026-09-25 性质测试发现，待用户决定修法）：重扫总量更小但 cache 更大时，
-        合并记录的三类合计沿用现有报告（cache 3632），model 明细却含重扫的 4487，
-        同一任务的 token 合计与计价依据不一致。修好后本测试会「意外通过」，届时删掉 expectedFailure。"""
+        """H0925-4 回归：重扫总量更小但某一类比现有报告大时，三类合计按类别取
+        max(现有, 重扫)，正差额记 unknown，model 明细之和与三类合计一致。"""
         old = {"provider": "zcode", "session_id": "s0", "input_tokens": 3582, "cache_tokens": 3632,
                "output_tokens": 4467, "total_tokens": 11681, "fidelity": "exact",
                "models": {"m": {"fresh_input": 3582, "cache_write": 0, "cache_read": 3632, "output": 4467}}}
@@ -219,12 +220,8 @@ class MergeNoDowngradeProperties(Property):
             rescan_tasks = [random_task(rng, *key) for key in keys if rng.random() < 0.7]
             excluded = {key for key in keys if rng.random() < 0.15}
             merged, restored = _merge_day_tasks({"tasks": rescan_tasks}, {"tasks": base_tasks}, excluded)
-            base_map = {_task_key(task): task for task in base_tasks}
             rescan_map = {_task_key(task): task for task in rescan_tasks}
             for task in merged:
-                old, new = base_map.get(_task_key(task)), rescan_map.get(_task_key(task))
-                if old and new and category_shift(old, new):
-                    continue  # 已知缺陷 H0925-4，见 KnownDefectTest
                 sums = model_sums(task)
                 self.assertEqual(sums, (task["input_tokens"], task["cache_tokens"], task["output_tokens"]), task)
             rescan_keys = set(rescan_map)

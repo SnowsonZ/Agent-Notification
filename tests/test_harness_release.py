@@ -80,6 +80,22 @@ class ServerConfigTest(unittest.TestCase):
         self.assertIn("environment: release", release)
         self.assertIn("needs: [build, harness]", release)
 
+    def test_auto_merge_judges_with_main_and_merges_only_evaluated_head(self):
+        """E1：自动合并的判定必须跑 main 上的定义与 harness，PR 改自己的 workflow 或规则影响不到；
+        只合并评估过的那个提交；fork 与失败的运行不处理。"""
+        workflow = (ROOT / ".github/workflows/auto-merge.yml").read_text()
+        trigger = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("workflow_run:", trigger)
+        self.assertNotIn("pull_request", trigger)  # pull_request 与 pull_request_target 都会执行或暴露 PR 的定义
+        self.assertIn("ref: ${{ github.event.repository.default_branch }}", workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
+        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
+        self.assertIn('harness/risk.py --base origin/main --head "$HEAD_SHA" --github', workflow)
+        self.assertIn("if: steps.risk.outputs.auto_merge == 'true'", workflow)
+        self.assertIn('--match-head-commit "$HEAD_SHA"', workflow)
+        self.assertEqual(workflow.count("run: git fetch --no-tags origin"), 1)
+        self.assertNotRegex(workflow, r"run: (python|bash|sh|\./)\S*\s+(?!harness/risk\.py)")
+
 
 if __name__ == "__main__":
     unittest.main()
