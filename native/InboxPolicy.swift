@@ -89,6 +89,19 @@ enum WidgetRefreshPolicy {
         items.map { "\($0.id):\($0.revision):\($0.state)" }.joined(separator: "|")
     }
 
+    // 最近任务分区签名（§3）：由最近任务条目生成的纯函数，写入器只经这里取签名。
+    // H0926-8：今日用量计入签名——每条附上 todayTokens 原值与金额显示值（usdTotal
+    // 按 usdCnyRate 折算、usdText 同展示口径）。tokens 或金额从无到有、数值变化、
+    // 从有到无都改变签名，用量异步加载完即重写快照；用量不变时签名不变。
+    // 汇率变化不在这里体现：prefsSignature 已含 fx（§3，变化时 reload 全部 kind）。
+    static func recentSignature(_ items: [WidgetSnapshot.RecentItem], usdCnyRate: Double) -> String {
+        items.map { item -> String in
+            let tokens = item.todayTokens.map(String.init) ?? "-"
+            let cost = usdText(usdTotal(item.todayCost, rate: usdCnyRate))
+            return "\(item.id):\(item.revision):\(item.state):\(tokens):\(cost)"
+        }.joined(separator: "|")
+    }
+
     struct Inputs {
         var inboxSignature: String
         var recentSignature: String

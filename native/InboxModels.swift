@@ -19,7 +19,9 @@ struct InboxRow: Decodable, Identifiable, Sendable {
     // 可选：有效来源（评审 R4）。agent 行仅审计可见，通知/待查看/角标按它过滤。
     let origin: String?
     // 可选：组件快照的今日用量按 (provider, session_id) 匹配今日报告任务（§2）。
-    let sessionID: String?
+    // H0926-7：属性名必须与 convertFromSnakeCase 转出的键一致（session_id → sessionId）；
+    // 原名 sessionID 对不上键且可选静默为 nil，用量键恒为 "<provider>:" 一条都查不到。
+    let sessionId: String?
 }
 struct SourceHealth: Decodable { let status: String; let errors: Int? }
 struct Health: Decodable { let sources: [String: SourceHealth]? }

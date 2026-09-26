@@ -71,7 +71,7 @@ final class WidgetSnapshotWriter {
         let runningItems = runningRows.prefix(WidgetSnapshot.maxRunningItems).map(item)
         let recentItems = recentRows.prefix(WidgetSnapshot.maxRecentItems).map { row in
             // V080-R9：今日用量键与查找只经 InboxPolicy 的纯函数，两字段找不到即为 nil。
-            let usage = todayUsageFor(provider: row.provider, sessionID: row.sessionID, mapping: todayUsage)
+            let usage = todayUsageFor(provider: row.provider, sessionID: row.sessionId, mapping: todayUsage)
             let text = widgetEntryText(hideTitles: hideTitles, title: row.title, project: row.project)
             return WidgetSnapshot.RecentItem(
                 id: row.id, revision: row.revision, provider: row.provider,
@@ -87,9 +87,7 @@ final class WidgetSnapshotWriter {
             + WidgetRefreshPolicy.signature(
                 (pendingItems + runningItems).map { (id: $0.id, revision: $0.revision, state: $0.state) }
             )
-        let recentSignature = WidgetRefreshPolicy.signature(
-            recentItems.map { (id: $0.id, revision: $0.revision, state: $0.state) }
-        )
+        let recentSignature = WidgetRefreshPolicy.recentSignature(recentItems, usdCnyRate: fx.usdCny)
         // 签名含组件默认设置：设置面板改周期/视角/隐藏标题后，快照与 reload 跟随。
         let prefsSignature = "\(currency)|\(hideTitles)|\(fx.usdCny)|\(fx.asOf)|\(usageAt)|\(fallbackPeriod)|\(fallbackDimension)"
 
