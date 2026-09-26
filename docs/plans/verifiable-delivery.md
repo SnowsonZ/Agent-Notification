@@ -104,6 +104,7 @@ Agent 层取决于各家宿主（最初调研认为 Zcode 没有工具调用 hoo
 | 2026-09-25 | 角色：Codex、Claude Code 做设计、评审与顾问；Zcode、OpenCode、Pi 做实现、测试与部署 |
 | 2026-09-25 | 用户同意按提供的配置在仓库设置中启用 ruleset（`main` 与 `v*` tag 保护） |
 | 2026-09-25 | D4：Agent 不自行合并 PR。R0/R1 由仓库 auto-merge 在门禁全绿后合并，R2 及以上由用户合并；Agent 层拒绝命令行与 MCP 的合并、开启自动合并工具 |
+| 2026-09-26 | D3 改选：Agent 使用单独账号 `Snowson`；main 要求非推送者批准最后一次推送；R0/R1 由专用 GitHub App 批准（选项 A，凭据在只允许 main 的 environment 中）；Agent 层同时拒绝批准 PR |
 
 ## 11. 待用户决定
 
@@ -132,7 +133,7 @@ Agent 层取决于各家宿主（最初调研认为 Zcode 没有工具调用 hoo
 | A2 | 合并 PR #7（R3，需用户批准） | 用户 | A1 | 完成（2026-09-25 合并 PR #7） |
 | A4 | 导入 `.github/rulesets/main.json`、`release-tags.json`；新建 environment `release` 并设审批人（[harness 规范](../specs/delivery-harness.md) §5） | 用户 | — | 完成（2026-09-25，先于 A2 合并）：两条 ruleset 经 API 核对为 Active、规则与仓库文件一致、无绕过名单；environment `release` 经用户转贴的 API 输出核对：审批人为用户、未开禁止自审、管理员不可绕过、只允许 `v*` tag 部署；实际拦停由首次发版 V6 确认 |
 | A3 | 本机装开发依赖（`requirements-dev.txt`）并 `python3 harness/git_guard.py install`；本机 macOS 首次跑 `bin/verify` | 用户 | A4 | 完成（2026-09-26）：本机 macOS `bin/verify --strict --full` 10 项全过，含 3 项 Swift 检查 |
-| A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 完成（2026-09-26）：三个执行方都在本机同一克隆里工作，`core.hooksPath` 在仓库配置中，对其 worktree 同样生效；另起克隆需重新 install（`bin/verify` 会检查）。Pi 另需信任项目（规范 §5 第 5 步，待用户执行） |
+| A5 | 每个执行方的环境（Zcode / OpenCode / Pi 所在机器或工作区）确认 git 守卫已安装 | 用户 | A3 | 完成（2026-09-26）：三个执行方都在本机同一克隆里工作，`core.hooksPath` 在仓库配置中，对其 worktree 同样生效；另起克隆需重新 install（`bin/verify` 会检查）。Pi 已由用户信任项目（2026-09-26） |
 
 ### 13.2 待用户决定
 
@@ -140,7 +141,7 @@ Agent 层取决于各家宿主（最初调研认为 Zcode 没有工具调用 hoo
 |---|---|---|---|
 | D1 | H0925-4：过去日合并的口径（选项见 §11） | 决定后作为缺陷修复任务交执行方，并移除 `expectedFailure` 登记 | 已决定并修复：按类别取较大值（PR #18，2026-09-26） |
 | D2 | H0925-6：Zcode「前往会话」CLI 与 App 入口各自的现役语义 | 决定后统一两份规格与 ZN/IN14 验收 | 已决定（2026-09-26）：现役只停在搜索结果页，Zcode CLI 未接入；两份规格已统一 |
-| D3 | 执行方是否使用单独的 GitHub 身份（机器账号或 GitHub App） | 决定是否能接上 L4 自动合并（E1） | 已决定（2026-09-26）：不另设身份，直接开启 R0/R1 自动合并；R2 以上由用户合并仍靠约定与 D4 守卫 |
+| D3 | 执行方是否使用单独的 GitHub 身份（机器账号或 GitHub App） | 决定是否能接上 L4 自动合并（E1） | 已改选（2026-09-26）：Agent 用单独账号 `Snowson`，R0/R1 由专用 App 批准（§10）；仓库侧改动见 PR，用户侧设置按规范 §5 第 8、9 步，完成并实测前服务端仍按旧规则 |
 | D4 | Agent 层是否一律拒绝 Agent 自己合并 PR（评审 PR7-R9 附带问题） | L4 下 R0/R1 由仓库 auto-merge 合并、R2 以上由用户合并，Agent 本身不需要合并权限；拒绝后「由用户合并」不再只靠约定 | 已决定：拒绝（§10），命令守卫已实现 |
 
 ### 13.3 首个试跑

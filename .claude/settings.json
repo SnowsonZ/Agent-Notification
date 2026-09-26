@@ -11,7 +11,7 @@
         ]
       },
       {
-        "matcher": "mcp__.*(merge_pull_request|auto_merge|merge_pr).*",
+        "matcher": "mcp__.*(merge_pull_request|auto_merge|merge_pr|pull_request_review|approve_pull_request|approve_pr).*",
         "hooks": [
           {
             "type": "command",
