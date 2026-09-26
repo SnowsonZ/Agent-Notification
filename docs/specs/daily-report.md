@@ -58,7 +58,7 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 
 ## 隐私边界
 
-读取范围限于管理所需的元数据（标题、项目、状态）与数值字段（token 数、时间戳）。含正文的完整 JSON 行会在内存中反序列化以定位 usage 与时间字段，但正文不被提取、不持久化、不输出；唯一例外是标题摘要——claude CLI 转写的首条合格用户消息截取 ≤80 字符作为会话标题保存（2026-09-21 评审校准：原文「正文不解析」与实现不符）。
+读取范围限于管理所需的元数据（标题、项目、状态）与数值字段（token 数、时间戳）。含正文的完整 JSON 行会在内存中反序列化以定位 usage 与时间字段，但正文不被提取、不持久化、不输出；唯一例外是标题摘要——claude CLI 转写的首条合格用户消息、Pi 会话在无自定义名时的首条用户消息，截取 ≤80 字符作为会话标题保存（2026-09-21 评审校准：原文「正文不解析」与实现不符；2026-09-26 补入 Pi，与[统一收件箱](unified-inbox.md)的 Pi 标题口径一致）。
 
 ## 验证证据
 
@@ -87,7 +87,7 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 | DR11 | 过去日重写按任务合并、不降级（`--refresh` 与补录走同一关口） | 夹具 + 性质 | `test_daily_report.DailyReportTests.test_refresh_does_not_degrade_restored_day`、`test_daily_report.DailyReportTests.test_backup_fallback_when_current_report_missing`、`test_properties.MergeNoDowngradeProperties` |
 | DR12 | 热力分级：0 无记录 / L1 <20M / L2 <100M / L3 <400M / L4 ≥400M | 单测 | `test_daily_report.DailyReportTests.test_heat_level_total_token_thresholds` |
 | DR13 | 数字格式 `tokenText`（k/M/B 规则）双端一致 | 单测 | `test_daily_report.DailyReportTests.test_token_text_units`、`tests/InboxPolicyTests.swift#tokenText(6_594) == "6.6k"` |
-| DR14 | 隐私：正文不提取、不持久化、不输出；唯一例外是 claude CLI 首条合格用户消息截取 ≤80 字符作标题 | 单测 | `test_cli_sessions.ClaudeCliTitlePrivacyTests.test_title_is_first_qualified_user_message_capped_at_80_chars`、`test_cli_sessions.ClaudeCliTitlePrivacyTests.test_title_at_exactly_80_chars_is_kept_whole`、`test_daily_report.DailyReportPrivacyTests.test_report_output_and_store_carry_no_message_bodies` |
+| DR14 | 隐私：正文不提取、不持久化、不输出；唯一例外是标题摘要：claude CLI 首条合格用户消息、Pi 无自定义名时的首条用户消息，截取 ≤80 字符作标题 | 单测 | `test_cli_sessions.ClaudeCliTitlePrivacyTests.test_title_is_first_qualified_user_message_capped_at_80_chars`、`test_cli_sessions.ClaudeCliTitlePrivacyTests.test_title_at_exactly_80_chars_is_kept_whole`、`test_daily_report.DailyReportPrivacyTests.test_report_output_and_store_carry_no_message_bodies`、`test_source_body_privacy.SourceBodyPrivacyTests.test_codex_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_zcode_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_kimi_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_pi_bodies_beyond_bounded_title_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_opencode_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_agy_bodies_stay_out_of_store` |
 | DR15 | 总览与当日详情的编排、全部图表与数字有悬浮卡 | 真机 UI | 用户 UI 验收（截图核对） |
 | DR16 | 准确性：独立重算与报告三类逐位一致（Zcode 在跨零点分摊容差 <2.2% 内） | 真实数据 | 独立重算脚本，证据不入库 |
 
