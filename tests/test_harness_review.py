@@ -47,6 +47,26 @@ class ReviewPackTest(unittest.TestCase):
         self.assertIn("### 验证", text)
         self.assertIn("本次改动的新增行没有涉及验收编号", text)
 
+    def test_only_changed_acceptance_rows_are_listed(self):
+        """E8：规格正文提到编号不算涉及；只列改动过的验收表行（和测试里新标注的编号）。"""
+        repo = TempRepo()
+        self.addCleanup(repo.close)
+        header = "| 编号 | 验收内容 | 证据类型 | 覆盖 |\n|---|---|---|---|\n"
+        repo.write(
+            "docs/specs/demo.md",
+            "# 示例\n\n旧说明。\n\n" + header + "| DM1 | 甲 | 人工 | 目测 |\n| DM2 | 乙 | 人工 | 目测 |\n| DM3 | 丙 | 人工 | 目测 |\n",
+        )
+        base = repo.commit("base")
+        repo.write(
+            "docs/specs/demo.md",
+            "# 示例\n\n新说明：DM2、DM3 的背景见上文。\n\n"
+            + header
+            + "| DM1 | 甲（改） | 人工 | 目测 |\n| DM2 | 乙 | 人工 | 目测 |\n| DM3 | 丙 | 人工 | 目测 |\n",
+        )
+        repo.commit("edit spec")
+        touched = [item.id for item in review_pack.touched_acceptance(base, "HEAD", cwd=repo.path)]
+        self.assertEqual(touched, ["DM1"])
+
 
 if __name__ == "__main__":
     unittest.main()
