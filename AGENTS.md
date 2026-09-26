@@ -17,6 +17,7 @@
 
 - 长期调研进 `docs/research/YYYY-MM-DD-topic.md`；方案进 `docs/plans/`；现役合同及验收进 `docs/specs/`；重大已采纳决策按需放 `docs/decisions/`。
 - 新增、迁移或替代文档时更新 README 索引；历史排错记录不能覆盖最新验收状态。
+- 未关闭事项只记在 `docs/plans/backlog.md`（待办清单）：开工和恢复中断时先读；新增、开始、关闭的规则见该文件「使用规则」；完成事项的 PR 同时把对应行移到「已关闭」。
 - 发布版本号必须先与用户确认后再打 tag，不自行指定 minor/patch 档位；tag 推送即触发远端发布。
 - 打 tag 前同步 `scripts/build_inbox_app.py` 的 `CFBundleShortVersionString` 与 `CFBundleVersion`，两处不能只改其一。
 
