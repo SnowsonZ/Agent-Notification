@@ -128,7 +128,7 @@ python3 scripts/build_inbox_app.py
 | IN11 | setup 可重复运行，保留既有配置与 hooks，不重复添加 | 单测 | `test_inbox.InboxTests.test_claude_setup_preserves_existing_hooks_and_is_idempotent` |
 | IN12 | 刷新双节拍：3 秒只读 store，全量采集按墙钟每 15 秒 | 单测 | `tests/InboxPolicyTests.swift#inboxTickShouldScan` |
 | IN13 | 主窗口分段、批量栏、图标与 Dock 角标同口径；切换分段不跳变 | 真机 UI | 用户 UI 验收（OCR 坐标核对） |
-| IN14 | Zcode「前往会话」：打开任务搜索、预填标题并停在结果页（2026-09-14 语义；与 zcode-native-navigation.md 的自动核验描述存在分歧，见 H0925-6） | 真机 UI | 用户 UI 验收 |
+| IN14 | Zcode「前往会话」：打开任务搜索、预填标题并停在结果页，不自动打开任务、不做后置核验（2026-09-14 语义，2026-09-26 用户确认为现役口径；zcode-native-navigation.md 的自动导航为非现役，见 H0925-6）；Zcode CLI 会话未接入 | 真机 UI | 用户 UI 验收 |
 
 ## 验证证据
 
