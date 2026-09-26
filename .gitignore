@@ -13,3 +13,5 @@ build/
 .pytest_cache/
 *.o
 /widget/
+.codex/*
+!.codex/hooks.json
