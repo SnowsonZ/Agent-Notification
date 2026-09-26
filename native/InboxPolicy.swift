@@ -89,6 +89,13 @@ enum WidgetRefreshPolicy {
         items.map { "\($0.id):\($0.revision):\($0.state)" }.joined(separator: "|")
     }
 
+    // 最近任务分区签名（§3）：由最近任务条目生成的纯函数，写入器只经这里取签名。
+    // 当前口径与旧实现逐字节一致（只含 id:revision:state）；usdCnyRate 供
+    // H0926-8 把今日用量并入签名时计算金额显示值。
+    static func recentSignature(_ items: [WidgetSnapshot.RecentItem], usdCnyRate: Double) -> String {
+        signature(items.map { (id: $0.id, revision: $0.revision, state: $0.state) })
+    }
+
     struct Inputs {
         var inboxSignature: String
         var recentSignature: String
