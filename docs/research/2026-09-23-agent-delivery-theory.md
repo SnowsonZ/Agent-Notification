@@ -2,7 +2,7 @@
 
 Sep 23, 2026 · @SnowsonZ
 
-> 本文件是调研报告的入库快照，供本地阅读和引用。编辑源是 Claude 文档 <https://claude.ai/code/artifact/487213ef-a1a8-44fd-9399-2e37f91c8b0c>（导出于 2026-09-26，文档版本 rev 47）。原文最后一节「落地交接说明」是本项目的落地计划，已拆到 [docs/plans/2026-09-25-harness-rollout-handoff.md](../plans/2026-09-25-harness-rollout-handoff.md)，本快照只保留理论与实践部分。报告有实质更新时，由评审方重新导出、覆盖本文件，并更新这里的日期与版本。落到本仓库的做法见 [harness/README.md](../../harness/README.md) 与 [可验证交付方案](../plans/verifiable-delivery.md)。
+> 本文件是调研报告的入库快照，供本地阅读和引用。编辑源是 Claude 文档 <https://claude.ai/code/artifact/487213ef-a1a8-44fd-9399-2e37f91c8b0c>（导出于 2026-09-26，文档版本 rev 47；原文与本快照均已删去曾附在末尾的「落地交接说明」，该节是本项目的落地计划，另存于 [docs/plans/2026-09-25-harness-rollout-handoff.md](../plans/2026-09-25-harness-rollout-handoff.md)，与 rev 48 内容一致）。报告有实质更新时，由评审方重新导出、覆盖本文件，并更新这里的日期与版本。落到本仓库的做法见 [harness/README.md](../../harness/README.md) 与 [可验证交付方案](../plans/verifiable-delivery.md)。
 
 
 ## 核心结论

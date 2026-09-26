@@ -1,6 +1,6 @@
 # 落地交接说明：Agent-Notification 标杆项目（2026-09-25）
 
-> 历史文档。原为调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（[入库快照](../research/2026-09-23-agent-delivery-theory.md)）的最后一节，2026-09-26 拆出单独保存。它记录 2026-09-25 开工时的基线、失败分类、可验证性地图与 P0–P6 路线。现行做法见 [可验证交付方案](verifiable-delivery.md) 与 [harness 说明](../../harness/README.md)，未关闭事项见 [待办清单](backlog.md)。
+> 历史文档。原为调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（[入库快照](../research/2026-09-23-agent-delivery-theory.md)）的最后一节，2026-09-26 拆出单独保存，报告原文已删去该节。它记录 2026-09-25 开工时的基线、失败分类、可验证性地图与 P0–P6 路线。现行做法见 [可验证交付方案](verifiable-delivery.md) 与 [harness 说明](../../harness/README.md)，未关闭事项见 [待办清单](backlog.md)。
 
 
 **当前状态（2026-09-26）**：P0–P6 已完成并合并；已有四次执行方试跑（trial-001、任务 002–004）。下方计划保留作历史记录；现役规则见仓库 `docs/specs/delivery-harness.md`，未关闭事项以 `docs/plans/backlog.md`（待办清单）为准。
