@@ -135,6 +135,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [任务 002：补齐测试缺口](docs/plans/task-002-test-gaps.md) | 设计方案 | 变异测试暴露的 9 处缺口与 V080-R7 回归测试（已完成，PR #30） |
 | [任务 003：今日用量传入写入器](docs/plans/task-003-r9-today-usage.md) | 设计方案 | V080-R9：去掉默认参数、抽出用量键与查找的纯函数，交执行方 |
 | [任务 004：今日 token 从未显示](docs/plans/task-004-today-tokens.md) | 设计方案 | H0926-7 会话 ID 解码失败、H0926-8 签名不含用量，交执行方 |
+| [待办清单](docs/plans/backlog.md) | 设计方案 | 未关闭事项的唯一清单（有日期或触发条件、可做未排期、持续或暂缓、用户本机环境） |
 | [可验证交付方案](docs/plans/verifiable-delivery.md) | 设计方案 | 以本项目为标杆的全链路 harness：可验证定义、角色、风险等级、护栏分层与 P0–P6 阶段 |
 | [日报与桌面组件重设计](docs/plans/2026-09-24-report-widget-redesign.md) | 设计决策记录 | 口径决定（金额伴随/USD-only/官方图标）、实施与已知边界 |
 | [日报金额与跨周期统计](docs/plans/usage-cost-report.md) | 设计方案 | 已定稿为规范，保留调研与取舍背景 |
