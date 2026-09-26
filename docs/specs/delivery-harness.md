@@ -75,7 +75,7 @@ Agent 层按角色接入：
 | Agent | 角色 | 接入 |
 |---|---|---|
 | Claude Code | 设计与评审 | 项目级 `.claude/settings.json` 的 PreToolUse（Bash 与 MCP 合并工具），自动生效 |
-| Codex | 设计与评审 | 用户级配置，需手动添加（见 §5），不自动改用户配置 |
+| Codex | 设计与评审 | 项目级 `.codex/hooks.json` 的 `PreToolUse`（不设 matcher，所有工具都交给守卫），从 git 仓库根调用 `command_guard.py --format claude --role designer`。**须经用户信任后才运行**：未信任时 `codex exec` 静默跳过、命令照常执行；交互界面启动时提示「Hooks need review」，信任后记入用户级 `~/.codex/config.toml`（§5 第 4 步）。`hooks.json` 内容一改就要重新信任；只改守卫脚本不用。不用用户级钩子，以免影响其他项目。`.codex/` 其余内容禁止入库 |
 | OpenCode | 执行 | 项目级插件 `.opencode/plugin/harness-guard.js`，`--role implementer` |
 | Pi | 执行 | 项目级扩展 `.pi/extensions/harness-guard.ts`（`tool_call` 事件拦截，`--role implementer`）。**只在项目被信任后加载**：未信任时（含 `pi -p` 且无保存的信任）扩展不加载、命令照常执行，只剩 git 与服务端两层；须按 §5 第 5 步信任本项目 |
 | Zcode | 执行 | 项目级 `.zcode/config.json` 的 `PreToolUse`（Bash、Edit、Write 与 MCP 合并工具），调用 `command_guard.py --format claude --role implementer`，退出码 2 即拦截。工作区钩子须经用户信任后才执行（§5 第 6 步），未信任时状态为 `pending_trust`、不执行。**只在桌面版 ZCode.app（协议服务端宿主）生效**（2026-09-26 实测拦截）；**CLI 与 TUI 不执行工作区钩子**，且没有参数可以打开（用户决定不改 Zcode、不用用户级钩子，以免影响其他项目）。用 Zcode 当执行方时用桌面版。`.zcode/` 其余内容是 Zcode 运行数据，仍禁止入库（`[hygiene] allowed` 只放行这一个文件） |
@@ -85,7 +85,7 @@ Agent 层按角色接入：
 1. GitHub ruleset（先做：它是唯一不能被本机绕过的一层）：仓库 Settings → Rules → Rulesets → New ruleset → Import a ruleset，依次导入 `.github/rulesets/main.json` 与 `.github/rulesets/release-tags.json`。
 2. 本机环境：由 Agent 按 AGENTS.md「新环境准备」自行完成（重建 venv、装开发依赖、`python3 harness/git_guard.py install`、`bin/verify`），不需要人执行。
 3. 发版审批：Settings → Environments → New environment，名称 `release`，勾选 Required reviewers 并加上自己；只有一个维护者时不要勾选 Prevent self-review。
-4. Codex（可选）：在 `~/.codex/hooks.json` 的 `PreToolUse` 中加一项，命令为 `python3 <仓库>/harness/command_guard.py --format claude --role designer`，然后在 Codex 里执行 `/hooks` 信任它（改动脚本后需重新信任）。若 Codex 接了 GitHub MCP，再为合并类工具加一项同样的钩子（D4）。
+4. Codex（用 Codex 时必做，`.codex/hooks.json` 改动后需重做）：在仓库根启动交互式 `codex`，出现「Hooks need review」时先选 Review hooks，确认命令是调用 `harness/command_guard.py --role designer`，再信任。也可以启动后执行 `/hooks` 信任。信任只能由用户做；`--dangerously-bypass-hook-trust` 不用于本仓库。
 5. Pi（执行方用 Pi 时必做）：在仓库根目录启动 `pi`，执行 `/trust` 保存对本项目的信任（写入用户级 `~/.pi/agent/trust.json`，由用户自行执行），重启 pi 后项目扩展才会加载；或每次运行都加 `-a`。
 6. Zcode（执行方用 Zcode 时必做，每个克隆一次，`.zcode/config.json` 改动后需重做）：`zcode hooks trust status --workspace <仓库根>` 查看，确认声明内容后由用户执行它提示的 `zcode hooks trust grant --workspace <仓库根> --hook-digest <sha256>`。
 7. 设置后自检（只看、不改）：Rulesets 列表中两条规则均为 Active；任一 PR 页面上 `build` 与 `harness` 标为 Required。不要用真实推送 main 的方式测试：规则没生效时会真的改掉 main。
@@ -116,7 +116,7 @@ Agent 层按角色接入：
 | OpenCode 插件 | node 加载插件的单测；2026-09-26 真实 OpenCode（`opencode run`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改 | ✅ 真实会话 |
 | Pi 扩展 | node 加载扩展的单测（`PiExtensionTest`）；2026-09-26 真实 Pi（`pi -a -p`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改；**未信任项目时（`pi -p` 不带 `-a`）同一命令照常执行**，扩展未加载 | ✅ 已信任时；⚠️ 依赖用户按 §5 第 5 步信任项目 |
 | Zcode 钩子 | `.zcode/config.json` 按声明运行钩子命令的单测（`ZcodeHookConfigTest`）。2026-09-26 真实 Zcode 0.16.9 实测：CLI（`zcode -p`）识别到声明并可授予信任，但**信任后两项探针仍放行**。日志为 `workspace_hook.feature_disabled`：源码中只有协议服务端（桌面 ZCode.app 等宿主）显式打开工作区钩子（`workspaceHookTrustEnabled: true`，注释称灰度开关），CLI 与 TUI 未打开 2026-09-26 桌面版 ZCode.app 实测（主仓库授信任后由用户发两项探针）：设置覆盖变量的命令、编辑 `harness/rules.toml` 均被「harness 守卫」拒绝，文件未改。CLI 没有启用该功能的参数：开关只由协议服务端注入，不读项目配置或环境变量 | ✅ 桌面版；❌ CLI 与 TUI（只剩 git 与服务端两层） |
-| Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
+| Codex hooks | 载荷解析单测（含列表形式命令），`CodexHookConfigTest` 按 `.codex/hooks.json` 的声明运行钩子。2026-09-26 Codex 0.157.1 在临时仓库实测：项目级 hooks.json 被读取；未信任时 `codex exec` 静默不运行、命令照常执行；用户信任后，探针钩子以 JSON 拒绝拦下命令（`Command blocked by PreToolUse hook`）；载荷为 `tool_name: Bash`、`tool_input.command` 字符串，与守卫的 Claude 格式一致 | ✅ 加载、信任门禁与载荷；⚠️ 本仓库钩子以退出码 2 拒绝，待用户信任后实测 |
 | ruleset | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`）；2026-09-25 导入后经 GitHub API 核对：两条均 Active、规则与文件一致（GitHub 为 PR 规则补了默认参数）、无绕过名单，main 上生效的规则为禁删、禁强推、必须经 PR、`build` 与 `harness` 必须通过 | ✅ |
 | environment `release` | 2026-09-25 创建。本会话代理禁止读取 environments 接口，由用户转贴 API 输出核对：`required_reviewers` 为用户本人、`prevent_self_review` 为 false、`can_admins_bypass` 为 false（管理员即与 Agent 共用的身份也不能跳过审批）、部署限制为只允许 tag `v*` | ✅ 配置；实际拦停待首次发版确认（方案 §13 V6） |
 | 单独身份与批准（D3） | workflow 与 ruleset 一致性单测（`test_auto_merge_approval_needs_main_only_environment`）、批准守卫单测。2026-09-26 GitHub 实测：API 核对 ruleset（1 个批准、非最后推送者、新推送作废）、environment `auto-merge` 只允许 main、Actions 不能批准；R0 的 PR #32 由 `Snowson` 推送后显示需要批准、不可合并，auto-merge 用 App 批准并由 `github-actions` 合并（首次因 App 缺 Contents 写权限批准不计入，H0926-6，调整后重跑）；R2 以上不经用户批准不可合并，见引入本行的 PR | ✅ R0；R2 以本行所在 PR 为证 |

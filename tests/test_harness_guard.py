@@ -644,5 +644,55 @@ class ZcodeHookConfigTest(unittest.TestCase):
                 self.assertEqual(self.run_hook(tool, tool_input), expected)
 
 
+class CodexHookConfigTest(unittest.TestCase):
+    """按 .codex/hooks.json 的声明运行 PreToolUse 钩子（方案 §13 V2）。
+
+    2026-09-26 Codex 0.157.1 实测：项目级 hooks.json 会被读取，未信任时静默不运行，信任后拦截生效；
+    载荷与 Claude 兼容（tool_name 为 Bash，tool_input.command 为字符串）。钩子从 git 仓库根定位守卫，
+    Codex 在仓库子目录中运行时同样生效。
+    """
+
+    def setUp(self):
+        config = json.loads((ROOT / ".codex/hooks.json").read_text())
+        [self.entry] = config["hooks"]["PreToolUse"]
+        [self.hook] = self.entry["hooks"]
+
+    def run_hook(self, tool_name: str, tool_input: dict, cwd: Path = ROOT) -> int:
+        payload = {
+            "hook_event_name": "PreToolUse",
+            "cwd": str(cwd),
+            "permission_mode": "bypassPermissions",
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+        }
+        result = subprocess.run(
+            self.hook["command"],
+            shell=True,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            check=False,
+        )
+        return result.returncode
+
+    def test_no_matcher_so_every_tool_reaches_the_guard(self):
+        self.assertNotIn("matcher", self.entry)
+
+    def test_hook_runs_guard_as_designer(self):
+        cases = [
+            ("Bash", {"command": "gh pr merge 7 --merge"}, 2),
+            ("Bash", {"command": "gh pr review 7 --approve"}, 2),
+            ("Bash", {"command": "git status"}, 0),
+            ("mcp__github__merge_pull_request", {"pullNumber": 7}, 2),
+            # 评审方可以改护栏文件（执行方不行），与 Claude Code 的设计方角色一致
+            ("apply_patch", {"file_path": "harness/rules.toml"}, 0),
+        ]
+        for tool, tool_input, expected in cases:
+            with self.subTest(tool=tool, tool_input=tool_input):
+                self.assertEqual(self.run_hook(tool, tool_input), expected)
+        self.assertEqual(self.run_hook("Bash", {"command": "gh pr merge 7"}, cwd=ROOT / "docs"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
