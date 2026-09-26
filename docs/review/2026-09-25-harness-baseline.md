@@ -132,6 +132,8 @@ P6 真实任务试跑时，按同一口径对比。
 | H0926-4 | harness 自身：base_tests 只把 `tests/` 换回 base 版本，head 在规格验收表里引用新测试时，base 版本的验收映射测试找不到这些测试而失败。补测试并更新验收表的正常 PR 都会被这道必过检查拦下 | 首个试跑 trial-001 的 PR #11，CI harness job | 判定器输入整体按 base 版本（`tests/`、`docs/specs/`、`harness/acceptance-gaps.txt`），回归测试与回放用例按该场景构造 ✅ |
 | H0926-5 | harness 自身：命令守卫把只读的 `gh api graphql -f query=…` 当成 API 写请求拒绝。GraphQL 查询本身就用 POST 与 `-f` 传参，结构判断只看「有字段即写」 | D3 实测时评审方查询 PR 批准状态被拒（2026-09-26） | `gh api graphql` 在参数都内联、且没有 `mutation` 时放行；`--input` 与 `-F x=@文件` 看不到内容，仍按写处理。回归测试与回放用例 ✅ |
 | H0926-6 | 规范错误：§5 第 9 步只给批准 App「Pull requests」权限。GitHub 只把有仓库写权限（对 App 即 Contents 写）的批准计入必需批准，App 批准了 PR #32，但合并仍被 ruleset 拒绝 | D3 的 R0 实测，auto-merge run 36232482756（2026-09-26） | 规范改为 Contents 与 Pull requests 均为 Read and write，并写明原因；用户调整 App 权限后，同一次批准即被计入，重跑后 #32 由 auto-merge 合并 ✅ |
+| H0926-7 | 逃逸缺陷（V080-R9 原修复未生效）：`InboxRow.sessionID` 在 `convertFromSnakeCase` 下对应的键是 `sessionId`，`rows` 的 `session_id` 从未解码，可选属性静默为 nil，组件最近任务的今日 token 从未显示。V080-R9 的修复与任务 003 的测试都只测了纯函数，没有经过真实解码 | V4 真机验收：快照 8 条最近任务中 5 条当天有用量，带今日 token 的为 0；最小 Swift 程序复现（2026-09-26） | 交执行方（[任务 004](../plans/task-004-today-tokens.md)）：修解码，并加静态检查拦同类命名 |
+| H0926-8 | 组件最近任务的签名只含 `id:revision:state`，不含今日用量；用量异步加载完不触发快照重写，最长延迟 15 分钟 | 同上，排查 H0926-7 时发现 | 交执行方（任务 004）：签名纳入用量，先重构后修复以保证修复证据 |
 
 ### 5.1 独立评审发现（PR #7，2026-09-26）
 
