@@ -94,6 +94,46 @@ class CommandGuardTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(command_guard.check_command(command), [], command)
 
+    def test_text_mentioning_dangerous_commands_is_data(self):
+        """E3：字符串匹配把提交说明、提示词、grep 模式、heredoc 正文、注释当成命令，本会话误报多次。"""
+        allowed = [
+            'git commit -m "说明：禁止 git push --force、gh release 与 git tag -d"',
+            'opencode run "推送只用 git push -u origin task/x，然后 gh pr create --base main"',
+            'grep -E "gh pr merge|git clean -x" docs/specs/delivery-harness.md',
+            "cat > notes.md <<'EOF'\ngit tag -d v0.8.0\ngit push --force\nEOF",
+            "git status  # 以后别 git reset --hard",
+            'gh pr create --title t --body "覆盖变量 HARNESS_ALLOW_MAIN 只供人使用"',
+            "echo HARNESS_ALLOW_MAIN=1",
+            'printf "%s\\n" "rm -rf /"',
+            "python3 -m pip show git-filter-repo",
+        ]
+        for command in allowed:
+            with self.subTest(command=command):
+                self.assertEqual(command_guard.check_command(command), [], command)
+
+    def test_code_that_actually_runs_is_still_checked(self):
+        """E3：会执行的地方（shell -c、eval、命令替换、交给 shell 的 stdin、解释器代码、包装命令）照拦。"""
+        denied = [
+            'bash -lc "git push origin main"',
+            "sh -c 'git tag v1'",
+            'eval "git reset --hard"',
+            "echo $(git push --force origin x)",
+            "echo `git tag v1`",
+            "bash <<'EOF'\ngit push --force\nEOF",
+            'echo "git push --force" | sh',
+            "python3 -c \"import os; os.system('git push --force')\"",
+            "sudo git push --force",
+            "env A=1 git reset --hard",
+            "timeout 30 git push origin main",
+            '"git" "push" "--force"',
+            "git -C /tmp/x push --force origin y",
+            "git commit -am x --no-verify",
+            'git push --force "unterminated',  # 引号不配对：整段退回字符串规则
+        ]
+        for command in denied:
+            with self.subTest(command=command):
+                self.assertTrue(command_guard.check_command(command), command)
+
     def test_remote_writes_and_split_override_variables(self):
         """PR7-R6：gh api / curl 写请求可绕过分支保护；覆盖变量拆开拼接可绕过检查。"""
         denied = [
