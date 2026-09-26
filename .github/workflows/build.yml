@@ -95,6 +95,15 @@ jobs:
         # 与本机、云端同一入口（docs/plans/verifiable-delivery.md P1）；--strict 不允许 Swift 检查被跳过。
         run: scratch/iterm-probe-venv/bin/python harness/verify.py --strict --full
 
+      # Swift 测试的「修复前失败、修复后通过」只能在 macOS 上跑（harness job 在 Linux 只做 Python，方案 §13 E4）。
+      - name: Fix evidence with Swift (pull requests)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --unshallow origin || git fetch --no-tags origin
+          scratch/iterm-probe-venv/bin/python harness/evidence.py --base "$BASE" --swift --markdown "$GITHUB_STEP_SUMMARY"
+
       - name: Build Agent Notification.app
         run: python3 scripts/build_inbox_app.py --standalone
 
