@@ -94,7 +94,7 @@ Agent 层按角色接入：
    - 本机让 gh 同时登录 `Snowson`：`gh auth login --hostname github.com` 以 `Snowson` 登录，然后 `gh auth switch --user SnowsonZ` 切回自己的账号。
    - 之后 Agent 推送、开 PR、派发执行方都经 `bin/as-agent <命令>`：它只对这条命令改用 `Snowson` 的令牌与提交身份，不改 gh 当前账号和 git 配置。
 9. R0/R1 的批准 App（方案 §13 D3，用户执行一次）：
-   - 新建 GitHub App（个人账号 Settings → Developer settings → GitHub Apps）：不需要 Webhook；Repository permissions 只给 **Pull requests: Read and write**；只允许安装在自己的账号上。
+   - 新建 GitHub App（个人账号 Settings → Developer settings → GitHub Apps）：不需要 Webhook；Repository permissions 给 **Contents: Read and write** 与 **Pull requests: Read and write**，其余不给；只允许安装在自己的账号上。GitHub 只把有仓库写权限的批准计入必需批准，对 App 而言即 Contents 写权限；只给 Pull requests 时 App 能批准，但批准不算数，合并仍被拒（H0926-6）。已安装后再改权限，需在安装处接受新权限。
    - 安装到本仓库（Only select repositories → `Agent-Notification`），并生成一把私钥。
    - 仓库 Settings → Environments → New environment，名称 `auto-merge`：Deployment branches 选 **Selected branches** 并只加 `main`；不设审批人。
    - 在该 environment 中添加 variable `AUTO_MERGE_APP_CLIENT_ID`（App 的 Client ID）和 secret `AUTO_MERGE_APP_PRIVATE_KEY`（私钥文件全文）。
@@ -119,6 +119,7 @@ Agent 层按角色接入：
 | Codex hooks | 载荷解析单测（含列表形式命令） | ⚠️ 真实 Codex 待实测 |
 | ruleset | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`）；2026-09-25 导入后经 GitHub API 核对：两条均 Active、规则与文件一致（GitHub 为 PR 规则补了默认参数）、无绕过名单，main 上生效的规则为禁删、禁强推、必须经 PR、`build` 与 `harness` 必须通过 | ✅ |
 | environment `release` | 2026-09-25 创建。本会话代理禁止读取 environments 接口，由用户转贴 API 输出核对：`required_reviewers` 为用户本人、`prevent_self_review` 为 false、`can_admins_bypass` 为 false（管理员即与 Agent 共用的身份也不能跳过审批）、部署限制为只允许 tag `v*` | ✅ 配置；实际拦停待首次发版确认（方案 §13 V6） |
+| 单独身份与批准（D3） | workflow 与 ruleset 一致性单测（`test_auto_merge_approval_needs_main_only_environment`）、批准守卫单测。2026-09-26 GitHub 实测：API 核对 ruleset（1 个批准、非最后推送者、新推送作废）、environment `auto-merge` 只允许 main、Actions 不能批准；R0 的 PR #32 由 `Snowson` 推送后显示需要批准、不可合并，auto-merge 用 App 批准并由 `github-actions` 合并（首次因 App 缺 Contents 写权限批准不计入，H0926-6，调整后重跑）；R2 以上不经用户批准不可合并，见引入本行的 PR | ✅ R0；R2 以本行所在 PR 为证 |
 | 发版核对 | 临时仓库单测：版本不一致、构建号未递增、tag 不在 main | ✅ 单测；首次真实发版时再确认 |
 | 事故回放 | 30 个注入用例（含评审 PR7-R1..R9 的 11 个）：Linux 实跑 27 个，Swift 3 个由 macOS CI `--strict --full` 运行（run 36152060546）；回放自检（注入点未过期、基线全覆盖）在默认档 | ✅ |
 | 修复证据 | 本 PR 的 H0925 与 PR7-R1..R6 修复提交由 evidence 生成「修复前失败、修复后通过」；修复前以出错结束不算证据，只退回修复提交自身的改动 | ✅ |
@@ -137,7 +138,7 @@ Agent 层按角色接入：
   - R0/R1 由 auto-merge 的专用 App 批准，App 凭据放在只允许 main 使用的 environment `auto-merge` 中，PR 分支的 workflow 取不到。
   - 残余：Agent 与用户在同一个 macOS 用户下运行，技术上能读到用户在 gh 里的登录凭据，再以用户身份批准。这一步只靠 Agent 层守卫拦（拒绝 `gh pr review --approve` 与 MCP 评审工具）；彻底隔离要给 Agent 单独的系统用户。
   - 用户自己开的 PR 同样需要别人批准，由 `Snowson` 账号批准，或临时调整 ruleset。
-- **PR 在自己的 workflow 里合并自己**：`pull_request` 事件执行 PR 分支里的 workflow 定义。D3 之后合并需要非推送者批准，`GITHUB_TOKEN` 既不能批准（仓库已关闭「允许 Actions 批准 PR」），也取不到 environment `auto-merge` 中的 App 凭据，因此 PR 不能再合并自己。仍依赖的前提：environment 的分支限制只允许 main；App 只装在本仓库，且只有 Pull requests 写权限。
+- **PR 在自己的 workflow 里合并自己**：`pull_request` 事件执行 PR 分支里的 workflow 定义。D3 之后合并需要非推送者批准，`GITHUB_TOKEN` 既不能批准（仓库已关闭「允许 Actions 批准 PR」），也取不到 environment `auto-merge` 中的 App 凭据，因此 PR 不能再合并自己。仍依赖的前提：environment 的分支限制只允许 main；App 只装在本仓库，只有 Contents 与 Pull requests 写权限。App 的 Contents 写权限是批准被计入的前提（H0926-6），它的令牌因此也能推送；令牌只在 main 上的 auto-merge、判定为 R0/R1 之后取得。
 - **命令守卫按命令结构判断**（2026-09-26，方案 §13 E3，`harness/shell_structure.py`）：把命令拆成简单命令，只对会执行的程序（git、rm、gh、curl 与覆盖变量的赋值）按参数判断；echo、grep 模式、提交说明、Agent 提示词、heredoc 正文、注释里的文字不再误拒。会执行但看不到结构的地方退回字符串规则：`python -c` 等解释器代码、交给 shell 或解释器执行的 stdin（heredoc 与 here-string 只判断被执行的那段正文，管道整段判断）、无法解析的命令（引号不配对）；`bash -c`、`eval`、`$(...)`、反引号递归按结构判断。仍然识别不了的：脚本文件内部（`bash x.sh`、`python3 x.py`）、`xargs` 从 stdin 补的参数、变量间接展开出的命令名。实测探针不要再用 `echo 覆盖变量=1`（现在按数据放行），改用会真实执行、被放过也无害的命令，例如对不存在的分支强推。此前字符串匹配阶段记录了 6 次误报。
 - **Zcode 与 Pi 的拦截依赖用户信任**：Zcode 的工作区钩子未经信任不执行，Pi 的项目扩展在未信任项目时不加载。此时它们设置覆盖变量或使用 `--no-verify`，本机两层都挡不住，只有服务端兜底。
 - **本机护栏的信任根在可写路径**（评审 PR7-R3）：git 钩子的规则文件曾在执行者可写的工作区，改掉 `protected_branches` 即可让本机改写 main 不受拦截。现在钩子按 origin/main 上的 `harness/rules.toml` 执行，工作区版本不一致时告警；但守卫代码（`harness/git_guard.py`、`.githooks/`）与运行时解释器（`scratch/iterm-probe-venv`）仍可被改。本机两层定位为防误操作，防有意绕过只能靠服务端 ruleset 与发版审批，所以一次性设置里 ruleset 排在第一步。
