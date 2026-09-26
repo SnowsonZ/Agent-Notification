@@ -209,11 +209,51 @@ class CommandGuardTest(unittest.TestCase):
             with self.subTest(tool=tool):
                 self.assertEqual(command_guard.evaluate({"tool_name": tool, "tool_input": {}}), [], tool)
 
+    def test_agent_cannot_approve_pull_requests(self):
+        """D3（用户 2026-09-26 决定）：合并前须由非推送者批准；Agent 批准就等于替用户放行 R2 以上的 PR。"""
+        denied = (
+            "gh pr review 7 --approve",
+            "gh pr review -a 7",
+            "gh pr review 7 --body ok --approve",
+            "gh pr review 7 --approve=true",
+            "cd x && gh  pr  review 7 -a",
+            'bash -c "gh pr review 7 --approve"',
+        )
+        for command in denied:
+            with self.subTest(command=command):
+                self.assertTrue(command_guard.check_command(command), command)
+        allowed = (
+            "gh pr review 7 --comment --body ok",
+            "gh pr review 7 --request-changes --body 'needs --approve flag'",
+            "gh pr view 7",
+            'git commit -m "拦截 gh pr review --approve"',
+        )
+        for command in allowed:
+            with self.subTest(command=command):
+                self.assertEqual(command_guard.check_command(command), [], command)
+        tools = (
+            "mcp__github__pull_request_review_write",
+            "mcp__github__create_and_submit_pull_request_review",
+            "mcp__github__submit_pending_pull_request_review",
+            "mcp__github__create_pull_request_review",
+        )
+        for tool in tools:
+            with self.subTest(tool=tool):
+                self.assertTrue(command_guard.evaluate({"tool_name": tool, "tool_input": {}}), tool)
+        for tool in ("mcp__github__pull_request_read", "mcp__github__add_issue_comment"):
+            with self.subTest(tool=tool):
+                self.assertEqual(command_guard.evaluate({"tool_name": tool, "tool_input": {}}), [], tool)
+
     def test_claude_code_hook_covers_mcp_merge_tools(self):
-        """D4：Claude Code 的 PreToolUse 除 Bash 外还要把 MCP 合并工具交给守卫。"""
+        """D4：Claude Code 的 PreToolUse 除 Bash 外还要把 MCP 合并与批准工具交给守卫。"""
         settings = json.loads((ROOT / ".claude/settings.json").read_text())
         matchers = [entry["matcher"] for entry in settings["hooks"]["PreToolUse"]]
-        for tool in ("mcp__github__merge_pull_request", "mcp__github__enable_pr_auto_merge"):
+        for tool in (
+            "mcp__github__merge_pull_request",
+            "mcp__github__enable_pr_auto_merge",
+            "mcp__github__pull_request_review_write",
+            "mcp__github__create_and_submit_pull_request_review",
+        ):
             with self.subTest(tool=tool):
                 self.assertTrue(any(re.fullmatch(matcher, tool) for matcher in matchers), matchers)
 

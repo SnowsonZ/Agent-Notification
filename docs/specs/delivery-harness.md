@@ -89,6 +89,18 @@ Agent 层按角色接入：
 5. Pi（执行方用 Pi 时必做）：在仓库根目录启动 `pi`，执行 `/trust` 保存对本项目的信任（写入用户级 `~/.pi/agent/trust.json`，由用户自行执行），重启 pi 后项目扩展才会加载；或每次运行都加 `-a`。
 6. Zcode（执行方用 Zcode 时必做，每个克隆一次，`.zcode/config.json` 改动后需重做）：`zcode hooks trust status --workspace <仓库根>` 查看，确认声明内容后由用户执行它提示的 `zcode hooks trust grant --workspace <仓库根> --hook-digest <sha256>`。
 7. 设置后自检（只看、不改）：Rulesets 列表中两条规则均为 Active；任一 PR 页面上 `build` 与 `harness` 标为 Required。不要用真实推送 main 的方式测试：规则没生效时会真的改掉 main。
+8. Agent 身份（方案 §13 D3，用户执行一次）：
+   - `Snowson` 账号在仓库 Settings → Collaborators 中的角色设为 **Write**。
+   - 本机让 gh 同时登录 `Snowson`：`gh auth login --hostname github.com` 以 `Snowson` 登录，然后 `gh auth switch --user SnowsonZ` 切回自己的账号。
+   - 之后 Agent 推送、开 PR、派发执行方都经 `bin/as-agent <命令>`：它只对这条命令改用 `Snowson` 的令牌与提交身份，不改 gh 当前账号和 git 配置。
+9. R0/R1 的批准 App（方案 §13 D3，用户执行一次）：
+   - 新建 GitHub App（个人账号 Settings → Developer settings → GitHub Apps）：不需要 Webhook；Repository permissions 只给 **Pull requests: Read and write**；只允许安装在自己的账号上。
+   - 安装到本仓库（Only select repositories → `Agent-Notification`），并生成一把私钥。
+   - 仓库 Settings → Environments → New environment，名称 `auto-merge`：Deployment branches 选 **Selected branches** 并只加 `main`；不设审批人。
+   - 在该 environment 中添加 variable `AUTO_MERGE_APP_CLIENT_ID`（App 的 Client ID）和 secret `AUTO_MERGE_APP_PRIVATE_KEY`（私钥文件全文）。
+   - 确认仓库 Settings → Actions → General 中「Allow GitHub Actions to create and approve pull requests」保持未勾选。
+   - 以上完成、且引入本步骤的 PR 合并后，再按第 1 步重新导入 `.github/rulesets/main.json`，覆盖现有的 main 规则。顺序反过来，引入本步骤的 PR 自己就会因缺少批准而无法合并。
+   - 自检：由 `Snowson` 开一个 R0 的 PR，auto-merge 运行后，PR 上应出现 App 的批准并被合并；由 `Snowson` 开一个 R2 的 PR，不点批准就无法合并。
 
 ## 6. 验证状态
 
@@ -119,8 +131,13 @@ Agent 层按角色接入：
 
 ## 7. 已知边界
 
-- **身份不可区分**：Agent 与用户共用同一个 GitHub 身份时（本会话触发的 CI 记录的 actor 即为用户），服务端分不清谁在合并。用户 2026-09-26 决定不另设身份（D3）：R0/R1 由自动合并处理，R2 以上「由用户合并」靠约定与 Agent 层拒绝合并命令（D4），不是服务端硬边界。
-- **PR 可以在自己的 workflow 里合并自己**：`pull_request` 事件执行 PR 分支里的 workflow 定义，改了 `.github/workflows/` 的 PR 可以申请写权限并调用合并。自动合并对这类 PR（R3）不会合并，但仓库本身不阻止 PR 自己这样做；现有防线是执行方守卫禁改 `.github/**`（Zcode 用户级钩子、OpenCode、Pi）与 R3 由用户审阅。要从服务端堵住，需要把仓库的 Actions 默认权限设为只读并限制 workflow 请求写权限，或给合并加必需审批，待用户决定。
+- **身份与批准**（2026-09-26 用户决定改为单独身份，方案 §13 D3）：
+  - Agent 用单独的账号 `Snowson` 推送和开 PR（`bin/as-agent`），用户用自己的账号 `SnowsonZ` 批准。
+  - main 的 ruleset 要求非推送者批准最后一次推送；有新推送时作废旧批准。
+  - R0/R1 由 auto-merge 的专用 App 批准，App 凭据放在只允许 main 使用的 environment `auto-merge` 中，PR 分支的 workflow 取不到。
+  - 残余：Agent 与用户在同一个 macOS 用户下运行，技术上能读到用户在 gh 里的登录凭据，再以用户身份批准。这一步只靠 Agent 层守卫拦（拒绝 `gh pr review --approve` 与 MCP 评审工具）；彻底隔离要给 Agent 单独的系统用户。
+  - 用户自己开的 PR 同样需要别人批准，由 `Snowson` 账号批准，或临时调整 ruleset。
+- **PR 在自己的 workflow 里合并自己**：`pull_request` 事件执行 PR 分支里的 workflow 定义。D3 之后合并需要非推送者批准，`GITHUB_TOKEN` 既不能批准（仓库已关闭「允许 Actions 批准 PR」），也取不到 environment `auto-merge` 中的 App 凭据，因此 PR 不能再合并自己。仍依赖的前提：environment 的分支限制只允许 main；App 只装在本仓库，且只有 Pull requests 写权限。
 - **命令守卫按命令结构判断**（2026-09-26，方案 §13 E3，`harness/shell_structure.py`）：把命令拆成简单命令，只对会执行的程序（git、rm、gh、curl 与覆盖变量的赋值）按参数判断；echo、grep 模式、提交说明、Agent 提示词、heredoc 正文、注释里的文字不再误拒。会执行但看不到结构的地方退回字符串规则：`python -c` 等解释器代码、交给 shell 或解释器执行的 stdin（heredoc 与 here-string 只判断被执行的那段正文，管道整段判断）、无法解析的命令（引号不配对）；`bash -c`、`eval`、`$(...)`、反引号递归按结构判断。仍然识别不了的：脚本文件内部（`bash x.sh`、`python3 x.py`）、`xargs` 从 stdin 补的参数、变量间接展开出的命令名。实测探针不要再用 `echo 覆盖变量=1`（现在按数据放行），改用会真实执行、被放过也无害的命令，例如对不存在的分支强推。此前字符串匹配阶段记录了 6 次误报。
 - **Zcode 与 Pi 的拦截依赖用户信任**：Zcode 的工作区钩子未经信任不执行，Pi 的项目扩展在未信任项目时不加载。此时它们设置覆盖变量或使用 `--no-verify`，本机两层都挡不住，只有服务端兜底。
 - **本机护栏的信任根在可写路径**（评审 PR7-R3）：git 钩子的规则文件曾在执行者可写的工作区，改掉 `protected_branches` 即可让本机改写 main 不受拦截。现在钩子按 origin/main 上的 `harness/rules.toml` 执行，工作区版本不一致时告警；但守卫代码（`harness/git_guard.py`、`.githooks/`）与运行时解释器（`scratch/iterm-probe-venv`）仍可被改。本机两层定位为防误操作，防有意绕过只能靠服务端 ruleset 与发版审批，所以一次性设置里 ruleset 排在第一步。

@@ -91,10 +91,27 @@ class ServerConfigTest(unittest.TestCase):
         self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
         self.assertIn('harness/risk.py --base origin/main --head "$HEAD_SHA" --github', workflow)
-        self.assertIn("if: steps.risk.outputs.auto_merge == 'true'", workflow)
+        self.assertIn("auto_merge: ${{ steps.risk.outputs.auto_merge }}", workflow)
         self.assertIn('--match-head-commit "$HEAD_SHA"', workflow)
         self.assertEqual(workflow.count("run: git fetch --no-tags origin"), 1)
         self.assertNotRegex(workflow, r"run: (python|bash|sh|\./)\S*\s+(?!harness/risk\.py)")
+
+    def test_auto_merge_approval_needs_main_only_environment(self):
+        """D3：ruleset 要求非推送者批准；R0/R1 由 App 批准，App 凭据只在判定为 R0/R1 后、
+        在只允许 main 使用的 environment 中取得，批准绑定评估过的提交。"""
+        workflow = (ROOT / ".github/workflows/auto-merge.yml").read_text()
+        judge, merge = workflow.split("\n  merge:\n", 1)
+        self.assertIn("needs: judge", merge)
+        self.assertIn("if: needs.judge.outputs.auto_merge == 'true'", merge)
+        self.assertIn("environment: auto-merge", merge)
+        self.assertNotIn("secrets.", judge)
+        self.assertIn("uses: actions/create-github-app-token@", merge)
+        self.assertIn('-f commit_id="$HEAD_SHA" -f event=APPROVE', merge)
+        ruleset = json.loads((ROOT / ".github/rulesets/main.json").read_text())
+        review = next(rule for rule in ruleset["rules"] if rule["type"] == "pull_request")["parameters"]
+        self.assertGreaterEqual(review["required_approving_review_count"], 1)
+        self.assertTrue(review["require_last_push_approval"])
+        self.assertTrue(review["dismiss_stale_reviews_on_push"])
 
 
 if __name__ == "__main__":
