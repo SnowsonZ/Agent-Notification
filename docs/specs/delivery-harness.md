@@ -18,7 +18,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `python3 harness/metrics.py --base origin/main [--github]` | 交付度量：修复数、声称已修、修复带回放比例、新增测试、CI 轮次，并列 v0.8.0 基线 | CI harness job；试跑记录 |
 | `python3 harness/replay.py [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
 | `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
-| `python3 harness/evidence.py --base origin/main` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过 | CI harness job；实现方自查 |
+| `python3 harness/evidence.py --base origin/main [--swift]` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过；`--swift` 同时编译运行引用编号的 Swift 测试（macOS，编译失败算出错） | CI harness job（Python）与 macOS build job（含 Swift）；实现方自查 |
 | `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3 | CI harness job |
 | `python3 harness/base_tests.py --base origin/main` | 用 base 版本的已有测试在 head 上重跑：追加进已有测试文件的代码禁用不了判定器（有意改动已有测试的 PR 按 R2 评审，此项只报告）；测试经 `harness/base_tests_runner.py` 运行，产品代码在运行中篡改 unittest 时一律失败 | CI harness job |
 | `python3 harness/hygiene.py --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |

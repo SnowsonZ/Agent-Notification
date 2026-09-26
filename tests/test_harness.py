@@ -6,6 +6,7 @@
 import contextlib
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -384,6 +385,69 @@ class EvidenceTest(unittest.TestCase):
         text = evidence.render_markdown(self.analyse(), self.base, "HEAD", cwd=self.repo.path)
         self.assertIn("| T-R1 |", text)
         self.assertIn("✗ 失败 | ✓ 通过 | ✅", text)
+
+
+SWIFT_BUGGY = "func median(_ values: [Int]) -> Int { values[values.count / 2] }\n"
+SWIFT_FIXED = "func median(_ values: [Int]) -> Int { values.sorted()[values.count / 2] }\n"
+SWIFT_TEST = """import Foundation
+
+@main
+struct ModTests {
+    static func main() {
+        // T-S1：取中位数前必须排序。
+        if median([9, 1, 5]) != 5 {
+            print("FAIL median")
+            exit(1)
+        }
+    }
+}
+"""
+SWIFT_SUITE = "mkdir -p build && xcrun swiftc -parse-as-library native/mod.swift tests/ModTests.swift -o build/mod-tests && ./build/mod-tests"
+
+
+@unittest.skipUnless(sys.platform == "darwin" and shutil.which("xcrun"), "Swift 修复证据只在 macOS 上运行")
+class SwiftEvidenceTest(unittest.TestCase):
+    """E4：Swift 测试也要「修复前失败、修复后通过」；修复前编译不过算出错，不算证据。"""
+
+    def setUp(self):
+        self.repo = TempRepo()
+        self.addCleanup(self.repo.close)
+        patcher = mock.patch.object(evidence, "swift_suites", lambda refs, checks=None: {"mod-suite": SWIFT_SUITE} if refs else {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def analyse(self, defect):
+        return evidence.analyse(self.base, "HEAD", cwd=self.repo.path, swift=True)[defect]
+
+    def test_swift_test_fails_before_fix(self):
+        self.repo.write("native/mod.swift", SWIFT_BUGGY)
+        self.repo.write("tests/ModTests.swift", SWIFT_TEST)
+        self.base = self.repo.commit("base with swift test")
+        self.repo.write("native/mod.swift", SWIFT_FIXED)
+        self.repo.commit("fix median\n\nDefect: T-S1")
+        result = self.analyse("T-S1")
+        self.assertEqual((result.before, result.after), ("fail", "pass"), result.problems)
+        self.assertTrue(result.ok, result.problems)
+
+    def test_compile_error_before_fix_is_not_proof(self):
+        self.repo.write("native/mod.swift", "func other() -> Int { 1 }\n")
+        self.base = self.repo.commit("base without median")
+        self.repo.write("native/mod.swift", "func other() -> Int { 1 }\n" + SWIFT_FIXED)
+        self.repo.write("tests/ModTests.swift", SWIFT_TEST)
+        self.repo.commit("add median and its test\n\nDefect: T-S1")
+        result = self.analyse("T-S1")
+        self.assertEqual(result.before, "error")
+        self.assertIn("编译失败", "\n".join(result.problems))
+
+    def test_without_swift_flag_only_warns(self):
+        self.repo.write("native/mod.swift", SWIFT_BUGGY)
+        self.repo.write("tests/ModTests.swift", SWIFT_TEST)
+        self.base = self.repo.commit("base")
+        self.repo.write("native/mod.swift", SWIFT_FIXED)
+        self.repo.commit("fix\n\nDefect: T-S1")
+        result = evidence.analyse(self.base, "HEAD", cwd=self.repo.path)["T-S1"]
+        self.assertEqual(result.before, "")
+        self.assertIn("build job", "\n".join(result.warnings))
 
 
 class BaseTestsTest(unittest.TestCase):
