@@ -258,5 +258,53 @@ class BackfillAgentStatsTest(unittest.TestCase):
         self.assertEqual(report.get("agent_excluded"), {"tasks": 1, "total_tokens": 1234})
 
 
+# ---- 变异测试缺口（2026-09-26 任务 002，只新增） ------------------------------------------
+# previous_anchor 的锚点本身（经 period_bounds 断言会被掩蔽）与 _merge_models 的精确合同。
+
+
+class PreviousAnchorExactTest(unittest.TestCase):
+    def test_previous_week_anchor_is_exactly_seven_days_back(self):
+        self.assertEqual(previous_anchor("week", date(2026, 9, 23)), date(2026, 9, 16))
+        # 周一锚点同样回退 7 天；9/3 回退后跨月。
+        self.assertEqual(previous_anchor("week", date(2026, 9, 21)), date(2026, 9, 14))
+        self.assertEqual(previous_anchor("week", date(2026, 9, 3)), date(2026, 8, 27))
+
+    def test_previous_month_anchor_is_first_of_previous_month(self):
+        # 月末、跨年、月初三种锚点都落到上月 1 日。
+        self.assertEqual(previous_anchor("month", date(2026, 3, 31)), date(2026, 2, 1))
+        self.assertEqual(previous_anchor("month", date(2026, 1, 15)), date(2025, 12, 1))
+        self.assertEqual(previous_anchor("month", date(2026, 9, 1)), date(2026, 8, 1))
+
+
+class MergeModelsContractTest(unittest.TestCase):
+    def _entry(self, **overrides):
+        entry = {
+            "fresh_input": 0,
+            "cache_write": 0,
+            "cache_read": 0,
+            "output": 0,
+            "native_cost_usd": None,
+        }
+        entry.update(overrides)
+        return entry
+
+    def test_native_cost_accumulates(self):
+        from usage_report import _merge_models
+
+        target = {}
+        _merge_models(target, {"glm-x": self._entry(native_cost_usd=1.5)})
+        _merge_models(target, {"glm-x": self._entry(native_cost_usd=0.5)})
+        self.assertAlmostEqual(target["glm-x"]["native_cost_usd"], 2.0)
+
+    def test_raw_names_dedup_and_cap_at_five(self):
+        from usage_report import _merge_models
+
+        target = {}
+        _merge_models(target, {"glm-x": self._entry(raw_names=["a", "a", "b"])})
+        _merge_models(target, {"glm-x": self._entry(raw_names=["b", "c", "d", "e", "f"])})
+        # 去重保序；第 6 个不再收入。
+        self.assertEqual(target["glm-x"]["_raw"], ["a", "b", "c", "d", "e"])
+
+
 if __name__ == "__main__":
     unittest.main()
