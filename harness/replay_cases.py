@@ -141,6 +141,20 @@ CASES: list[Case] = [
         ("swift-policy",),
     ),
     Case(
+        "H0925-4",
+        "合并不降级时三类合计沿用现有报告，某类上升时与 model 明细不一致",
+        "scripts/daily_report.py",
+        '        merged_record["input_tokens"] = int(record.get("input_tokens") or 0) + diff["fresh_input"]\n'
+        '        merged_record["cache_tokens"] = int(record.get("cache_tokens") or 0) + diff["cache_read"]\n'
+        '        merged_record["output_tokens"] = int(record.get("output_tokens") or 0) + diff["output"]\n'
+        '        merged_record["total_tokens"] = _task_total(merged_record)',
+        '        merged_record["input_tokens"] = int(old.get("input_tokens") or 0)\n'
+        '        merged_record["cache_tokens"] = int(old.get("cache_tokens") or 0)\n'
+        '        merged_record["output_tokens"] = int(old.get("output_tokens") or 0)\n'
+        '        merged_record["total_tokens"] = _task_total(old)',
+        ("test_properties.KnownDefectTest", "test_properties.MergeNoDowngradeProperties"),
+    ),
+    Case(
         "H0925-2",
         "写入器绕过 widgetRunningListed 自行过滤（V080-R8）",
         "native/WidgetSnapshotWriter.swift",
@@ -199,6 +213,22 @@ CASES: list[Case] = [
         'JUDGE_INPUTS = ("tests", "docs/specs", "harness/acceptance-gaps.txt")',
         'JUDGE_INPUTS = ("tests",)',
         ("test_harness.BaseTestsTest.test_new_tests_referenced_in_specs_are_not_a_regression",),
+    ),
+    Case(
+        "H0926-5",
+        "reference-transaction 把 pack-refs 删除散文件当作删 tag 拒绝",
+        "harness/git_guard.py",
+        "        if new == ZERO_SHA and old != ZERO_SHA and _packing_loose_ref(ref, old, cwd):",
+        "        if False:",
+        ("test_harness_guard.GitGuardTest.test_packing_refs_is_not_a_tag_deletion",),
+    ),
+    Case(
+        "H0926-5",
+        "只凭 packed-refs 放行，指定旧值的 update-ref -d 可删掉 tag",
+        "harness/git_guard.py",
+        '    return _transaction_subcommand() == "pack-refs"',
+        "    return True",
+        ("test_harness_guard.GitGuardTest.test_packing_refs_is_not_a_tag_deletion",),
     ),
     Case(
         "PR7-R3",
