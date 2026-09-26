@@ -168,7 +168,7 @@ Agent 层取决于各家宿主（最初调研认为 Zcode 没有工具调用 hoo
 | # | 事项 | 说明 | 状态 |
 |---|---|---|---|
 | E1 | 接上 L4 自动合并 | `.github/workflows/auto-merge.yml`：build 完成后由 `workflow_run` 触发，执行 main 上的定义与 `risk.py`，只合并 R0/R1、且只合并评估过的提交。用户 2026-09-26 决定不等单独身份（D3），直接开启。base_tests 同进程篡改检查的残余（评审 PR7-R7）仍在，R1 合并后抽样审计 | 完成（2026-09-26 实测）：R0 的 PR #13 在 build 通过后由 `github-actions` 自动合并；R2 的 PR #15 判定为 R2 未合并，留给用户 |
-| E2 | 暂缓回放项转为自动化 | `replay_cases.py` 的 `DEFERRED`：R7（经 generate_overview 的夹具）、R9（macOS 快照端到端）优先；R6 做成本机真实数据回放脚本（数据不入库）；X5 在 metrics 中按任务预算自动比对 CI 轮次 | 待开始 |
+| E2 | 暂缓回放项转为自动化 | `replay_cases.py` 的 `DEFERRED`：R7（经 generate_overview 的夹具）、R9（macOS 快照端到端）优先；R6 做成本机真实数据回放脚本（数据不入库）；X5 在 metrics 中按任务预算自动比对 CI 轮次 | R7、R9 的回归测试并入 [task-002](task-002-test-gaps.md) 交执行方，评审方随后把它们从 DEFERRED 移入回放；R6（真实数据）、X5（预算比对）仍暂缓 |
 | E3 | 命令守卫改为按命令结构解析 | 目前按字符串匹配，已有 5 次误报，另有漏报面（变量间接展开、eval 拼接、wget 与脚本语言发起的请求；评审 PR7-R6、R9 已补去引号检查与不依赖参数顺序的 GitHub API 写请求）；改用 shlex 切分，只看真正执行的命令与参数 | 完成（2026-09-26）：`harness/shell_structure.py` 按简单命令与参数判断，会执行但看不到结构处退回字符串规则；残余边界见规范 §7 |
 | E4 | Swift 的「修复前失败」检查 | `evidence.py` 目前只对 Python 测试做退回重跑，Swift 引用只列出位置；在 macOS CI 中补上 | 待开始 |
 | E5 | 扩大变异测试目标、提高报告合并得分 | 增加 `usage_cost`、`usage_report`；`_merge_day_tasks` 的 76% 中区分真实缺口与等价变异 | 待开始 |
