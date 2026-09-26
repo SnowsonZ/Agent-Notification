@@ -230,6 +230,33 @@ import Foundation
                 precondition(miss.tokens == nil && miss.cost == nil)
             }
         }
+        // ---- H0926-8：今日用量计入最近任务签名。tokens 与金额从无到有、数值变化、
+        // 从有到无都改变签名；用量不变时签名不变。
+        do {
+            let money = WidgetSnapshotMoney(
+                input: ["USD": 0.01], cache: [:], output: [:], unpricedTokens: 0, nativeFallback: nil)
+            let doubled = WidgetSnapshotMoney(
+                input: ["USD": 0.02], cache: [:], output: [:], unpricedTokens: 0, nativeFallback: nil)
+            func recent(_ tokens: Int?, _ cost: WidgetSnapshotMoney?) -> WidgetSnapshot.RecentItem {
+                WidgetSnapshot.RecentItem(
+                    id: "r-1", revision: 1, provider: "claude", title: "t", project: "p",
+                    state: "running", at: 0, todayTokens: tokens, todayCost: cost)
+            }
+            func signature(_ tokens: Int?, _ cost: WidgetSnapshotMoney?) -> String {
+                WidgetRefreshPolicy.recentSignature([recent(tokens, cost)], usdCnyRate: 7.10)
+            }
+            let empty = signature(nil, nil)
+            // 从无到有：tokens、金额各自改变签名。
+            precondition(signature(1234, nil) != empty)
+            precondition(signature(nil, money) != empty)
+            // 数值变化：tokens 增长、金额变化都改变签名；从有到无回到空用量签名。
+            let used = signature(1234, money)
+            precondition(signature(1235, money) != used)
+            precondition(signature(1234, doubled) != used)
+            precondition(signature(nil, nil) == empty)
+            // 用量不变：签名不变。
+            precondition(signature(1234, money) == used)
+        }
         print("widget URL bridge state machine checks passed")
         print("Pagination, notification, daily report policy checks passed")
     }

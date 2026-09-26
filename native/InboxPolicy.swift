@@ -90,10 +90,16 @@ enum WidgetRefreshPolicy {
     }
 
     // 最近任务分区签名（§3）：由最近任务条目生成的纯函数，写入器只经这里取签名。
-    // 当前口径与旧实现逐字节一致（只含 id:revision:state）；usdCnyRate 供
-    // H0926-8 把今日用量并入签名时计算金额显示值。
+    // H0926-8：今日用量计入签名——每条附上 todayTokens 原值与金额显示值（usdTotal
+    // 按 usdCnyRate 折算、usdText 同展示口径）。tokens 或金额从无到有、数值变化、
+    // 从有到无都改变签名，用量异步加载完即重写快照；用量不变时签名不变。
+    // 汇率变化不在这里体现：prefsSignature 已含 fx（§3，变化时 reload 全部 kind）。
     static func recentSignature(_ items: [WidgetSnapshot.RecentItem], usdCnyRate: Double) -> String {
-        signature(items.map { (id: $0.id, revision: $0.revision, state: $0.state) })
+        items.map { item -> String in
+            let tokens = item.todayTokens.map(String.init) ?? "-"
+            let cost = usdText(usdTotal(item.todayCost, rate: usdCnyRate))
+            return "\(item.id):\(item.revision):\(item.state):\(tokens):\(cost)"
+        }.joined(separator: "|")
     }
 
     struct Inputs {
