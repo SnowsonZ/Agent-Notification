@@ -336,6 +336,52 @@ class EvidenceTest(unittest.TestCase):
         result = self.analyse()["T-R7"]
         self.assertEqual(result.before, "error")
         self.assertIn("出错而非断言失败", "\n".join(result.problems))
+        # 报错直接给出做法：先抽出可测位置、保持旧行为，再修（TDD 的「先让它能编译、看它因正确原因失败」）
+        self.assertIn("先用不带 Defect 的提交抽出可测位置", "\n".join(result.problems))
+
+    def test_seam_first_then_fix_fails_before_by_assertion(self):
+        """任务 004 的做法：先用不带 Defect 的提交抽出函数（旧行为），再在修复提交里改行为，修复前以断言失败结束。"""
+        self.repo.write("scripts/mod.py", BUGGY)
+        self.repo.write(
+            "scripts/helper.py", "import mod\n\n\ndef fixed():\n    return 0  # 旧行为：与缺陷一致\n"
+        )
+        self.repo.commit("extract helper, behaviour unchanged\n\nRisk: R1")
+        self.repo.write("scripts/helper.py", "import mod\n\n\ndef fixed():\n    return 1\n")
+        self.repo.write(
+            "tests/test_helper.py",
+            "import sys\nimport unittest\nfrom pathlib import Path\n\n"
+            "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))\n\n"
+            "from helper import fixed\n\n\nclass HelperTest(unittest.TestCase):\n"
+            "    def test_fixed(self):\n        # T-R10\n        self.assertEqual(fixed(), 1)\n",
+        )
+        self.repo.commit("fix helper\n\nDefect: T-R10")
+        result = self.analyse()["T-R10"]
+        self.assertEqual((result.before, result.after, result.problems), ("fail", "pass", []))
+
+    def test_withdrawn_defect_is_not_verified_but_reported(self):
+        """PR #35：给补回归护栏的提交误写了 Defect。在后续提交里撤销，不必改写已推送历史或关闭 PR。"""
+        self.repo.write("scripts/helper.py", "def fixed():\n    return 1\n")
+        self.repo.commit("hardening, not a fix\n\nDefect: T-R11")
+        self.repo.write("docs/notes.md", "T-R11 不是修复\n")
+        self.repo.commit("withdraw\n\nDefect-Withdrawn: T-R11")
+        evidences = self.analyse()
+        result = evidences["T-R11"]
+        self.assertTrue(result.ok)
+        self.assertIn("撤销", "\n".join(result.warnings))
+        self.assertIn("| 已撤销 |", evidence.render_markdown(evidences, self.base, "HEAD", cwd=self.repo.path))
+
+    def test_withdrawal_only_applies_to_earlier_declarations(self):
+        """撤销只对之前声明过的编号生效；撤销后又重新声明，仍按修复核对。"""
+        self.repo.write("docs/notes.md", "先撤销\n")
+        self.repo.commit("withdraw first\n\nDefect-Withdrawn: T-R12")
+        self.repo.write("scripts/mod.py", FIXED)
+        self.repo.commit("fix\n\nDefect: T-R12")
+        self.assertIn("没有引用 T-R12 的测试", self.analyse()["T-R12"].problems[0])
+        self.repo.write("docs/notes.md", "撤销\n")
+        self.repo.commit("withdraw\n\nDefect-Withdrawn: T-R12")
+        self.repo.write("scripts/mod.py", FIXED + "\n")
+        self.repo.commit("fix again\n\nDefect: T-R12")
+        self.assertFalse(self.analyse(run_tests=False)["T-R12"].withdrawn_by)
 
     def test_revert_only_the_fix_not_later_commits(self):
         """PR7-R5：整文件退回会连带撤掉后续无关提交，让一个没检查缺陷的测试「修复前失败」。"""
