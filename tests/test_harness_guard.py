@@ -79,6 +79,8 @@ ALLOW = [
     "git reset --soft HEAD~1",
     "python3 -m pip show git-filter-repo",
     "git config --get core.hooksPath",
+    "git config core.hooksPath",  # 不带值即读取（E12 执行中 Pi 被误拒）
+    "git config --local core.hooksPath && git status",
     "git config --local --get core.hooksPath && git status",
 ]
 
@@ -106,6 +108,8 @@ class CommandGuardTest(unittest.TestCase):
             "echo HARNESS_ALLOW_MAIN=1",
             'printf "%s\\n" "rm -rf /"',
             "python3 -m pip show git-filter-repo",
+            # 解释器读 heredoc 时只判断 heredoc 正文：后面提交说明里的文字不再被整段兜底误拒（E8 PR 时实测）
+            "python3 - <<'EOF'\nprint('改方案文档')\nEOF\ngit commit -m '说明：只读的 git config core.hooksPath 不再误拒'",
         ]
         for command in allowed:
             with self.subTest(command=command):
@@ -129,6 +133,9 @@ class CommandGuardTest(unittest.TestCase):
             "git -C /tmp/x push --force origin y",
             "git commit -am x --no-verify",
             'git push --force "unterminated',  # 引号不配对：整段退回字符串规则
+            "python3 - <<'EOF'\nimport os\nos.system('git push --force origin x')\nEOF",
+            "cat notes.md && bash <<'EOF'\necho ok\ngit tag v1\nEOF",
+            'bash <<< "git push origin main"',
         ]
         for command in denied:
             with self.subTest(command=command):

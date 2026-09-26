@@ -174,7 +174,7 @@ Agent 层取决于各家宿主（最初调研认为 Zcode 没有工具调用 hoo
 | E5 | 扩大变异测试目标、提高报告合并得分 | 增加 `usage_cost`、`usage_report`；`_merge_day_tasks` 的 76% 中区分真实缺口与等价变异 | 待开始 |
 | E6 | 熵治理：降低复杂度 | 20 个 C901 超标函数、`daily_report.py` 1693 行；每次顺带拆一处，棘轮自动收紧基线 | 持续 |
 | E7 | SwiftUI 截图回归（P5 暂缓项） | 需要稳定的 macOS 渲染基准 | 暂缓 |
-| E8 | `review_pack` 在大面积改规格时列出过多验收编号 | 只列真正被改动的行对应的编号 | 待开始 |
+| E8 | `review_pack` 在大面积改规格时列出过多验收编号 | 只列真正被改动的行对应的编号 | 完成（2026-09-26）：规格侧只取新增或修改的验收表行，正文提到编号不算 |
 | E9 | GitHub Actions 的 Node 20 弃用警告 | 升级 `actions/checkout`、`setup-python` 的主版本 | 待开始 |
 | E11 | 执行方角色首次真实运行 | 评审指出：本 PR 的实现方也是 Claude，「设计评审 / 执行」分工尚未实际走过；由 T1 首次验证，执行方用 OpenCode 或 Zcode | 完成（2026-09-26，trial-001：实现与测试由 OpenCode 完成，设计评审方只派发、修 harness 与评审） |
 | E12 | DR14 补齐其他来源的「正文不提取」测试 | trial-001 评审意见：只覆盖了 claude CLI 标题与日报路径；Codex、Zcode、Pi、Kimi、OpenCode 的采集同样不应持久化正文。适合作为下一次交给执行方的试跑任务 | 待开始 |
