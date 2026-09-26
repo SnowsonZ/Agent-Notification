@@ -168,7 +168,8 @@ enum InboxScope {
                 let report = try Self.dailyDecoder.decode(DayReport.self, from: result.1)
                 var mapping: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)] = [:]
                 for task in report.tasks {
-                    mapping["\(task.provider):\(task.sessionId)"] = (
+                    // V080-R9：键格式只在 InboxPolicy.usageMapKey 一处，与写入器查找同口径。
+                    mapping[usageMapKey(provider: task.provider, sessionID: task.sessionId)] = (
                         tokens: task.totalTokens > 0 ? task.totalTokens : nil,
                         cost: task.cost
                     )

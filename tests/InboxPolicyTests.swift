@@ -211,6 +211,25 @@ import Foundation
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             precondition((try? decoder.decode(WidgetSnapshot.Prefs.self, from: legacy)) != nil)
         }
+        // ---- V080-R9：今日用量键与查找（最近任务条目今日 token/金额的唯一实现）。
+        do {
+            let money = WidgetSnapshotMoney(
+                input: ["USD": 0.5], cache: [:], output: [:], unpricedTokens: 0, nativeFallback: nil)
+            let mapping: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)] = [
+                usageMapKey(provider: "claude", sessionID: "s-1"): (tokens: 1234, cost: money)
+            ]
+            // 同一 provider 与会话 ID 生成的键能查到对应用量，tokens 与金额都带出来。
+            let found = todayUsageFor(provider: "claude", sessionID: "s-1", mapping: mapping)
+            precondition(found.tokens == 1234 && found.cost == money)
+            // 会话 ID 为空、provider 不同、会话 ID 不同都查不到（两字段为空）。
+            for miss in [
+                todayUsageFor(provider: "claude", sessionID: nil, mapping: mapping),
+                todayUsageFor(provider: "codex", sessionID: "s-1", mapping: mapping),
+                todayUsageFor(provider: "claude", sessionID: "s-2", mapping: mapping),
+            ] {
+                precondition(miss.tokens == nil && miss.cost == nil)
+            }
+        }
         print("widget URL bridge state machine checks passed")
         print("Pagination, notification, daily report policy checks passed")
     }
