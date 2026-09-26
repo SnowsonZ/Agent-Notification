@@ -136,6 +136,8 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [任务 003：今日用量传入写入器](docs/plans/task-003-r9-today-usage.md) | 设计方案 | V080-R9：去掉默认参数、抽出用量键与查找的纯函数，交执行方 |
 | [任务 004：今日 token 从未显示](docs/plans/task-004-today-tokens.md) | 设计方案 | H0926-7 会话 ID 解码失败、H0926-8 签名不含用量，交执行方 |
 | [待办清单](docs/plans/backlog.md) | 设计方案 | 未关闭事项的唯一清单（有日期或触发条件、可做未排期、持续或暂缓、用户本机环境） |
+| [harness 说明](harness/README.md) | 设计方案 | 可验证交付的愿景、理念出处、原则与组件对照、阅读顺序 |
+| [2026-09-25 落地交接说明](docs/plans/2026-09-25-harness-rollout-handoff.md) | 设计方案（历史） | harness 开工时的基线、失败分类、可验证性地图与 P0–P6 路线，原为调研报告最后一节 |
 | [可验证交付方案](docs/plans/verifiable-delivery.md) | 设计方案 | 以本项目为标杆的全链路 harness：可验证定义、角色、风险等级、护栏分层与 P0–P6 阶段 |
 | [日报与桌面组件重设计](docs/plans/2026-09-24-report-widget-redesign.md) | 设计决策记录 | 口径决定（金额伴随/USD-only/官方图标）、实施与已知边界 |
 | [日报金额与跨周期统计](docs/plans/usage-cost-report.md) | 设计方案 | 已定稿为规范，保留调研与取舍背景 |
@@ -151,6 +153,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [可验证交付基线](docs/review/2026-09-25-harness-baseline.md) | 评审记录 | v0.8.0 失败分类（R1–R19 与过程失败）、基线指标、Agent 就绪度与可验证性地图 |
 | [项目整体评估](docs/review/2026-09-21-project-assessment.md) | 评审记录 | v0.7.4 全库复评、七项缺陷与验证边界；附 v0.7.3 历史评估 |
 | [桌面组件签名探针](docs/research/2026-09-23-widget-adhoc-probe.md) | 调研记录 | ad-hoc 签名组件可行性实测、构建要点与未覆盖系统 |
+| [低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践](docs/research/2026-09-23-agent-delivery-theory.md) | 调研报告 | harness 的理念来源（入库快照，编辑源为 Claude 文档） |
 | [市场调研](docs/research/2026-09-13-market-survey.md) | 调研记录 | 现成工具比较与选型依据 |
 
 调研记录为带日期的历史档案，反映当时状态；现行行为以规范文档为准。
