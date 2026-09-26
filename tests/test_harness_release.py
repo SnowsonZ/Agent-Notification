@@ -113,6 +113,19 @@ class ServerConfigTest(unittest.TestCase):
         self.assertTrue(review["require_last_push_approval"])
         self.assertTrue(review["dismiss_stale_reviews_on_push"])
 
+    def test_non_auto_merge_prs_request_owner_review(self):
+        """用户 2026-09-26 要求：需要用户审核的 PR（R2 及以上）要指定其为评审人。
+        只请求评审、不批准，也不进入 App 凭据所在的 environment。"""
+        workflow = (ROOT / ".github/workflows/auto-merge.yml").read_text()
+        job = workflow.split("\n  request-review:\n", 1)[1].split("\n  merge:\n", 1)[0]
+        self.assertIn("needs: judge", job)
+        self.assertIn("if: needs.judge.outputs.auto_merge == 'false'", job)
+        self.assertIn('--add-reviewer "$OWNER"', job)
+        self.assertIn("OWNER: ${{ github.repository_owner }}", job)
+        self.assertNotIn("environment:", job)
+        self.assertNotIn("secrets.", job)
+        self.assertNotIn("APPROVE", job)
+
 
 if __name__ == "__main__":
     unittest.main()

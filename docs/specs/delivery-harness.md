@@ -136,6 +136,7 @@ Agent 层按角色接入：
   - Agent 用单独的账号 `Snowson` 推送和开 PR（`bin/as-agent`），用户用自己的账号 `SnowsonZ` 批准。
   - main 的 ruleset 要求非推送者批准最后一次推送；有新推送时作废旧批准。
   - R0/R1 由 auto-merge 的专用 App 批准，App 凭据放在只允许 main 使用的 environment `auto-merge` 中，PR 分支的 workflow 取不到。
+  - R2 及以上：build 通过后，auto-merge 的 `request-review` job 请仓库所有者评审（用户 2026-09-26 要求），PR 出现在用户的待评审列表里；只请求，不批准。CI 失败的 PR 不请求，修好后再判定。
   - 残余：Agent 与用户在同一个 macOS 用户下运行，技术上能读到用户在 gh 里的登录凭据，再以用户身份批准。这一步只靠 Agent 层守卫拦（拒绝 `gh pr review --approve` 与 MCP 评审工具）；彻底隔离要给 Agent 单独的系统用户。
   - 用户自己开的 PR 同样需要别人批准，由 `Snowson` 账号批准，或临时调整 ruleset。
 - **PR 在自己的 workflow 里合并自己**：`pull_request` 事件执行 PR 分支里的 workflow 定义。D3 之后合并需要非推送者批准，`GITHUB_TOKEN` 既不能批准（仓库已关闭「允许 Actions 批准 PR」），也取不到 environment `auto-merge` 中的 App 凭据，因此 PR 不能再合并自己。仍依赖的前提：environment 的分支限制只允许 main；App 只装在本仓库，只有 Contents 与 Pull requests 写权限。App 的 Contents 写权限是批准被计入的前提（H0926-6），它的令牌因此也能推送；令牌只在 main 上的 auto-merge、判定为 R0/R1 之后取得。
