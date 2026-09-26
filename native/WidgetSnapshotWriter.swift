@@ -71,7 +71,7 @@ final class WidgetSnapshotWriter {
         let runningItems = runningRows.prefix(WidgetSnapshot.maxRunningItems).map(item)
         let recentItems = recentRows.prefix(WidgetSnapshot.maxRecentItems).map { row in
             // V080-R9：今日用量键与查找只经 InboxPolicy 的纯函数，两字段找不到即为 nil。
-            let usage = todayUsageFor(provider: row.provider, sessionID: row.sessionID, mapping: todayUsage)
+            let usage = todayUsageFor(provider: row.provider, sessionID: row.sessionId, mapping: todayUsage)
             let text = widgetEntryText(hideTitles: hideTitles, title: row.title, project: row.project)
             return WidgetSnapshot.RecentItem(
                 id: row.id, revision: row.revision, provider: row.provider,
