@@ -37,7 +37,7 @@ final class WidgetSnapshotWriter {
 
     func update(
         rows: [InboxRow],
-        todayUsage: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)] = [:]
+        todayUsage: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)]
     ) {
         lastRows = rows
         lastTodayUsage = todayUsage
@@ -70,14 +70,15 @@ final class WidgetSnapshotWriter {
         let pendingItems = pendingRows.prefix(WidgetSnapshot.maxPendingItems).map(item)
         let runningItems = runningRows.prefix(WidgetSnapshot.maxRunningItems).map(item)
         let recentItems = recentRows.prefix(WidgetSnapshot.maxRecentItems).map { row in
-            let usage = todayUsage["\(row.provider):\(row.sessionID ?? "")"]
+            // V080-R9：今日用量键与查找只经 InboxPolicy 的纯函数，两字段找不到即为 nil。
+            let usage = todayUsageFor(provider: row.provider, sessionID: row.sessionID, mapping: todayUsage)
             let text = widgetEntryText(hideTitles: hideTitles, title: row.title, project: row.project)
             return WidgetSnapshot.RecentItem(
                 id: row.id, revision: row.revision, provider: row.provider,
                 title: text.title,
                 project: text.project,
                 state: row.state, at: max(row.activityAt ?? 0, row.eventAt),
-                todayTokens: usage?.tokens, todayCost: usage?.cost
+                todayTokens: usage.tokens, todayCost: usage.cost
             )
         }
 

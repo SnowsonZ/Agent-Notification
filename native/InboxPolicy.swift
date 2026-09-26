@@ -230,3 +230,18 @@ struct WidgetEntryText: Equatable {
 func widgetEntryText(hideTitles: Bool, title: String, project: String) -> WidgetEntryText {
     WidgetEntryText(title: widgetEntryTitle(hideTitles: hideTitles, title: title), project: project)
 }
+
+// ---- 今日用量映射（V080-R9）：键与查找的唯一实现。InboxModels 建映射、
+// 写入器生成最近任务条目都经这里，键格式只在 usageMapKey 出现一次。
+func usageMapKey(provider: String, sessionID: String?) -> String {
+    "\(provider):\(sessionID ?? "")"
+}
+
+// 最近任务条目的今日用量：键一致才命中；找不到时 tokens 与金额都为空（组件显示 —）。
+func todayUsageFor(
+    provider: String,
+    sessionID: String?,
+    mapping: [String: (tokens: Int?, cost: WidgetSnapshotMoney?)]
+) -> (tokens: Int?, cost: WidgetSnapshotMoney?) {
+    mapping[usageMapKey(provider: provider, sessionID: sessionID)] ?? (tokens: nil, cost: nil)
+}
