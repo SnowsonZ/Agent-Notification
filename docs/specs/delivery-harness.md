@@ -49,9 +49,9 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 
 | 等级 | 判定（`harness/rules.toml [risk]`） | 合并 |
 |---|---|---|
-| R0 | 说明性文档；只新增测试 | 门禁全绿即可自动合并 |
+| R0 | 截图（`docs/images/`）；只新增测试 | 门禁全绿即可自动合并 |
 | R1 | 声明 `Risk: R1` 且机器核对通过 | 自动合并 + 抽样审计 |
-| R2 | 产品代码、现役规格、AGENTS.md；改动或删除已有测试；改动黄金快照 | 评审方评审 + 用户看证据包后合并 |
+| R2 | 产品代码；全部文档与 README（方案、评审、调研、模板、待办清单、现役规格，用户 2026-09-27 决定）；AGENTS.md；改动或删除已有测试；改动黄金快照 | 评审方评审 + 用户看证据包后合并（CI 通过后自动请用户评审） |
 | R3 | 护栏、CI 与发布、依赖、报告迁移、快照与隐私、用户配置安装、运行时入口 | 用户批准 |
 
 R0/R1 的自动合并由 `.github/workflows/auto-merge.yml` 执行：build 完成后以 `workflow_run` 触发，检出 main、用 main 上的 `risk.py` 对 PR 的 diff 重新判级（只读 diff，不执行 PR 的代码），R0/R1 才以 `--match-head-commit` 合并本次评估过的提交；fork 与失败的运行不处理。判定放在这里而不是 PR 自己的 CI 里，是因为 `pull_request` 事件执行的是 PR 分支里的 workflow 定义。

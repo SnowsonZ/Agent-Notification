@@ -142,9 +142,26 @@ class RiskTest(unittest.TestCase):
     def classify(self):
         return risk.classify(self.base, "HEAD", cwd=self.repo.path, rules=load_rules())
 
-    def test_docs_only_is_r0(self):
-        self.repo.write("docs/plans/p.md", "plan v2\n")
-        self.repo.commit("docs")
+    def test_docs_need_user_approval_but_screenshots_are_r0(self):
+        """用户 2026-09-27 决定：审计报告（PR #47）与待办清单这类文档被自动合并不可接受；
+        全部文档与 README 须经用户审批（R2），只有截图仍为 R0。"""
+        for path in (
+            "docs/plans/p.md",
+            "docs/plans/backlog.md",
+            "docs/review/r.md",
+            "docs/research/x.md",
+            "docs/templates/task.md",
+            "README.md",
+            "README.zh-CN.md",
+        ):
+            with self.subTest(path=path):
+                self.repo.git("checkout", "-q", "-B", "work", self.base)
+                self.repo.write(path, "v2\n")
+                self.repo.commit("docs")
+                self.assertEqual(self.classify().label, "R2")
+        self.repo.git("checkout", "-q", "-B", "work", self.base)
+        self.repo.write("docs/images/shot.png", "png\n")
+        self.repo.commit("screenshot")
         self.assertEqual(self.classify().label, "R0")
 
     def test_appending_to_existing_test_is_r0(self):

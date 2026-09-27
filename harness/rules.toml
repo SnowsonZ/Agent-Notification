@@ -59,24 +59,20 @@ r3 = [
     "ruff.toml",
     ".gitignore",
 ]
-# R2：产品代码与现役合同。
+# R2：产品代码、现役合同，以及全部文档与 README（用户 2026-09-27 决定：方案、评审、调研、模板、
+# 待办清单都会指导后续工作，须经用户审批，不自动合并）。
 r2 = [
     "scripts/**",
     "native/**",
-    "docs/specs/**",
+    "docs/**",
     "AGENTS.md",
-    "LICENSE",
-]
-# R0：说明性文档。测试目录单独判定（只新增为 R0，改动或删除已有测试升为 R2 并标记）。
-r0 = [
-    "docs/plans/**",
-    "docs/research/**",
-    "docs/review/**",
-    "docs/decisions/**",
-    "docs/templates/**",
-    "docs/images/**",
     "README.md",
     "README.zh-CN.md",
+    "LICENSE",
+]
+# R0：截图。先于 R2 判定。测试目录单独判定（只新增为 R0，改动或删除已有测试升为 R2 并标记）。
+r0 = [
+    "docs/images/**",
 ]
 tests = ["tests/**"]
 # 只能缩减的清单：只删不增时按 R0（关闭缺口是期望的方向）；有新增行仍按上面的规则判定。
