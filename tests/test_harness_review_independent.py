@@ -105,6 +105,37 @@ class ReviewerTest(unittest.TestCase):
         self.assertEqual((review.parse_output(text).verdict, model), ("通过", "glm-5.3"))
         self.assertEqual(review.make_reviewer("pi").argv("p", Path("/w"), Path("/o"))[-2], "zai-coding-cn/glm-5.3")
 
+    def test_opencode_reviewer_is_read_only_and_parses_events(self):
+        argv = review.OpenCodeReviewer("zai-coding-plan/glm-5.3").argv("p", Path("/w"), Path("/o"))
+        self.assertEqual(argv[:6], ["opencode", "run", "--pure", "--agent", "plan", "--format"])
+        events = [
+            {"type": "step_start", "part": {"type": "step-start"}},
+            {"type": "tool_use", "part": {"type": "tool", "tool": "read"}},
+            {"type": "text", "part": {"type": "text", "text": "意见"}},
+            {"type": "text", "part": {"type": "text", "text": '```json\n{"verdict": "不通过", "findings": [{"severity": "严重"}]}\n```'}},
+        ]
+        text, model = review.OpenCodeReviewer("m").read("\n".join(json.dumps(e, ensure_ascii=False) for e in events), Path("/o"))
+        verdict = review.parse_output(text)
+        self.assertEqual((verdict.verdict, verdict.flagged, model), ("不通过", True, "m"))
+        self.assertIsInstance(review.make_reviewer("opencode"), review.OpenCodeReviewer)
+
+    def test_reviewer_stdin_is_closed(self):
+        """opencode run 在标准输入是管道时会一直等（2026-09-28 实测）：评审方的标准输入必须关闭。"""
+        class ReadsStdin(review.Reviewer):
+            name = "stdin"
+
+            def argv(self, prompt, workspace, output):
+                code = ("import sys; data = sys.stdin.read(); "
+                        "print('{\"verdict\": \"通过\", \"findings\": []}' if data == '' else 'stdin')")
+                return [sys.executable, "-c", code]
+
+            def read(self, stdout, output):
+                return stdout, "m"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            verdict, _, _ = review.run_reviewer(ReadsStdin(), Path(tmp), 30)
+        self.assertEqual(verdict.verdict, "通过")
+
     def test_claude_output_parsing(self):
         stdout = json.dumps({"result": '好\n{"verdict": "通过", "findings": []}', "modelUsage": {"claude-x": {}}})
         text, model = review.ClaudeReviewer().read(stdout, Path("/none"))
@@ -183,6 +214,25 @@ class FailureTest(unittest.TestCase):
                                           reviewer=self.Scripted([ok, ok, ok, ok, ok]))
         self.assertEqual(sorted(item["id"] for item in second["samples"]), [f"S{n}" for n in range(6)])
         self.assertEqual((second["bad"], second["unparsed"]), (6, 0))
+
+
+class ReviewBaseTest(unittest.TestCase):
+    def test_merged_pr_is_compared_against_its_merge_parent(self):
+        """2026-09-28 #62 首次试行：PR 已合并时按 main 的合并基点比较，diff 为空。"""
+        repo = TempRepo()
+        self.addCleanup(repo.close)
+        repo.write("a.txt", "1\n")
+        base = repo.commit("base")
+        repo.git("checkout", "-q", "-b", "feature")
+        repo.write("a.txt", "2\n")
+        head = repo.commit("change")
+        repo.git("checkout", "-q", "main")
+        repo.git("merge", "-q", "--no-ff", "-m", "merge", "feature")
+        merge = repo.git("rev-parse", "HEAD")
+        repo.git("update-ref", "refs/remotes/origin/main", merge)
+        repo.git("checkout", "-q", "--detach", head)
+        self.assertEqual(review.review_base({"state": "MERGED", "mergeCommit": {"oid": merge}}, repo.path), base)
+        self.assertEqual(review.review_base({"state": "OPEN"}, repo.path), head)  # 已在 main 上：合并基点即 head
 
 
 class CalibrationTest(unittest.TestCase):
