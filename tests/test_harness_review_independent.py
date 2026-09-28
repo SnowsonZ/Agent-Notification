@@ -119,6 +119,12 @@ class ReviewerTest(unittest.TestCase):
         self.assertEqual((verdict.verdict, verdict.flagged, model), ("不通过", True, "m"))
         self.assertIsInstance(review.make_reviewer("opencode"), review.OpenCodeReviewer)
 
+    def test_opencode_tools_are_locked_to_read_only(self):
+        """plan 代理本身不禁止 bash（2026-09-28 实测评审中运行了测试与 gh）：配置里关掉命令与写入类工具。"""
+        config = json.loads(review.OpenCodeReviewer.env["OPENCODE_CONFIG_CONTENT"])
+        self.assertEqual(config["permission"]["bash"], "deny")
+        self.assertFalse(any(config["tools"][name] for name in ("bash", "task", "webfetch", "write", "edit", "patch")))
+
     def test_reviewer_stdin_is_closed(self):
         """opencode run 在标准输入是管道时会一直等（2026-09-28 实测）：评审方的标准输入必须关闭。"""
         class ReadsStdin(review.Reviewer):
@@ -233,6 +239,59 @@ class ReviewBaseTest(unittest.TestCase):
         repo.git("checkout", "-q", "--detach", head)
         self.assertEqual(review.review_base({"state": "MERGED", "mergeCommit": {"oid": merge}}, repo.path), base)
         self.assertEqual(review.review_base({"state": "OPEN"}, repo.path), head)  # 已在 main 上：合并基点即 head
+
+
+class BackgroundTest(unittest.TestCase):
+    """后台自动评审：CI 通过后评审待评审的 PR，已评过当前 head 的跳过，停机标记存在即退出。"""
+
+    class FakeGitHub:
+        def __init__(self, prs, checks):
+            self.prs, self.checks = prs, checks
+
+        def _run(self, argv, **kwargs):
+            if argv[:3] == ["gh", "pr", "list"]:
+                return json.dumps(self.prs)
+            if argv[:3] == ["gh", "pr", "checks"]:
+                state = self.checks[int(argv[3])]
+                if state is None:
+                    raise RuntimeError("checks pending")
+                return json.dumps([{"state": value} for value in state])
+            raise AssertionError(argv)
+
+    def github(self):
+        mark = '<!-- independent-review {"head": "h3"} -->'
+        prs = [
+            {"number": 1, "headRefOid": "h1", "comments": []},
+            {"number": 2, "headRefOid": "h2", "comments": []},
+            {"number": 3, "headRefOid": "h3", "comments": [{"body": "评审\n" + mark}]},
+            {"number": 4, "headRefOid": "h4", "comments": [{"body": mark}]},  # 评过的是旧 head
+            {"number": 5, "headRefOid": "h5", "comments": []},
+        ]
+        checks = {1: ["SUCCESS", "SKIPPED"], 2: ["SUCCESS", "FAILURE"], 3: ["SUCCESS"], 4: ["SUCCESS"], 5: None}
+        return self.FakeGitHub(prs, checks)
+
+    def test_pending_needs_green_ci_and_an_unreviewed_head(self):
+        self.assertEqual(review.pending_prs(self.github()), [1, 4])
+
+    def test_review_pending_runs_one_at_a_time(self):
+        seen = []
+        done = review.review_pending(github=self.github(), review=lambda n, *rest: seen.append(n))
+        self.assertEqual((done, seen), ([1, 4], [1, 4]))
+
+    def test_watch_repeats_and_stops_on_stop_flag(self):
+        repo = TempRepo()
+        self.addCleanup(repo.close)
+        seen, sleeps = [], []
+        with mock.patch.object(review.dispatch, "state_dir", return_value=repo.path / "state"):
+            review.watch(1, github=self.github(), review=lambda n, *rest: seen.append(n),
+                         sleep=sleeps.append, rounds=2, root=repo.path)
+            self.assertEqual((seen, sleeps), ([1, 4, 1, 4], [60]))
+            (repo.path / "state").mkdir()
+            (repo.path / "state" / "stop").write_text("now")
+            seen.clear()
+            review.watch(1, github=self.github(), review=lambda n, *rest: seen.append(n), sleep=sleeps.append,
+                         root=repo.path)
+        self.assertEqual(seen, [])
 
 
 class CalibrationTest(unittest.TestCase):
