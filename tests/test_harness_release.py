@@ -91,7 +91,8 @@ class ServerConfigTest(unittest.TestCase):
         self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
         # 合并路由（目标态设计 9.3）：判定改由 policy.py 执行，它内部调用 risk.py。
-        self.assertIn('harness/policy.py --base origin/main --head "$HEAD_SHA" ${PR:+--pr "$PR"} --github', workflow)
+        self.assertIn('harness/policy.py --base origin/main --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github', workflow)
+        self.assertIn("HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}", workflow)
         self.assertIn("auto_merge: ${{ steps.policy.outputs.auto_merge }}", workflow)
         self.assertIn('--match-head-commit "$HEAD_SHA"', workflow)
         self.assertEqual(workflow.count("run: git fetch --no-tags origin"), 1)

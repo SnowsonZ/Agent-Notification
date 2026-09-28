@@ -21,7 +21,8 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
 | `python3 harness/evidence.py --base origin/main [--swift]` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过；`--swift` 同时编译运行引用编号的 Swift 测试（macOS，编译失败算出错）；回放覆盖：非 doc 类、未撤销的编号在 head 的 `replay_cases.py` 中须有注入用例、守卫测试或写明原因的暂缓项，否则失败 | CI harness job（Python）与 macOS build job（含 Swift）；实现方自查 |
 | `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3；声明 R1 时另跑 `r1_checks.py` 的加强判定 | CI harness job |
-| `python3 harness/policy.py --base origin/main --head <sha> --pr <编号>` | 合并路由：风险、类别（`autonomy.toml` 中为 L4，任务书声明与机器判定一致）、误差预算（escape 议题、`budget-exceeded` 标签）、规模（400 行），逐条写理由；K3 按 PR 编号哈希三抽一 | auto-merge 的判定步骤（main 上的代码） |
+| `python3 harness/policy.py --base origin/main --head <sha> --pr <编号> --branch <分支>` | 合并路由：风险、类别（`autonomy.toml` 中为 L4，任务书声明与机器判定一致）、误差预算（escape 议题、`budget-exceeded` 标签）、规模（400 行）、任务 PR 的运行记录与 CI 轮次，逐条写理由；K3 按 PR 编号哈希三抽一 | auto-merge 的判定步骤（main 上的代码） |
+| `python3 harness/run_check.py --base origin/main [--branch <分支>]` | 实现任务书的 PR（分支为 `task/<名字>` 且有对应任务书，或提交带 `Task:`）：每个提交带 `Task: <编号>`；有格式完整、与任务书一致、exit 为 ok 的运行记录，提示词 sha256 一致；已完成的 build 轮次不超过 `budget.ci_rounds` | CI harness job（只报告）；合并路由第 5 条（权威） |
 | `python3 harness/mutate.py --check --changed-since <base>` | 只核对改到其文件的变异目标，得分不得低于基线 | CI harness job，声明 R1 时 |
 | `python3 harness/base_tests.py --base origin/main` | 用 base 版本的已有测试在 head 上重跑：追加进已有测试文件的代码禁用不了判定器（有意改动已有测试的 PR 按 R2 评审，此项只报告）；测试经 `harness/base_tests_runner.py` 运行，产品代码在运行中篡改 unittest 时一律失败 | CI harness job |
 | `python3 harness/hygiene.py --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |
@@ -52,7 +53,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 - **逃逸与抽审登记**（2026-09-28 决定 9）：合并后才发现、本应被门禁或评审拦住的缺陷，任何人（含 Agent）开议题，加 `escape` 与 `class:<类别>` 标签，正文写明「引入：#<PR>」；不写会话正文。已关闭的议题照样计数。K3 被抽中的 PR 合并后由 auto-merge 开 `audit` 议题，评审方审完关闭，发现问题另开 escape 议题。PR 的类别标签 `class:<类别>` 由 auto-merge 打上，是误差预算窗口的依据。
 - **不手写通过状态**：PR 与交付说明里的「测试通过」「CI 通过」「已修复」一律由 CI 的 harness job summary 与 run 链接代替。
 - **派发**（2026-09-28 起，设计 6.2）：执行方任务经 `bin/dispatch` 派发，不在主目录运行执行方；主目录只留给用户，设计评审方也在自己的 worktree 或槽位中工作。槽位是仓库同级的固定目录 `<仓库名>-slot-<n>`（`rules.toml [dispatch]`，默认 3 个），每次派发从 origin/main 重建分支并清理未跟踪文件（保留 `scratch/iterm-probe-venv`，指向主目录的运行时）。执行方以 `Snowson` 的提交身份工作，但**拿不到任何 GitHub 凭据**：继承的令牌被去掉、gh 指向空配置目录、git 凭据助手清空；推送、开 PR、评论由派发脚本经 `bin/as-agent` 完成。预算取自任务书头部：`wall_clock_min` 是执行方的累计时长，`retries` 是本地重试，`ci_rounds` 是 CI 轮次；15 分钟既无输出也无文件变化判为卡死。执行方卡住时写 `build/dispatch/escalation.md`（可选方案、需要决定的问题），派发脚本补上状态、已尝试方案与证据后升级。
-- **运行记录**：每次推送带一份 `docs/runs/<任务书名>/<序号>.json`（R0）与渲染后的提示词 `<序号>.prompt.md`：宿主、版本、模型、提示词 sha256、守卫取自的 main 提交、时长与退出方式、重试与失败签名、守卫拒绝次数（按理由计）、token 与费用。只存结构化摘要；完整事件流留在本机 git 公共目录下的 `dispatch/runs/`，不入库。执行方不能编辑 `docs/runs/**`。提示词模板 `harness/dispatch_prompt.md` 属 R3。
+- **运行记录**：每次推送带一份 `docs/runs/<任务书名>/<序号>.json`（R0）与渲染后的提示词 `<序号>.prompt.md`：宿主、版本、模型、提示词 sha256、守卫取自的 main 提交、时长与退出方式、重试与失败签名、守卫拒绝次数（按理由计）、token 与费用。只存结构化摘要；完整事件流留在本机 git 公共目录下的 `dispatch/runs/`，不入库。执行方不能编辑 `docs/runs/**`。提示词模板 `harness/dispatch_prompt.md` 属 R3。CI 侧由 `run_check.py` 复核（合并路由第 5 条）：即使绕过派发脚本手工派发，缺记录、缺 `Task:` 或 CI 轮次超预算的 PR 也不会被自动合并；交付度量另在 job summary 中列出「CI 轮次 / 预算」。
 - **减少审批次数**（用户 2026-09-28 决定，先执行、阶段二结束后按数据复核）：判级规则不放宽，靠攒批减少 PR 数。①记录类改动（规范 §6 验证状态、待办关闭与状态更新、实测结果）不单独开 PR，并入下一个实质性 PR；没有合适的 PR 时，当天的记录攒成一个。②相关的 R3 小改动按主题合成一个 PR（设计 16 章），不拆成零碎的护栏 PR。
 
 ## 3. 风险等级
@@ -64,7 +65,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | R2 | 产品代码、现役规格、AGENTS.md；模板与待办清单；K7、K8、架构级或头部不合格的任务书；删除任务书；改动或删除已有测试；改动黄金快照 | 评审方评审 + 用户看证据包后合并 |
 | R3 | 护栏、CI 与发布、依赖、报告迁移、快照与隐私、用户配置安装、运行时入口 | 用户批准 |
 
-自动合并由 `.github/workflows/auto-merge.yml` 执行：build 完成后以 `workflow_run` 触发，检出 main、用 main 上的 `policy.py` 判定（内部调用 `risk.py` 对 PR 的 diff 重新判级；只读 diff、提交说明、PR 标签与议题，不执行 PR 的代码），四条判定全部满足才以 `--match-head-commit` 合并本次评估过的提交，每条理由写进 job summary；fork 与失败的运行不处理。
+自动合并由 `.github/workflows/auto-merge.yml` 执行：build 完成后以 `workflow_run` 触发，检出 main、用 main 上的 `policy.py` 判定（内部调用 `risk.py` 对 PR 的 diff 重新判级；只读 diff、提交说明、PR 标签与议题，不执行 PR 的代码），五条判定全部满足才以 `--match-head-commit` 合并本次评估过的提交，每条理由写进 job summary；fork 与失败的运行不处理。
 
 | 判定（按顺序） | 满足条件 | 不满足时 |
 |---|---|---|
@@ -72,6 +73,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | 类别 | 机器判定的类别（K0 合同、K1 说明、K2 补测试、K3 重构、K4 修复、K5 功能、K6 界面、K7 护栏）在 `harness/autonomy.toml` 中为 L4；提交带 `Task: T<编号>` 时，main 上该任务书声明的类别与机器判定一致 | 转用户评审（声明不一致按「未分类」） |
 | 预算 | 该类最近 N 次合并的 escape 议题不超预算（K0–K2：20 次内 ≤ 1；K3：10 次内 = 0）；PR 不带 `budget-exceeded` 标签；读不到标签或议题时按不满足 | 该类自动合并暂停，直到用户改 `autonomy.toml` 恢复 |
 | 规模 | 增删行数（不计 `tests/golden/**`、`docs/runs/**`）≤ 400 | 转用户评审，提示拆分 |
+| 运行记录 | 实现任务书的 PR：提交都带 `Task:`，有合格的运行记录（exit 为 ok），已完成的 build 轮次（按不同 head 提交计）≤ 任务书 `ci_rounds`；读不到 build 运行按不满足；不是在实现任务书的 PR 不要求 | 转用户评审：缺记录说明未经 `bin/dispatch` 或记录不全，超预算说明反复试错 |
 
 放权只能由用户改 `harness/autonomy.toml`（R3），降级自动生效。K3 自动合并的 PR 按编号哈希每 3 个抽 1 个开 audit 议题，满 10 个抽审无问题后由用户调低比例。判定放在这里而不是 PR 自己的 CI 里，是因为 `pull_request` 事件执行的是 PR 分支里的 workflow 定义。
 
@@ -152,6 +154,7 @@ Agent 层按角色接入：
 | 合并路由与 R1 加强判定（P2） | 单测（`tests/test_harness_policy.py`）：风险 R2、类别非 L4、任务书声明与机器判定不一致、逃逸超预算、`budget-exceeded` 标签、读不到标签与议题、超 400 行各转用户评审，全部满足才自动合并，summary 逐条写理由；机器类别 K0–K7；三抽一抽样稳定；R1 在签名改动、删除函数、新依赖、建表改表、超规模时降为 R2，新增函数、标准库与仓库内模块仍为 R1；workflow 一致性单测（判定步骤只读、只运行 policy.py） | ✅ 单测；auto-merge 的真实运行以引入本行的 PR 合并后的第一个 PR 为准；停机演练待用户执行（§8） |
 | 回放强制与守卫小修（P3） | 单测（`tests/test_harness_p3.py`）：缺回放的非 doc 类 Defect 使 `evidence.py` 退出 1（即 harness job 失败），注入用例、守卫测试、写明原因的暂缓项满足，doc 类与已撤销的编号不要求；`gh release list/view` 放行、其余拒绝；任何角色删除议题、撤登记标签被拒；执行方关闭或改动议题、改标签、编辑 `docs/runs/**` 被拒而设计方可关闭议题；Zcode 与 Claude 的 matcher、OpenCode 插件与 Pi 扩展把批准、议题、标签类工具交给守卫 | ✅ 单测；✅ Zcode 桌面版：2026-09-28 用户重新授予信任（`workspace_hooks_trusted_persistent`，digest `8c04f1a2…`），桌面版中 `gh issue close 999999` 被「harness 守卫」以「执行者不能关闭、重开或改动议题」拒绝。批准类 MCP 工具：本仓库未给 Zcode 配 GitHub MCP，真机无法发起，由单测覆盖 |
 | 派发脚本（P4） | 单测（`tests/test_harness_dispatch.py`，假执行方与假 GitHub、真实临时 git 远端）：成功路径写运行记录、开 PR、主目录无改动、槽位归还；执行方环境无 GitHub 令牌；认领冲突与任务书不在 main 上时不运行执行方；超时、卡死、打转、澄清、停机各自升级；CI 失败带摘要重试、超预算打 `budget-exceeded`；槽位互斥与过期锁回收；守卫取自 origin/main，main 上的守卫失效时停止派发；Pi 参数与事件解析。2026-09-28 真实 Pi 实测 `-na -e` 的守卫加载与拦截 。2026-09-28 真实 K2 任务端到端（B21）：任务书 T005（PR #56，R0、K0）由 auto-merge 自动合并；`bin/dispatch` 派发 Pi（glm-5.3-flash）一轮完成、无重试、无守卫拒绝，执行约 12.6 分钟，派发脚本在执行方之外 verify 通过，运行记录与提示词随推送入库，PR #57 描述含运行记录摘要，CI 通过后按 R0、K2 自动合并（合并路由四条均写明理由）；主目录前后 git status 无改动；合并后在 main 独立重跑变异，`热力金额分级` 21/21，基线由 90% 升到 100%。发现槽位按启动目录命名（从设计方 worktree 启动得到 `…-sync-slot-1`），已改为按主工作目录命名 | ✅ 单测、守卫实测、真实任务端到端 |
+| CI 侧复核（P5） | 单测（`tests/test_harness_run_check.py`）：派发产生的 PR 通过；设计方分支不适用；带 `Task:` 的任意分支适用；缺记录、提交缺 `Task:`、记录 exit 非 ok、缺字段、task 或分支不符、提示词被改各被标出；以序号最大的记录为准；CI 轮次超预算或读不到时标出，同一提交的重跑不算新轮次；合并路由在缺记录与超预算时转用户、合格时自动合并。T005 的真实运行记录（PR #57）按同一口径合格 | ✅ 单测；首个经合并路由第 5 条判定的真实任务 PR 待下次派发 |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
 | zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |

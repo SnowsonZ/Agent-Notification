@@ -152,7 +152,9 @@ class GatherTest(unittest.TestCase):
         self.repo.git("commit", "-q", "-m", "docs\n\nTask: T005")
         item = policy.gather(self.base, "HEAD", 7, self.repo.path, AUTONOMY, self.gh())
         self.assertEqual((item.machine_class, item.declared_class, item.declared_problem), ("K1", "K1", None))
-        self.assertTrue(all(rule.ok for rule in policy.decide(item, AUTONOMY)))
+        # P5 起：带 Task: 即在实现任务书，没有运行记录就不自动合并；其余判定照常通过。
+        failed = [rule.name for rule in policy.decide(item, AUTONOMY) if not rule.ok]
+        self.assertEqual(failed, ["运行记录"])
 
     def test_unknown_task_and_missing_pr_fail_closed(self):
         self.repo.write("docs/research/a.md", "a2\n")
