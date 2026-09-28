@@ -307,6 +307,15 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(self.record()["exit"], "stopped")
 
+    def test_slot_is_named_after_the_main_checkout_from_any_worktree(self):
+        """B21 实测：从设计方的 worktree 启动时，槽位曾以 worktree 名命名（…-sync-slot-1）。"""
+        other = self.tmp / "designer-worktree"
+        self.git("worktree", "add", "-q", "--detach", str(other), "origin/main")
+        self.config.slot_root = None
+        expected = (self.tmp / "repo-slot-2").resolve()
+        self.assertEqual(dispatch.slot_path(other, self.config, 2), expected)
+        self.assertEqual(dispatch.slot_path(self.root, self.config, 2), expected)
+
     def test_slots_are_exclusive_and_stale_locks_reclaimed(self):
         task = dispatch.admit("docs/plans/task-005-new-test.md", self.root)
         first = dispatch.acquire_slot(self.root, self.config, task)
