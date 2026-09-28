@@ -1694,6 +1694,15 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(cost_level(0, thresholds), 0)
         self.assertEqual(cost_level(10, [0, 0, 0]), 0)  # 样本不足时不分级
 
+    def test_cost_level_grades_sub_yuan_amounts_and_thresholds(self):
+        # B21：金额或最低阈值在 0 与 1 之间时照常分级，不被当作无消耗归 0。
+        from daily_report import cost_level
+
+        self.assertEqual(cost_level(0.5, [0.8, 2, 5]), 1)  # 金额 0.5 落在最低档之下
+        self.assertEqual(cost_level(0.7, [0.6, 0.9, 3]), 2)  # 最低阈值 0.6 < 1 仍参与分级
+        self.assertEqual(cost_level(4, [0.6, 0.9, 3]), 4)  # 高档阈值不受低阈值影响
+        self.assertEqual(cost_level(0.7, [0.6, 0, 3]), 3)  # 归零判定只看最低阈值，中档阈值不参与
+
 
 class DailyReportPrivacyTests(unittest.TestCase):
     """DR14 端到端：收件箱采集（标题 ≤80 入库）之后生成日报，报告对象与落盘
