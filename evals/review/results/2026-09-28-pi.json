@@ -1,0 +1,519 @@
+{
+  "reviewer": "pi",
+  "model": "glm-5.3",
+  "main": "8e7f23389e0799ff9822fb2a9b08777c7efce969",
+  "date": "2026-09-28",
+  "samples": [
+    {
+      "kind": "bad",
+      "id": "V080-R2:0",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 86
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R2:1",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 60
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R3:2",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 197
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R4:3",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 98
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R4:4",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 138
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R19:5",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 73
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R13:6",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 53
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R11:7",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 130
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R11:8",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 98
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R11:9",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 158
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R12:10",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 111
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R7:11",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 106
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R17:12",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 101
+    },
+    {
+      "kind": "bad",
+      "id": "H0925-1:13",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 55
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R8:14",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 47
+    },
+    {
+      "kind": "bad",
+      "id": "H0925-4:15",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 105
+    },
+    {
+      "kind": "bad",
+      "id": "H0925-2:16",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 129
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R15:17",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 76
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R9:18",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 86
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-7:19",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 101
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-8:20",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 94
+    },
+    {
+      "kind": "bad",
+      "id": "H0925-2:21",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 101
+    },
+    {
+      "kind": "bad",
+      "id": "H0925-5:22",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 107
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R1:23",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 59
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R2:24",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 84
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-4:25",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 171
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-5:26",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 109
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-5:27",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 87
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R3:28",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 94
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R4:29",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 93
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R5:30",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 97
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R6:31",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 254
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R6:32",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 107
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R7:33",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 100
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R7:34",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 133
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R7:35",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 93
+    },
+    {
+      "kind": "bad",
+      "id": "PR7-R9:36",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 145
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-3:37",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 89
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-2:38",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 93
+    },
+    {
+      "kind": "bad",
+      "id": "H0926-5:39",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 104
+    },
+    {
+      "kind": "bad",
+      "id": "V080-R10:40",
+      "verdict": "不通过",
+      "flagged": true,
+      "parsed": true,
+      "failure": "",
+      "seconds": 103
+    },
+    {
+      "kind": "good",
+      "id": "PR57",
+      "verdict": "通过",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 103
+    },
+    {
+      "kind": "good",
+      "id": "PR39",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 295
+    },
+    {
+      "kind": "good",
+      "id": "PR36",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 244
+    },
+    {
+      "kind": "good",
+      "id": "PR30",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 394
+    },
+    {
+      "kind": "good",
+      "id": "PR18",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 293
+    },
+    {
+      "kind": "good",
+      "id": "PR22",
+      "verdict": "通过",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 434
+    },
+    {
+      "kind": "good",
+      "id": "PR25",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 462
+    },
+    {
+      "kind": "good",
+      "id": "PR14",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 359
+    },
+    {
+      "kind": "good",
+      "id": "PR10",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 208
+    },
+    {
+      "kind": "good",
+      "id": "PR12",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 392
+    },
+    {
+      "kind": "good",
+      "id": "PR43",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 290
+    },
+    {
+      "kind": "good",
+      "id": "PR8",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 356
+    },
+    {
+      "kind": "good",
+      "id": "PR58",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 287
+    },
+    {
+      "kind": "good",
+      "id": "PR9",
+      "verdict": "需用户验收",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 147
+    },
+    {
+      "kind": "good",
+      "id": "PR59",
+      "verdict": "通过",
+      "flagged": false,
+      "parsed": true,
+      "failure": "",
+      "seconds": 341
+    }
+  ],
+  "bad": 41,
+  "good": 15,
+  "errors": 0,
+  "tpr": 1.0,
+  "tnr": 1.0,
+  "unparsed": 0,
+  "total": 56
+}

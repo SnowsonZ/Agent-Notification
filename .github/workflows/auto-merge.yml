@@ -90,6 +90,12 @@ jobs:
           gh label create escape --repo "$GITHUB_REPOSITORY" --color d93f0b --description "合并后才发现的逃逸缺陷，正文写明引入的 PR" --force >/dev/null
           gh label create budget-exceeded --repo "$GITHUB_REPOSITORY" --color d93f0b --description "超出任务预算，不自动合并" --force >/dev/null
           gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label "class:$CLASS"
+          # R2 及以上：标出待独立评审（设计 8.3，试行）；评审由非设计方经 bin/dispatch review 完成。
+          if [ "$RISK" = "R2" ] || [ "$RISK" = "R3" ]; then
+            gh label create needs-independent-review --repo "$GITHUB_REPOSITORY" --color 1d76db \
+              --description "待非设计方独立评审（试行）" >/dev/null 2>&1 || true
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs-independent-review
+          fi
           gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-reviewer "$OWNER" \
             || echo "未能请 $OWNER 评审（$RISK），可能是其本人开的 PR"
 
