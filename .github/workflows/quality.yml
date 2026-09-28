@@ -1,9 +1,13 @@
 name: quality
 
 # 每周的测试强度与熵治理检查（docs/specs/delivery-harness.md）：较慢，不放在每次提交的门禁里。
+# 周报（harness/weekly.py）在检查之后汇总交付指标，写进固定的「每周质量报告」议题；检查失败也照样出周报。
 on:
   schedule:
     - cron: '17 2 * * 1'  # 每周一 02:17 UTC
+    # 待办 B30：2026-09-28 的定时未触发（GitHub 定时在高负载时可能延迟或丢弃）。第二个时刻兜底；
+    # 同一周跑两次时周报更新同一议题，检查本身幂等。
+    - cron: '43 6 * * 1'  # 每周一 06:43 UTC
   workflow_dispatch:
 
 permissions:
@@ -12,8 +16,15 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read        # 周报：build 与 quality 的运行
+      contents: read
+      issues: write        # 周报：更新「每周质量报告」议题、创建登记用标签（不改写已有标签）
+      pull-requests: read  # 周报：本周合并的 PR
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # 周报按合并提交重算风险（被改动的已有测试）
 
       - uses: actions/setup-python@v7
         with:
@@ -32,3 +43,10 @@ jobs:
       - name: Complexity ratchet
         if: ${{ !cancelled() }}
         run: python harness/quality.py
+
+      - name: Weekly report
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python harness/weekly.py --publish | tee -a "$GITHUB_STEP_SUMMARY"
