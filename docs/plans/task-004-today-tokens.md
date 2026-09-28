@@ -1,3 +1,20 @@
+---
+task: T004
+class: K4
+risk: R3
+designer: claude-code
+size: medium
+architecture: false
+spec_refs: []
+no_spec_reason: 缺陷 H0926-7、H0926-8，早于规格编号约定
+budget:
+  wall_clock_min: null
+  ci_rounds: 3
+  retries: 2
+  tokens: null
+rollback: revert 该 PR
+---
+
 # 任务：组件「最近任务」的今日 token 从未显示（H0926-7、H0926-8）
 
 状态：完成（2026-09-26，PR #39，执行方 OpenCode；CI 首轮通过，真机确认）。原：待执行（2026-09-26 由设计与评审方按[任务模板](../templates/task.md)写成，来源：方案 §13 V4 真机验收；用户 2026-09-26 同意修复）。执行方由评审方派发。

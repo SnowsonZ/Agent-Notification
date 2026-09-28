@@ -129,7 +129,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |
 | [用量金额与桌面组件执行计划](docs/plans/usage-cost-widgets-execution.md) | 设计方案 | 工作包、里程碑评审关口与交付要求 |
 | [可验证交付 harness](docs/specs/delivery-harness.md) | 规范 | bin/verify、修复证据、风险等级、三层护栏、一次性设置与验证状态 |
-| [任务模板](docs/templates/task.md)、[计划模板](docs/templates/plan.md) | 模板 | 把任务写成可验证问题：终态、非目标、编号验收、风险、预算、升级包 |
+| [任务模板](docs/templates/task.md) | 模板 | 任务书即合同：YAML 头部（类别、风险、设计方、预算）、终态、非目标、挂规格编号的验收、步骤与提交顺序、升级包；`harness/taskbook.py` 准入。[计划模板](docs/templates/archive/plan.md)已归档（并入任务书） |
 | [评审清单](docs/templates/review-checklist.md)、[评审提示词](docs/templates/review-prompt.md) | 模板 | 由失败分类生成的评审清单与评审方工作方式，配合 `harness/review_pack.py` 证据包 |
 | [试跑任务 001：补 DR14 测试](docs/plans/trial-001-dr14.md) | 设计方案 | 可验证交付首个真实任务试跑：任务说明、预算与试跑记录表 |
 | [任务 002：补齐测试缺口](docs/plans/task-002-test-gaps.md) | 设计方案 | 变异测试暴露的 9 处缺口与 V080-R7 回归测试（已完成，PR #30） |

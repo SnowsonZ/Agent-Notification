@@ -1,3 +1,20 @@
+---
+task: T002
+class: K2
+risk: R3
+designer: claude-code
+size: medium
+architecture: false
+spec_refs: []
+no_spec_reason: 补变异缺口与暂缓回放项，早于规格编号约定
+budget:
+  wall_clock_min: null
+  ci_rounds: 3
+  retries: 2
+  tokens: null
+rollback: revert 该 PR
+---
+
 # 任务：补齐变异测试暴露的 9 处测试缺口与 2 个暂缓回放项的回归测试
 
 状态：完成（2026-09-26，PR #30，执行方 OpenCode）；V080-R9 按升级包转为[任务 003](task-003-r9-today-usage.md)。原：2026-09-26 由设计与评审方按[任务模板](../templates/task.md)写成，来源：方案 §13 E5、E2。前置：PR #27（变异测试新目标）已合并。执行方由评审方派发。
