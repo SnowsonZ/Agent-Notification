@@ -19,7 +19,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `python3 harness/metrics.py --base origin/main [--github]` | 交付度量：修复数、声称已修、修复带回放比例、新增测试、CI 轮次，并列 v0.8.0 基线 | CI harness job；试跑记录 |
 | `python3 harness/replay.py [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
 | `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
-| `python3 harness/evidence.py --base origin/main [--swift]` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过；`--swift` 同时编译运行引用编号的 Swift 测试（macOS，编译失败算出错） | CI harness job（Python）与 macOS build job（含 Swift）；实现方自查 |
+| `python3 harness/evidence.py --base origin/main [--swift]` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过；`--swift` 同时编译运行引用编号的 Swift 测试（macOS，编译失败算出错）；回放覆盖：非 doc 类、未撤销的编号在 head 的 `replay_cases.py` 中须有注入用例、守卫测试或写明原因的暂缓项，否则失败 | CI harness job（Python）与 macOS build job（含 Swift）；实现方自查 |
 | `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3；声明 R1 时另跑 `r1_checks.py` 的加强判定 | CI harness job |
 | `python3 harness/policy.py --base origin/main --head <sha> --pr <编号>` | 合并路由：风险、类别（`autonomy.toml` 中为 L4，任务书声明与机器判定一致）、误差预算（escape 议题、`budget-exceeded` 标签）、规模（400 行），逐条写理由；K3 按 PR 编号哈希三抽一 | auto-merge 的判定步骤（main 上的代码） |
 | `python3 harness/mutate.py --check --changed-since <base>` | 只核对改到其文件的变异目标，得分不得低于基线 | CI harness job，声明 R1 时 |
@@ -37,7 +37,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 - **编号写错时撤销，不改写历史**：在 PR 的后续提交里加一行 `Defect-Withdrawn: <编号>`，evidence 不再核对该编号，证据摘要里标「已撤销」，评审可见。只能撤销本 PR 中更早声明过的编号；撤销后又重新声明的，仍按修复核对。
 - **PR 正文与评论用文件传入**：`gh pr create --body-file`、`gh pr comment --body-file`，不在双引号里写 Markdown。双引号内的反引号是 shell 命令替换，会真的执行其中的命令（2026-09-26 评审方把 `` `gh pr merge` `` 写进 `--body "…"`，被命令守卫拦下）。
 - **缺陷编号全局唯一**：`<来源>-<序号>`，例如 `V080-R17`（v0.8.0 交付评审第 17 项）、`REV0921-R2`（2026-09-21 评估第 2 项）、`H0925-4`（2026-09-25 harness 建设中的发现）。不再使用裸 `R17`。
-- **每个修复都要能被回放**：修复评审发现的缺陷时，要有 `harness/replay_cases.py` 的注入用例（或守卫测试）；无法回放的写进 `DEFERRED` 并说明原因。回放用例是判定器：执行方在 PR 里写明注入点，由评审方加入（H0926-2）。
+- **每个修复都要能被回放**（2026-09-28 起由 evidence.py 强制，审计 G2）：PR 中每个非 doc 类、未撤销的 `Defect` 编号，head 上的 `harness/replay_cases.py` 必须有注入用例、守卫测试（`GUARDED`）或写明原因的暂缓项（`DEFERRED`），否则 harness job 与 macOS build job 失败；v0.8.0 基线之后的新缺陷一视同仁。回放用例是判定器：执行方在 PR 里写明注入点，由评审方在**同一个 PR** 里加入（H0926-2）；该 PR 因此改到 `harness/`，按 R3 由用户批准。注入后是否真的失败由 `verify --full` 的回放检查核对。
 - **执行方可编辑的 harness 数据**：`harness/**` 对执行方整体禁改，唯一例外是 `harness/acceptance-gaps.txt`（补完测试后删行）。它只能缩减，新增条目 risk.py 判 R3。
 - **已知缺陷登记**：发现但暂不修的缺陷写成确定性测试并标 `@unittest.expectedFailure`，说明里写编号与待决事项；修好后它会「意外通过」并报错，逼着移除登记。
 - **验收编号**：每份规格的验收表含「证据类型」「覆盖」两列，编号前缀按规格区分——W（桌面组件）、U（用量金额）、DR（工作日报）、IN（统一收件箱）、CB（CLI 会话绑定）、ZN（Zcode 导航）。可自动化条目必须有真实存在的测试；暂缺的登记在 `harness/acceptance-gaps.txt`（带原因，只能缩减）。
@@ -76,7 +76,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 |---|---|---|
 | 服务端 | `.github/rulesets/main.json`：main 禁删除与改写，必须经 PR，`build` 与 `harness` 检查必须通过；`release-tags.json`：`v*` tag 禁移动与删除；release job 走 environment `release`，由用户批准 | 本机 Agent 无法绕过 |
 | git | `.githooks/pre-commit`（保护分支上禁止提交、暂存区卫生、快速 verify）；`pre-push`（禁推 main 与 tag、禁强制推送、本次推送的改动卫生、完整 verify）；`reference-transaction`（禁本地改写或删除 main、移动或删除 tag，含 filter-repo） | 防误操作，不防有意绕过：`--no-verify`、改 `core.hooksPath`、改守卫代码或运行时解释器都能绕过（规则文件已改为读 origin/main）；Agent 层拒绝其中能识别的命令 |
-| Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release` 与删除 CI 记录、GitHub API 写请求（`gh api` 写方法与对 api.github.com 的 curl 写请求）；引号或反斜杠拆写的命令另按去掉引号的形式再查一遍；Agent 自行合并 PR（`gh pr merge` 与 MCP 的合并、开启自动合并工具，用户决定 D4）；`--role implementer` 另禁编辑判定器与护栏，以及合同（`docs/plans/task-*.md`、`docs/specs/**`） | 取决于各家 hook 能力 |
+| Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release`（只读的 `list`、`view` 放行）与删除 CI 记录、GitHub API 写请求（`gh api` 写方法与对 api.github.com 的 curl 写请求）；删除议题，撤下或删改登记标签（`escape`、`audit`、`escalation`、`budget-exceeded`、`class:K*`，含 MCP 的删除议题与标签工具）；引号或反斜杠拆写的命令另按去掉引号的形式再查一遍；Agent 自行合并 PR（`gh pr merge` 与 MCP 的合并、开启自动合并工具，用户决定 D4）；`--role implementer` 另禁编辑判定器与护栏、合同（`docs/plans/task-*.md`、`docs/specs/**`）与运行记录（`docs/runs/**`），以及关闭、重开、改动议题和标签（`gh issue close/edit…`、`gh pr edit --add/remove-label`、`gh label`、MCP 的议题写工具）。设计评审方可以关闭审完的 audit 议题 | 取决于各家 hook 能力 |
 
 覆盖变量只供人使用（Agent 层会拒绝设置它们的命令）：
 
@@ -95,7 +95,7 @@ Agent 层按角色接入：
 | Codex | 设计与评审 | 项目级 `.codex/hooks.json` 的 `PreToolUse`（不设 matcher，所有工具都交给守卫），从 git 仓库根调用 `command_guard.py --format claude --role designer`。**须经用户信任后才运行**：未信任时 `codex exec` 静默跳过、命令照常执行；交互界面启动时提示「Hooks need review」，信任后记入用户级 `~/.codex/config.toml`（§5 第 4 步）。`hooks.json` 内容一改就要重新信任；只改守卫脚本不用。不用用户级钩子，以免影响其他项目。`.codex/` 其余内容禁止入库 |
 | OpenCode | 执行 | 项目级插件 `.opencode/plugin/harness-guard.js`，`--role implementer` |
 | Pi | 执行 | 项目级扩展 `.pi/extensions/harness-guard.ts`（`tool_call` 事件拦截，`--role implementer`）。**只在项目被信任后加载**：未信任时（含 `pi -p` 且无保存的信任）扩展不加载、命令照常执行，只剩 git 与服务端两层；须按 §5 第 5 步信任本项目 |
-| Zcode | 执行 | 项目级 `.zcode/config.json` 的 `PreToolUse`（Bash、Edit、Write 与 MCP 合并工具），调用 `command_guard.py --format claude --role implementer`，退出码 2 即拦截。工作区钩子须经用户信任后才执行（§5 第 6 步），未信任时状态为 `pending_trust`、不执行。**只在桌面版 ZCode.app（协议服务端宿主）生效**（2026-09-26 实测拦截）；**CLI 与 TUI 不执行工作区钩子**，且没有参数可以打开（用户决定不改 Zcode、不用用户级钩子，以免影响其他项目）。用 Zcode 当执行方时用桌面版。`.zcode/` 其余内容是 Zcode 运行数据，仍禁止入库（`[hygiene] allowed` 只放行这一个文件） |
+| Zcode | 执行 | 项目级 `.zcode/config.json` 的 `PreToolUse`（Bash、Edit、Write 与 MCP 的合并、评审批准、议题、标签类工具；2026-09-28 补上批准类，B5），调用 `command_guard.py --format claude --role implementer`，退出码 2 即拦截。工作区钩子须经用户信任后才执行（§5 第 6 步），未信任时状态为 `pending_trust`、不执行。**只在桌面版 ZCode.app（协议服务端宿主）生效**（2026-09-26 实测拦截）；**CLI 与 TUI 不执行工作区钩子**，且没有参数可以打开（用户决定不改 Zcode、不用用户级钩子，以免影响其他项目）。用 Zcode 当执行方时用桌面版。`.zcode/` 其余内容是 Zcode 运行数据，仍禁止入库（`[hygiene] allowed` 只放行这一个文件） |
 
 ## 5. 一次性设置（用户）
 
@@ -144,6 +144,7 @@ Agent 层按角色接入：
 | 变异测试 | 4 个目标的基线得分（见基线评审 §6） | ✅ Linux 实跑 |
 | 任务书准入与按类别判级（P1） | 单测（`tests/test_harness_taskbook.py`）：缺头部、验收未挂编号、类别与风险不相容、预算超限、缺章节、步骤触及护栏或跨模块未声明的样例任务书各被拒绝；模板本身通过准入；K4/K5/K2/K3 任务书判 R0，K7、K8、架构级、头部不合格、删除判 R2，模板与待办判 R2，豁免清单只能缩减；执行方编辑任务书与规格被守卫拒绝。仓库现有任务书 002–004 补头部并登记豁免后 `taskbook` 检查通过 | ✅ 单测；CI 以引入本行的 PR 为准 |
 | 合并路由与 R1 加强判定（P2） | 单测（`tests/test_harness_policy.py`）：风险 R2、类别非 L4、任务书声明与机器判定不一致、逃逸超预算、`budget-exceeded` 标签、读不到标签与议题、超 400 行各转用户评审，全部满足才自动合并，summary 逐条写理由；机器类别 K0–K7；三抽一抽样稳定；R1 在签名改动、删除函数、新依赖、建表改表、超规模时降为 R2，新增函数、标准库与仓库内模块仍为 R1；workflow 一致性单测（判定步骤只读、只运行 policy.py） | ✅ 单测；auto-merge 的真实运行以引入本行的 PR 合并后的第一个 PR 为准；停机演练待用户执行（§8） |
+| 回放强制与守卫小修（P3） | 单测（`tests/test_harness_p3.py`）：缺回放的非 doc 类 Defect 使 `evidence.py` 退出 1（即 harness job 失败），注入用例、守卫测试、写明原因的暂缓项满足，doc 类与已撤销的编号不要求；`gh release list/view` 放行、其余拒绝；任何角色删除议题、撤登记标签被拒；执行方关闭或改动议题、改标签、编辑 `docs/runs/**` 被拒而设计方可关闭议题；Zcode 与 Claude 的 matcher、OpenCode 插件与 Pi 扩展把批准、议题、标签类工具交给守卫 | ✅ 单测；Zcode 新 matcher 须用户重新授予信任后在桌面版实测 |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
 | zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |
