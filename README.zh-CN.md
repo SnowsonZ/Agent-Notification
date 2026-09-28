@@ -128,7 +128,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [会话收件箱方案](docs/plans/session-inbox.md) | 设计方案 | 五路接入、通知抓取评估与实现路径 |
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |
 | [用量金额与桌面组件执行计划](docs/plans/usage-cost-widgets-execution.md) | 设计方案 | 工作包、里程碑评审关口与交付要求 |
-| [可验证交付 harness](docs/specs/delivery-harness.md) | 规范 | bin/verify、修复证据、风险等级、三层护栏、一次性设置与验证状态 |
+| [可验证交付 harness](docs/specs/delivery-harness.md) | 规范 | bin/verify、任务书准入、风险等级与合并路由、派发（bin/dispatch）与运行记录、独立评审、周报、三层护栏、停机与恢复、一次性设置与验证状态 |
 | [任务模板](docs/templates/task.md) | 模板 | 任务书即合同：YAML 头部（类别、风险、设计方、预算）、终态、非目标、挂规格编号的验收、步骤与提交顺序、升级包；`harness/taskbook.py` 准入。[计划模板](docs/templates/archive/plan.md)已归档（并入任务书） |
 | [评审清单](docs/templates/review-checklist.md)、[评审提示词](docs/templates/review-prompt.md) | 模板 | 由失败分类生成的评审清单与评审方工作方式，配合 `harness/review_pack.py` 证据包 |
 | [试跑任务 001：补 DR14 测试](docs/plans/trial-001-dr14.md) | 设计方案 | 可验证交付首个真实任务试跑：任务说明、预算与试跑记录表 |
@@ -150,6 +150,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [Zcode 状态语义排查](docs/research/2026-09-14-zcode-state-semantics.md) | 调研记录 | 等待权限状态的可达性边界 |
 | [Codex 受管理可行性论证](docs/research/2026-09-16-codex-managed-feasibility.md) | 调研记录 | notify/插件/rollout 三通道实测与暂缓决策 |
 | [各来源推送通道盘点](docs/research/2026-09-20-push-channels-per-source.md) | 调研记录 | 七家消息通道现状；codex hooks.json 全生命周期实测（含信任门禁）与 zcode 文件事件方案 |
+| [harness 现状复核](docs/review/2026-09-29-harness-status.md) | 评审记录 | 对照调研报告与目标态设计逐项复核：阶段一、二已落地，M1 完整、M2 准入数据未满足，下一阶段（阶段三放权）的顺序与完成标准 |
 | [harness 全链路审计](docs/review/2026-09-27-harness-audit.md) | 评审记录 | 8 个环节与 3 个横切面逐节点审计：现状、差距、可实现性与补齐计划（2026-09-27） |
 | [harness 评审交接](docs/review/2026-09-25-harness-review-brief.md) | 评审记录 | 交给独立评审方的范围、阅读顺序、复现命令、重点质疑与产出要求 |
 | [可验证交付基线](docs/review/2026-09-25-harness-baseline.md) | 评审记录 | v0.8.0 失败分类（R1–R19 与过程失败）、基线指标、Agent 就绪度与可验证性地图 |
