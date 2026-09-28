@@ -1,0 +1,29 @@
+name: 逃逸登记
+description: 合并后才发现、本应被门禁或评审拦住的缺陷（docs/specs/delivery-harness.md §2）。登记只会让系统更保守，任何人（含 Agent）都可以登记。
+title: "逃逸："
+labels: ["escape"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不要写会话正文、输入内容或凭据。登记后请加上类别标签 `class:<类别>`（与引入它的 PR 相同），误差预算按类别计数；关闭议题后照样计数。
+  - type: input
+    id: introduced
+    attributes:
+      label: 引入的 PR
+      description: 写成「引入：#123」，误差预算据此归因
+      placeholder: "引入：#"
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象与复现
+      description: 发现方式、影响范围、最小复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: gate
+    attributes:
+      label: 本应拦住它的门禁或评审
+      description: 例如缺少的测试、验收编号、守卫规则或评审清单项
