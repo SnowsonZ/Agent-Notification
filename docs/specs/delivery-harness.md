@@ -1,6 +1,6 @@
 # 可验证交付 harness
 
-状态：现役（2026-09-25 起）。方案与阶段见 [可验证交付方案](../plans/verifiable-delivery.md)，基线见 [2026-09-25 基线评审](../review/2026-09-25-harness-baseline.md)。
+状态：现役（2026-09-25 起）。目标态与分阶段路线见[目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)，当前进展与下一阶段见 [2026-09-29 现状复核](../review/2026-09-29-harness-status.md)；基线见 [2026-09-25 基线评审](../review/2026-09-25-harness-baseline.md)。早期的[可验证交付方案](../plans/verifiable-delivery.md)为历史文档，只保留 §10 决定记录与 §13 已完成事项。
 
 harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发布包（构建只拷 `scripts/` 与 `bin/session-manager`）。改动 `harness/`、`.githooks/`、`.github/`、`.claude/`、`.opencode/`、`.pi/`、`.zcode/` 属于 R3，必须由用户批准。
 

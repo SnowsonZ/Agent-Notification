@@ -8,6 +8,7 @@
 - 统一验证：`bin/verify`（lint、仓库卫生、Python 测试、macOS 上的 Swift 测试，与 CI 同口径）。修复提交带 `Defect: <编号>` trailer，通过与否只认 verify 与 CI 输出，不手写。约定与护栏见 docs/specs/delivery-harness.md；harness 的愿景、理念出处与组件对照见 harness/README.md。
 - 新环境准备由 Agent 自行完成，不交给人（均幂等，可重复执行）：`scratch/iterm-probe-venv` 缺失时按 README.zh-CN.md「快速上手」重建；`scratch/iterm-probe-venv/bin/python -m pip install -r requirements-dev.txt`；`python3 harness/git_guard.py install`；最后 `bin/verify`，它会检查前两步。
 - Agent 工具的项目守卫需要人确认一次信任，Agent 不得代为授权（自授信任等于执行者给自己放行）：Agent 不得替执行方信任槽位或仓库里执行方能改的项目文件。`bin/dispatch` 派发 Pi 时用 `-na` 忽略槽位中的全部项目文件、`-e` 显式加载从 origin/main 导出的守卫，守卫来自经用户批准合并的 harness，不需要也不构成对槽位的信任（用户 2026-09-28 确认）。开工时自查，未信任就把命令交给用户：Zcode 用 `zcode hooks trust status --workspace <仓库根>` 查看，按其提示由用户 `grant`；Pi 由用户在仓库根启动 `pi` 执行 `/trust`；Claude Code 首次启动时由用户确认项目钩子；OpenCode 无需确认。未信任时 Agent 层守卫不生效，只剩 git 与服务端两层。
+- 派发与评审：执行方任务先写任务书（`docs/templates/task.md`，合并后）再用 `bin/dispatch run <任务书>` 派发，不在主目录运行执行方；设计方自己实现的工作也写任务书，与实现同一个 PR。R2 以上 PR 的独立评审用 `bin/dispatch review`（本机常驻 `--watch`）。现状与下一阶段见 docs/review/2026-09-29-harness-status.md。
 - Python 检查：`python3 -W error::ResourceWarning -m unittest discover -s tests -v`（ResourceWarning 按错误对待，与 CI 同口径）。
 - Zcode 辅助程序：`xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus`；无 UI 自检：`build/zcode-focus --self-test`。
 - 原生收件箱构建：`python3 scripts/build_inbox_app.py`；先退出正在运行的本项目 App，再覆盖可执行文件。

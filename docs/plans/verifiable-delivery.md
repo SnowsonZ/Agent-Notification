@@ -1,6 +1,6 @@
 # 可验证交付：以本项目为标杆的全链路 harness
 
-状态：**P0–P5 完成，P6 的工具与试跑任务就绪，真实试跑待执行方执行**（2026-09-25）。基线评审见 [2026-09-25 可验证交付基线](../review/2026-09-25-harness-baseline.md)，现役规则与命令见 [可验证交付 harness](../specs/delivery-harness.md)。
+状态：**历史文档**（2026-09-29）：已由[目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)取代，当前进展见 [2026-09-29 现状复核](../review/2026-09-29-harness-status.md)，未关闭事项只在[待办清单](backlog.md)。§10 决定记录与 §13 已完成事项保留作追溯。以下为原状态：**P0–P5 完成，P6 的工具与试跑任务就绪，真实试跑待执行方执行**（2026-09-25）。基线评审见 [2026-09-25 可验证交付基线](../review/2026-09-25-harness-baseline.md)，现役规则与命令见 [可验证交付 harness](../specs/delivery-harness.md)。
 
 理论来源：用户的调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23，Claude 文档；入库快照见 [docs/research/2026-09-23-agent-delivery-theory.md](../research/2026-09-23-agent-delivery-theory.md)，组件对照见 [harness/README.md](../../harness/README.md)）。本文只保留落到本仓库的部分；报告中面向大团队的做法按单人项目裁剪。
 
