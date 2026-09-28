@@ -63,7 +63,7 @@
 | B32 | Zcode 重新授予工作区钩子信任：用户授予新 matcher（digest `8c04f1a2…`），桌面版实测执行方关闭议题被守卫拒绝 | 2026-09-28，PR #53 |
 | B28 | 实测 Codex 桌面版执行 `.codex/hooks.json`：`git status` 放行，`gh pr merge 999999` 被钩子拦截 | 2026-09-28，PR #54 |
 | B21 | 派发脚本 `bin/dispatch`（PR #55）与端到端验收：真实 K2 任务 T005 经任务书 #56、实现 #57 全程自动完成，主目录无改动；槽位命名随后修正 | 2026-09-28，PR #58 |
-| B7 | 按任务书预算比对 CI 轮次：合并路由第 5 条超预算即转用户（`run_check.py`），交付度量列出「CI 轮次 / 预算」 | 2026-09-28，目标态设计阶段二 P5 |
+| B7 | 按任务书预算比对 CI 轮次：合并路由第 5 条超预算即转用户（`run_check.py`），交付度量列出「CI 轮次 / 预算」 | 2026-09-28，PR #59（目标态设计阶段二 P5） |
 | B26 | 开启 GitHub secret scanning 与 push protection：用户在仓库设置中开启，API 核对两项均为 enabled | 2026-09-28，PR #52 |
 | B5 | Zcode 守卫的 matcher 补上 MCP 批准类工具（同时补议题、标签类；OpenCode、Pi、Claude Code 一并补齐），重新信任转 B32 | 2026-09-28，PR #51（目标态设计阶段一 P3） |
 | B20 | 回放强制：PR 中每个非文档类 `Defect` 在 head 上须有注入用例、守卫测试或写明原因的暂缓项（`evidence.py`），缺则 harness job 失败 | 2026-09-28，PR #51（目标态设计阶段一 P3） |
