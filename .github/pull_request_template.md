@@ -7,7 +7,9 @@
 
 ## 任务
 
-<!-- 任务按 docs/templates/task.md 描述；中高风险先按 docs/templates/plan.md 写计划交评审。 -->
+<!-- 派发给执行方的任务先按 docs/templates/task.md 写任务书并合并（计划并入其「步骤与提交顺序」）。 -->
+
+- 任务书：docs/plans/task-<编号>-<名字>.md／无
 
 - 目标终态：
 - 对应验收编号（docs/specs，新增条目写进规格验收表）：

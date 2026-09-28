@@ -1,3 +1,20 @@
+---
+task: T003
+class: K4
+risk: R3
+designer: claude-code
+size: medium
+architecture: false
+spec_refs: []
+no_spec_reason: 让 V080-R9 可被编译与测试拦住，早于规格编号约定
+budget:
+  wall_clock_min: null
+  ci_rounds: 3
+  retries: 2
+  tokens: null
+rollback: revert 该 PR
+---
+
 # 任务：让「最近任务的今日 token 未传入写入器」（V080-R9）可被编译与测试拦住
 
 状态：完成（2026-09-26，执行方 OpenCode）。评审方派发时误要求带 `Defect: V080-R9`，PR #35 因此在修复证据检查失败并关闭；去掉该行重新提交，规则见规范 §2「修复提交」。原：待执行（2026-09-26 由设计与评审方按[任务模板](../templates/task.md)写成，来源：task-002 的升级包、方案 §13 E2；用户 2026-09-26 同意为此改产品代码）。执行方由评审方派发。

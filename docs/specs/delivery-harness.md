@@ -9,10 +9,11 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | 命令 | 作用 | 谁在何时运行 |
 |---|---|---|
 | `bin/verify` | 工具版本、git 守卫、lint、仓库卫生、Python 测试、Swift 测试（仅 macOS） | 所有人；pre-push 自动运行 |
-| `bin/verify --quick` | 工具版本、lint、仓库卫生 | pre-commit 自动运行 |
+| `bin/verify --quick` | 工具版本、lint、仓库卫生、验收映射、任务书准入 | pre-commit 自动运行 |
 | `bin/verify --full` | 默认档 + 事故回放 | macOS CI（`--strict --full`）；改动测试或产品逻辑后 |
 | `bin/verify --strict` | 被跳过的检查算失败 | macOS CI |
 | `python3 harness/acceptance.py [--manual]` | 规格验收编号 ↔ 测试映射检查；列出人工验收清单 | verify 各档；写 PR 的人工验收部分时 |
+| `python3 harness/taskbook.py [任务书 --on-main]` | 任务书准入：YAML 头部（类别、风险、设计方、规模、架构级、规格编号、预算、回滚）、类别与风险相容、验收每行挂规格编号、中大任务的必备章节、按「步骤与提交顺序」所列文件交叉核对；`--on-main` 另要求任务书已合并到 main（派发前） | verify 各档；派发前 |
 | `python3 harness/review_pack.py --base origin/main` | 评审证据包：风险等级、修复证据、verify、涉及的验收编号 | 评审方评审前 |
 | `python3 harness/quality.py [--update]` | 熵治理棘轮：复杂度超标函数数、超长文件数只降不升 | verify 默认档；每周 quality workflow |
 | `python3 harness/metrics.py --base origin/main [--github]` | 交付度量：修复数、声称已修、修复带回放比例、新增测试、CI 轮次，并列 v0.8.0 基线 | CI harness job；试跑记录 |
@@ -38,7 +39,8 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 - **执行方可编辑的 harness 数据**：`harness/**` 对执行方整体禁改，唯一例外是 `harness/acceptance-gaps.txt`（补完测试后删行）。它只能缩减，新增条目 risk.py 判 R3。
 - **已知缺陷登记**：发现但暂不修的缺陷写成确定性测试并标 `@unittest.expectedFailure`，说明里写编号与待决事项；修好后它会「意外通过」并报错，逼着移除登记。
 - **验收编号**：每份规格的验收表含「证据类型」「覆盖」两列，编号前缀按规格区分——W（桌面组件）、U（用量金额）、DR（工作日报）、IN（统一收件箱）、CB（CLI 会话绑定）、ZN（Zcode 导航）。可自动化条目必须有真实存在的测试；暂缺的登记在 `harness/acceptance-gaps.txt`（带原因，只能缩减）。
-- **任务与计划**：任务按 [task.md](../templates/task.md) 写（终态、非目标、编号验收、风险、预算、升级包）；R2 及以上先按 [plan.md](../templates/plan.md) 写计划交评审。
+- **任务书即合同**（2026-09-28 起）：任务按 [task.md](../templates/task.md) 写，开头是 YAML 头部（`task`、`class`、`risk`、`designer`、`size`、`architecture`、`spec_refs` 或 `no_spec_reason`、`budget`、`rollback`），正文含终态、非目标、前置条件、验收、步骤与提交顺序、升级包；由 `harness/taskbook.py` 准入。计划并入任务书的「步骤与提交顺序」，不再单独交计划（计划模板已归档到 `docs/templates/archive/`）。验收表每行的编号是现役规格中的编号、`新增:<规格文件>#<编号>`（同一改动在规格里新增）或 `不挂规格：<原因>`，新需求先进规格再进任务书。执行方对任务书与规格只读（守卫拒绝），需要改合同时写升级包（含澄清）。历史任务 002–004 登记在 `harness/taskbook-exempt.txt`，只检查头部，清单只能缩减。
+- **任务书的审查按类别**（2026-09-28 决定 1）：K7 护栏与流程、K8 发版、`architecture: true`（跨两个以上模块、新增或修改公共接口如 CLI 输出与数据格式、数据迁移、新增依赖）的任务书由用户审（R2）；其余类别（业务修改、缺陷修复等）的任务书通过准入检查即自动合并（R0）。模板与待办清单由用户审（R2）。类别写低不影响安全：实现 PR 仍按实际改动路径判级。
 - **独立评审**：评审方按 [review-prompt.md](../templates/review-prompt.md) 工作，对照 [review-checklist.md](../templates/review-checklist.md)（由失败分类生成，机器已判定的只核对，评审时间花在机器判定不了的部分）；发现编号 `PR<编号>-R<序号>`，修复以证据表为准。
 - **测试的几种形态**：种子固定的性质测试（`tests/test_properties.py`，`PROPTEST_SEEDS=N` 放大搜索）、架构适应度（`tests/test_architecture.py`，同一口径只实现一次）、CLI 黄金快照（`tests/test_golden.py`，有意改变时 `UPDATE_GOLDEN=1` 重新生成，按 R2 评审）。
 - **护栏规则先合并**：本机 git 守卫按 origin/main 上的 `harness/rules.toml` 执行（评审 PR7-R3），改规则的 PR 合并前，依赖新规则的文件在本机提交会被拒。放宽类规则（如新增 `[hygiene] allowed` 例外）与依赖它的文件分两个 PR：先合并规则，再提交文件。
@@ -49,9 +51,9 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 
 | 等级 | 判定（`harness/rules.toml [risk]`） | 合并 |
 |---|---|---|
-| R0 | 说明性文档；只新增测试 | 门禁全绿即可自动合并 |
+| R0 | 说明性文档；业务修改与缺陷修复等类别的任务书（通过准入）；只新增测试 | 门禁全绿即可自动合并 |
 | R1 | 声明 `Risk: R1` 且机器核对通过 | 自动合并 + 抽样审计 |
-| R2 | 产品代码、现役规格、AGENTS.md；改动或删除已有测试；改动黄金快照 | 评审方评审 + 用户看证据包后合并 |
+| R2 | 产品代码、现役规格、AGENTS.md；模板与待办清单；K7、K8、架构级或头部不合格的任务书；删除任务书；改动或删除已有测试；改动黄金快照 | 评审方评审 + 用户看证据包后合并 |
 | R3 | 护栏、CI 与发布、依赖、报告迁移、快照与隐私、用户配置安装、运行时入口 | 用户批准 |
 
 R0/R1 的自动合并由 `.github/workflows/auto-merge.yml` 执行：build 完成后以 `workflow_run` 触发，检出 main、用 main 上的 `risk.py` 对 PR 的 diff 重新判级（只读 diff，不执行 PR 的代码），R0/R1 才以 `--match-head-commit` 合并本次评估过的提交；fork 与失败的运行不处理。判定放在这里而不是 PR 自己的 CI 里，是因为 `pull_request` 事件执行的是 PR 分支里的 workflow 定义。
@@ -62,7 +64,7 @@ R0/R1 的自动合并由 `.github/workflows/auto-merge.yml` 执行：build 完�
 |---|---|---|
 | 服务端 | `.github/rulesets/main.json`：main 禁删除与改写，必须经 PR，`build` 与 `harness` 检查必须通过；`release-tags.json`：`v*` tag 禁移动与删除；release job 走 environment `release`，由用户批准 | 本机 Agent 无法绕过 |
 | git | `.githooks/pre-commit`（保护分支上禁止提交、暂存区卫生、快速 verify）；`pre-push`（禁推 main 与 tag、禁强制推送、本次推送的改动卫生、完整 verify）；`reference-transaction`（禁本地改写或删除 main、移动或删除 tag，含 filter-repo） | 防误操作，不防有意绕过：`--no-verify`、改 `core.hooksPath`、改守卫代码或运行时解释器都能绕过（规则文件已改为读 origin/main）；Agent 层拒绝其中能识别的命令 |
-| Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release` 与删除 CI 记录、GitHub API 写请求（`gh api` 写方法与对 api.github.com 的 curl 写请求）；引号或反斜杠拆写的命令另按去掉引号的形式再查一遍；Agent 自行合并 PR（`gh pr merge` 与 MCP 的合并、开启自动合并工具，用户决定 D4）；`--role implementer` 另禁编辑判定器与护栏 | 取决于各家 hook 能力 |
+| Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release` 与删除 CI 记录、GitHub API 写请求（`gh api` 写方法与对 api.github.com 的 curl 写请求）；引号或反斜杠拆写的命令另按去掉引号的形式再查一遍；Agent 自行合并 PR（`gh pr merge` 与 MCP 的合并、开启自动合并工具，用户决定 D4）；`--role implementer` 另禁编辑判定器与护栏，以及合同（`docs/plans/task-*.md`、`docs/specs/**`） | 取决于各家 hook 能力 |
 
 覆盖变量只供人使用（Agent 层会拒绝设置它们的命令）：
 
@@ -128,6 +130,7 @@ Agent 层按角色接入：
 | 修复证据 | 本 PR 的 H0925 与 PR7-R1..R6 修复提交由 evidence 生成「修复前失败、修复后通过」；修复前以出错结束不算证据，只退回修复提交自身的改动 | ✅ |
 | 已有测试按 base 版本重跑 | 临时仓库单测四个场景（`tests/test_harness.py` BaseTestsTest）；本 PR 上 main 的 267 个测试在 head 通过 | ✅ 本地；CI 步骤随本 PR 首次运行 |
 | 变异测试 | 4 个目标的基线得分（见基线评审 §6） | ✅ Linux 实跑 |
+| 任务书准入与按类别判级（P1） | 单测（`tests/test_harness_taskbook.py`）：缺头部、验收未挂编号、类别与风险不相容、预算超限、缺章节、步骤触及护栏或跨模块未声明的样例任务书各被拒绝；模板本身通过准入；K4/K5/K2/K3 任务书判 R0，K7、K8、架构级、头部不合格、删除判 R2，模板与待办判 R2，豁免清单只能缩减；执行方编辑任务书与规格被守卫拒绝。仓库现有任务书 002–004 补头部并登记豁免后 `taskbook` 检查通过 | ✅ 单测；CI 以引入本行的 PR 为准 |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
 | zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |
