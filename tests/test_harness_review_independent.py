@@ -105,6 +105,43 @@ class ReviewerTest(unittest.TestCase):
         self.assertEqual((review.parse_output(text).verdict, model), ("通过", "glm-5.3"))
         self.assertEqual(review.make_reviewer("pi").argv("p", Path("/w"), Path("/o"))[-2], "zai-coding-cn/glm-5.3")
 
+    def test_opencode_reviewer_is_read_only_and_parses_events(self):
+        argv = review.OpenCodeReviewer("zai-coding-plan/glm-5.3").argv("p", Path("/w"), Path("/o"))
+        self.assertEqual(argv[:6], ["opencode", "run", "--pure", "--agent", "plan", "--format"])
+        events = [
+            {"type": "step_start", "part": {"type": "step-start"}},
+            {"type": "tool_use", "part": {"type": "tool", "tool": "read"}},
+            {"type": "text", "part": {"type": "text", "text": "意见"}},
+            {"type": "text", "part": {"type": "text", "text": '```json\n{"verdict": "不通过", "findings": [{"severity": "严重"}]}\n```'}},
+        ]
+        text, model = review.OpenCodeReviewer("m").read("\n".join(json.dumps(e, ensure_ascii=False) for e in events), Path("/o"))
+        verdict = review.parse_output(text)
+        self.assertEqual((verdict.verdict, verdict.flagged, model), ("不通过", True, "m"))
+        self.assertIsInstance(review.make_reviewer("opencode"), review.OpenCodeReviewer)
+
+    def test_opencode_tools_are_locked_to_read_only(self):
+        """plan 代理本身不禁止 bash（2026-09-28 实测评审中运行了测试与 gh）：配置里关掉命令与写入类工具。"""
+        config = json.loads(review.OpenCodeReviewer.env["OPENCODE_CONFIG_CONTENT"])
+        self.assertEqual(config["permission"]["bash"], "deny")
+        self.assertFalse(any(config["tools"][name] for name in ("bash", "task", "webfetch", "write", "edit", "patch")))
+
+    def test_reviewer_stdin_is_closed(self):
+        """opencode run 在标准输入是管道时会一直等（2026-09-28 实测）：评审方的标准输入必须关闭。"""
+        class ReadsStdin(review.Reviewer):
+            name = "stdin"
+
+            def argv(self, prompt, workspace, output):
+                code = ("import sys; data = sys.stdin.read(); "
+                        "print('{\"verdict\": \"通过\", \"findings\": []}' if data == '' else 'stdin')")
+                return [sys.executable, "-c", code]
+
+            def read(self, stdout, output):
+                return stdout, "m"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            verdict, _, _ = review.run_reviewer(ReadsStdin(), Path(tmp), 30)
+        self.assertEqual(verdict.verdict, "通过")
+
     def test_claude_output_parsing(self):
         stdout = json.dumps({"result": '好\n{"verdict": "通过", "findings": []}', "modelUsage": {"claude-x": {}}})
         text, model = review.ClaudeReviewer().read(stdout, Path("/none"))
@@ -183,6 +220,78 @@ class FailureTest(unittest.TestCase):
                                           reviewer=self.Scripted([ok, ok, ok, ok, ok]))
         self.assertEqual(sorted(item["id"] for item in second["samples"]), [f"S{n}" for n in range(6)])
         self.assertEqual((second["bad"], second["unparsed"]), (6, 0))
+
+
+class ReviewBaseTest(unittest.TestCase):
+    def test_merged_pr_is_compared_against_its_merge_parent(self):
+        """2026-09-28 #62 首次试行：PR 已合并时按 main 的合并基点比较，diff 为空。"""
+        repo = TempRepo()
+        self.addCleanup(repo.close)
+        repo.write("a.txt", "1\n")
+        base = repo.commit("base")
+        repo.git("checkout", "-q", "-b", "feature")
+        repo.write("a.txt", "2\n")
+        head = repo.commit("change")
+        repo.git("checkout", "-q", "main")
+        repo.git("merge", "-q", "--no-ff", "-m", "merge", "feature")
+        merge = repo.git("rev-parse", "HEAD")
+        repo.git("update-ref", "refs/remotes/origin/main", merge)
+        repo.git("checkout", "-q", "--detach", head)
+        self.assertEqual(review.review_base({"state": "MERGED", "mergeCommit": {"oid": merge}}, repo.path), base)
+        self.assertEqual(review.review_base({"state": "OPEN"}, repo.path), head)  # 已在 main 上：合并基点即 head
+
+
+class BackgroundTest(unittest.TestCase):
+    """后台自动评审：CI 通过后评审待评审的 PR，已评过当前 head 的跳过，停机标记存在即退出。"""
+
+    class FakeGitHub:
+        def __init__(self, prs, checks):
+            self.prs, self.checks = prs, checks
+
+        def _run(self, argv, **kwargs):
+            if argv[:3] == ["gh", "pr", "list"]:
+                return json.dumps(self.prs)
+            if argv[:3] == ["gh", "pr", "checks"]:
+                state = self.checks[int(argv[3])]
+                if state is None:
+                    raise RuntimeError("checks pending")
+                return json.dumps([{"state": value} for value in state])
+            raise AssertionError(argv)
+
+    def github(self):
+        mark = '<!-- independent-review {"head": "h3"} -->'
+        prs = [
+            {"number": 1, "headRefOid": "h1", "comments": []},
+            {"number": 2, "headRefOid": "h2", "comments": []},
+            {"number": 3, "headRefOid": "h3", "comments": [{"body": "评审\n" + mark}]},
+            {"number": 4, "headRefOid": "h4", "comments": [{"body": mark}]},  # 评过的是旧 head
+            {"number": 5, "headRefOid": "h5", "comments": []},
+        ]
+        checks = {1: ["SUCCESS", "SKIPPED"], 2: ["SUCCESS", "FAILURE"], 3: ["SUCCESS"], 4: ["SUCCESS"], 5: None}
+        return self.FakeGitHub(prs, checks)
+
+    def test_pending_needs_green_ci_and_an_unreviewed_head(self):
+        self.assertEqual(review.pending_prs(self.github()), [1, 4])
+
+    def test_review_pending_runs_one_at_a_time(self):
+        seen = []
+        done = review.review_pending(github=self.github(), review=lambda n, *rest: seen.append(n))
+        self.assertEqual((done, seen), ([1, 4], [1, 4]))
+
+    def test_watch_repeats_and_stops_on_stop_flag(self):
+        repo = TempRepo()
+        self.addCleanup(repo.close)
+        seen, sleeps = [], []
+        with mock.patch.object(review.dispatch, "state_dir", return_value=repo.path / "state"):
+            review.watch(1, github=self.github(), review=lambda n, *rest: seen.append(n),
+                         sleep=sleeps.append, rounds=2, root=repo.path)
+            self.assertEqual((seen, sleeps), ([1, 4, 1, 4], [60]))
+            (repo.path / "state").mkdir()
+            (repo.path / "state" / "stop").write_text("now")
+            seen.clear()
+            review.watch(1, github=self.github(), review=lambda n, *rest: seen.append(n), sleep=sleeps.append,
+                         root=repo.path)
+        self.assertEqual(seen, [])
 
 
 class CalibrationTest(unittest.TestCase):
