@@ -8,14 +8,15 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 
 | 命令 | 作用 | 谁在何时运行 |
 |---|---|---|
-| `bin/verify` | 工具版本、git 守卫、lint、仓库卫生、Python 测试、Swift 测试（仅 macOS） | 所有人；pre-push 自动运行 |
+| `bin/verify` | 工具版本、git 守卫、lint、仓库卫生、质量棘轮、文档链接、Python 测试、Swift 测试（仅 macOS） | 所有人；pre-push 自动运行 |
 | `bin/verify --quick` | 工具版本、lint、仓库卫生、验收映射、任务书准入 | pre-commit 自动运行 |
 | `bin/verify --full` | 默认档 + 事故回放 | macOS CI（`--strict --full`）；改动测试或产品逻辑后 |
 | `bin/verify --strict` | 被跳过的检查算失败 | macOS CI |
 | `python3 harness/acceptance.py [--manual]` | 规格验收编号 ↔ 测试映射检查；列出人工验收清单 | verify 各档；写 PR 的人工验收部分时 |
 | `python3 harness/taskbook.py [任务书 --on-main]` | 任务书准入：YAML 头部（类别、风险、设计方、规模、架构级、规格编号、预算、回滚）、类别与风险相容、验收每行挂规格编号、中大任务的必备章节、按「步骤与提交顺序」所列文件交叉核对；`--on-main` 另要求任务书已合并到 main（派发前） | verify 各档；派发前 |
 | `python3 harness/review_pack.py --base origin/main` | 评审证据包：风险等级、修复证据、verify、涉及的验收编号 | 评审方评审前 |
-| `python3 harness/quality.py [--update]` | 熵治理棘轮：复杂度超标函数数、超长文件数只降不升 | verify 默认档；每周 quality workflow |
+| `python3 harness/quality.py [--update]` | 熵治理棘轮：Python 复杂度超标函数数、超长文件数只降不升；Swift（`native/`，轻量解析）超过 500 行的文件数、函数体超过 60 行的函数数、大括号嵌套超过 6 层的函数数只降不升 | verify 默认档；每周 quality workflow |
+| `python3 harness/docs_check.py` | 文档熵治理：已跟踪的 README*.md、AGENTS.md、docs/、harness/README.md 中相对链接指向的文件必须存在（外链、纯锚点不查，`文件#锚点` 只查文件），断链即失败；「状态：」写着待执行、进行中、草案等且超过 30 天未提交的文档只报告 | verify 默认档与完整档 |
 | `python3 harness/metrics.py --base origin/main [--github]` | 交付度量：修复数、声称已修、修复带回放比例、新增测试、CI 轮次，并列 v0.8.0 基线 | CI harness job；试跑记录 |
 | `python3 harness/replay.py [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
 | `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
@@ -162,6 +163,7 @@ Agent 层按角色接入：
 | CI 侧复核（P5） | 单测（`tests/test_harness_run_check.py`）：派发产生的 PR 通过；设计方分支不适用；带 `Task:` 的任意分支适用；缺记录、提交缺 `Task:`、记录 exit 非 ok、缺字段、task 或分支不符、提示词被改各被标出；以序号最大的记录为准；CI 轮次超预算或读不到时标出，同一提交的重跑不算新轮次；合并路由在缺记录与超预算时转用户、合格时自动合并。T005 的真实运行记录（PR #57）按同一口径合格 | ✅ 单测；首个经合并路由第 5 条判定的真实任务 PR 待下次派发 |
 | 周报与台账（P6） | 单测（`tests/test_harness_weekly.py`，GitHub 替身）：报告含 14.1 全部指标，缺数据标「样本不足」；PR、运行记录与议题算出的各项与手算一致；注入的突增数据在顶部标红，第一期不标、0→2 不标；历史往返跳过当周；试跑记录含历史任务与派发任务；发布时先建后改同一议题；创建标签不带 --force。2026-09-28 用真实数据预演一次（不发布） | ✅ 单测与真实数据预演；首次发布待合并后手动触发 quality |
 | 独立评审试行（P7） | 单测（`tests/test_harness_review_independent.py`）：结论 JSON 解析（取最后一个、代码块、无法解析按需用户验收）、阻断与严重发现计为抓住；设计方按任务书 `designer` 或 `Co-Authored-By` 判定；评审方参数只读；评审方环境无 GitHub 令牌；评论格式与隐藏数据；TPR、TNR 计算；校准样本覆盖全部回放用例与清单中的 PR，注入样本不动任何分支；R2 以上打待评审标签。校准结果见 `evals/review/results/` | ✅ 单测。2026-09-28 校准（`evals/review/results/2026-09-28-pi.json`，Pi + glm-5.3，56 个样本全部有效）：已知有问题 41 个全部判不通过（TPR 1.0），已知良好 15 个无一判不通过（TNR 1.0），其中 12 个判「需用户验收」、3 个通过。局限：问题样本的 PR 描述统一写「行为不变」而 diff 改了行为，识破偏容易，TPR 偏乐观；评审方偏保守，真实 PR 多推回用户确认。过程中发现并修复：评审方失败（Codex 额度用尽、GLM 429 限流）曾被当成结论，现记为评审失败且不计入；校准逐个落盘可续跑，`--jobs` 并行（GLM 限流下 3 路可行、12 路被拒） | ✅ 单测与校准；3 个 R2 PR 试行待做（B27） |
+| 熵治理（P8） | 单测（`tests/test_harness_entropy.py`）：字符串（含多行、原始、转义）与注释（含嵌套块注释）里的大括号不计入；协议要求不算函数；人为加长的 Swift 函数（`test_lengthened_swift_function_fails_ratchet`）、加深嵌套与加长文件使棘轮失败，缩减通过；断链（相对、引用式、以 / 开头）被拦，外链、邮件、纯锚点、行内代码与代码块不误报，`文件#锚点` 缺文件仍拦；陈旧的未完成状态只报告不失败，近期的与正文顺带提到的不报。Swift 基线（2026-09-28，332 个函数）：`swift_files_over_500` 2、`swift_long_functions` 9、`swift_deep_functions` 13。首跑本仓库修正 4 处断链，陈旧状态无 | ✅ 单测；CI 以本 PR 为准 |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
 | zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |

@@ -49,7 +49,7 @@ Agent Notification 是运行于 macOS 的本地会话收件箱：汇总 Codex、
 
 ## 快速上手
 
-已打包版本从 [Releases](../../releases) 下载 Agent-Notification.dmg（双击拖入「应用程序」即装）；从源码构建则克隆仓库后，在项目根目录执行：
+已打包版本从 [Releases](https://github.com/SnowsonZ/Agent-Notification/releases) 下载 Agent-Notification.dmg（双击拖入「应用程序」即装）；从源码构建则克隆仓库后，在项目根目录执行：
 
 ```sh
 python3 -m venv scratch/iterm-probe-venv
