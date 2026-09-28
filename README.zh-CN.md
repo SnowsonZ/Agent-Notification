@@ -135,6 +135,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [任务 002：补齐测试缺口](docs/plans/task-002-test-gaps.md) | 设计方案 | 变异测试暴露的 9 处缺口与 V080-R7 回归测试（已完成，PR #30） |
 | [任务 003：今日用量传入写入器](docs/plans/task-003-r9-today-usage.md) | 设计方案 | V080-R9：去掉默认参数、抽出用量键与查找的纯函数，交执行方 |
 | [任务 004：今日 token 从未显示](docs/plans/task-004-today-tokens.md) | 设计方案 | H0926-7 会话 ID 解码失败、H0926-8 签名不含用量，交执行方 |
+| [任务 005：金额热力分级边界测试](docs/plans/task-005-cost-level-boundaries.md) | 设计方案 | K2：杀死 `cost_level` 的两处存活变异；`bin/dispatch` 端到端验收（待办 B21） |
 | [待办清单](docs/plans/backlog.md) | 设计方案 | 未关闭事项的唯一清单（有日期或触发条件、可做未排期、持续或暂缓、用户本机环境） |
 | [harness 说明](harness/README.md) | 设计方案 | 可验证交付的愿景、理念出处、原则与组件对照、阅读顺序 |
 | [2026-09-25 落地交接说明](docs/plans/2026-09-25-harness-rollout-handoff.md) | 设计方案（历史） | harness 开工时的基线、失败分类、可验证性地图与 P0–P6 路线，原为调研报告最后一节 |
