@@ -145,7 +145,7 @@ Agent 层按角色接入：
 | 变异测试 | 4 个目标的基线得分（见基线评审 §6） | ✅ Linux 实跑 |
 | 任务书准入与按类别判级（P1） | 单测（`tests/test_harness_taskbook.py`）：缺头部、验收未挂编号、类别与风险不相容、预算超限、缺章节、步骤触及护栏或跨模块未声明的样例任务书各被拒绝；模板本身通过准入；K4/K5/K2/K3 任务书判 R0，K7、K8、架构级、头部不合格、删除判 R2，模板与待办判 R2，豁免清单只能缩减；执行方编辑任务书与规格被守卫拒绝。仓库现有任务书 002–004 补头部并登记豁免后 `taskbook` 检查通过 | ✅ 单测；CI 以引入本行的 PR 为准 |
 | 合并路由与 R1 加强判定（P2） | 单测（`tests/test_harness_policy.py`）：风险 R2、类别非 L4、任务书声明与机器判定不一致、逃逸超预算、`budget-exceeded` 标签、读不到标签与议题、超 400 行各转用户评审，全部满足才自动合并，summary 逐条写理由；机器类别 K0–K7；三抽一抽样稳定；R1 在签名改动、删除函数、新依赖、建表改表、超规模时降为 R2，新增函数、标准库与仓库内模块仍为 R1；workflow 一致性单测（判定步骤只读、只运行 policy.py） | ✅ 单测；auto-merge 的真实运行以引入本行的 PR 合并后的第一个 PR 为准；停机演练待用户执行（§8） |
-| 回放强制与守卫小修（P3） | 单测（`tests/test_harness_p3.py`）：缺回放的非 doc 类 Defect 使 `evidence.py` 退出 1（即 harness job 失败），注入用例、守卫测试、写明原因的暂缓项满足，doc 类与已撤销的编号不要求；`gh release list/view` 放行、其余拒绝；任何角色删除议题、撤登记标签被拒；执行方关闭或改动议题、改标签、编辑 `docs/runs/**` 被拒而设计方可关闭议题；Zcode 与 Claude 的 matcher、OpenCode 插件与 Pi 扩展把批准、议题、标签类工具交给守卫 | ✅ 单测；Zcode 新 matcher 须用户重新授予信任后在桌面版实测 |
+| 回放强制与守卫小修（P3） | 单测（`tests/test_harness_p3.py`）：缺回放的非 doc 类 Defect 使 `evidence.py` 退出 1（即 harness job 失败），注入用例、守卫测试、写明原因的暂缓项满足，doc 类与已撤销的编号不要求；`gh release list/view` 放行、其余拒绝；任何角色删除议题、撤登记标签被拒；执行方关闭或改动议题、改标签、编辑 `docs/runs/**` 被拒而设计方可关闭议题；Zcode 与 Claude 的 matcher、OpenCode 插件与 Pi 扩展把批准、议题、标签类工具交给守卫 | ✅ 单测；✅ Zcode 桌面版：2026-09-28 用户重新授予信任（`workspace_hooks_trusted_persistent`，digest `8c04f1a2…`），桌面版中 `gh issue close 999999` 被「harness 守卫」以「执行者不能关闭、重开或改动议题」拒绝。批准类 MCP 工具：本仓库未给 Zcode 配 GitHub MCP，真机无法发起，由单测覆盖 |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
 | zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |
