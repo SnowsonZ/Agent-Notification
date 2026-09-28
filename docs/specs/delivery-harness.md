@@ -20,7 +20,9 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `python3 harness/replay.py [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
 | `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
 | `python3 harness/evidence.py --base origin/main [--swift]` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过；`--swift` 同时编译运行引用编号的 Swift 测试（macOS，编译失败算出错） | CI harness job（Python）与 macOS build job（含 Swift）；实现方自查 |
-| `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3 | CI harness job |
+| `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3；声明 R1 时另跑 `r1_checks.py` 的加强判定 | CI harness job |
+| `python3 harness/policy.py --base origin/main --head <sha> --pr <编号>` | 合并路由：风险、类别（`autonomy.toml` 中为 L4，任务书声明与机器判定一致）、误差预算（escape 议题、`budget-exceeded` 标签）、规模（400 行），逐条写理由；K3 按 PR 编号哈希三抽一 | auto-merge 的判定步骤（main 上的代码） |
+| `python3 harness/mutate.py --check --changed-since <base>` | 只核对改到其文件的变异目标，得分不得低于基线 | CI harness job，声明 R1 时 |
 | `python3 harness/base_tests.py --base origin/main` | 用 base 版本的已有测试在 head 上重跑：追加进已有测试文件的代码禁用不了判定器（有意改动已有测试的 PR 按 R2 评审，此项只报告）；测试经 `harness/base_tests_runner.py` 运行，产品代码在运行中篡改 unittest 时一律失败 | CI harness job |
 | `python3 harness/hygiene.py --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |
 | `python3 harness/git_guard.py install` | 把 `core.hooksPath` 指向 `.githooks`（幂等，不覆盖已有设置） | 每个新环境一次 |
@@ -44,7 +46,8 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 - **独立评审**：评审方按 [review-prompt.md](../templates/review-prompt.md) 工作，对照 [review-checklist.md](../templates/review-checklist.md)（由失败分类生成，机器已判定的只核对，评审时间花在机器判定不了的部分）；发现编号 `PR<编号>-R<序号>`，修复以证据表为准。
 - **测试的几种形态**：种子固定的性质测试（`tests/test_properties.py`，`PROPTEST_SEEDS=N` 放大搜索）、架构适应度（`tests/test_architecture.py`，同一口径只实现一次）、CLI 黄金快照（`tests/test_golden.py`，有意改变时 `UPDATE_GOLDEN=1` 重新生成，按 R2 评审）。
 - **护栏规则先合并**：本机 git 守卫按 origin/main 上的 `harness/rules.toml` 执行（评审 PR7-R3），改规则的 PR 合并前，依赖新规则的文件在本机提交会被拒。放宽类规则（如新增 `[hygiene] allowed` 例外）与依赖它的文件分两个 PR：先合并规则，再提交文件。
-- **行为不变的重构**：每个提交带 `Risk: R1`；risk.py 核对只改产品代码、已有测试与黄金快照零改动，否则按 R2。
+- **行为不变的重构**：每个提交带 `Risk: R1`；risk.py 核对只改产品代码、已有测试与黄金快照零改动，另由 `r1_checks.py` 核对被改函数签名不变（Python 按 AST，Swift 按声明文本；新增函数不限）、无新依赖（Python 只能新增标准库与仓库内模块，Swift 不新增 import）、无建表改表语句、增删不超过 400 行，任一不满足按 R2（2026-09-28 决定 2）。变异得分不降要执行代码，由 build 的 harness job 在声明 R1 时运行，下降即失败；想按 R2 走的重构加一个不带 `Risk: R1` 的提交即可。
+- **逃逸与抽审登记**（2026-09-28 决定 9）：合并后才发现、本应被门禁或评审拦住的缺陷，任何人（含 Agent）开议题，加 `escape` 与 `class:<类别>` 标签，正文写明「引入：#<PR>」；不写会话正文。已关闭的议题照样计数。K3 被抽中的 PR 合并后由 auto-merge 开 `audit` 议题，评审方审完关闭，发现问题另开 escape 议题。PR 的类别标签 `class:<类别>` 由 auto-merge 打上，是误差预算窗口的依据。
 - **不手写通过状态**：PR 与交付说明里的「测试通过」「CI 通过」「已修复」一律由 CI 的 harness job summary 与 run 链接代替。
 
 ## 3. 风险等级
@@ -56,7 +59,16 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | R2 | 产品代码、现役规格、AGENTS.md；模板与待办清单；K7、K8、架构级或头部不合格的任务书；删除任务书；改动或删除已有测试；改动黄金快照 | 评审方评审 + 用户看证据包后合并 |
 | R3 | 护栏、CI 与发布、依赖、报告迁移、快照与隐私、用户配置安装、运行时入口 | 用户批准 |
 
-R0/R1 的自动合并由 `.github/workflows/auto-merge.yml` 执行：build 完成后以 `workflow_run` 触发，检出 main、用 main 上的 `risk.py` 对 PR 的 diff 重新判级（只读 diff，不执行 PR 的代码），R0/R1 才以 `--match-head-commit` 合并本次评估过的提交；fork 与失败的运行不处理。判定放在这里而不是 PR 自己的 CI 里，是因为 `pull_request` 事件执行的是 PR 分支里的 workflow 定义。
+自动合并由 `.github/workflows/auto-merge.yml` 执行：build 完成后以 `workflow_run` 触发，检出 main、用 main 上的 `policy.py` 判定（内部调用 `risk.py` 对 PR 的 diff 重新判级；只读 diff、提交说明、PR 标签与议题，不执行 PR 的代码），四条判定全部满足才以 `--match-head-commit` 合并本次评估过的提交，每条理由写进 job summary；fork 与失败的运行不处理。
+
+| 判定（按顺序） | 满足条件 | 不满足时 |
+|---|---|---|
+| 风险 | R0 或 R1 | 转用户评审 |
+| 类别 | 机器判定的类别（K0 合同、K1 说明、K2 补测试、K3 重构、K4 修复、K5 功能、K6 界面、K7 护栏）在 `harness/autonomy.toml` 中为 L4；提交带 `Task: T<编号>` 时，main 上该任务书声明的类别与机器判定一致 | 转用户评审（声明不一致按「未分类」） |
+| 预算 | 该类最近 N 次合并的 escape 议题不超预算（K0–K2：20 次内 ≤ 1；K3：10 次内 = 0）；PR 不带 `budget-exceeded` 标签；读不到标签或议题时按不满足 | 该类自动合并暂停，直到用户改 `autonomy.toml` 恢复 |
+| 规模 | 增删行数（不计 `tests/golden/**`、`docs/runs/**`）≤ 400 | 转用户评审，提示拆分 |
+
+放权只能由用户改 `harness/autonomy.toml`（R3），降级自动生效。K3 自动合并的 PR 按编号哈希每 3 个抽 1 个开 audit 议题，满 10 个抽审无问题后由用户调低比例。判定放在这里而不是 PR 自己的 CI 里，是因为 `pull_request` 事件执行的是 PR 分支里的 workflow 定义。
 
 ## 4. 三层护栏
 
@@ -131,6 +143,7 @@ Agent 层按角色接入：
 | 已有测试按 base 版本重跑 | 临时仓库单测四个场景（`tests/test_harness.py` BaseTestsTest）；本 PR 上 main 的 267 个测试在 head 通过 | ✅ 本地；CI 步骤随本 PR 首次运行 |
 | 变异测试 | 4 个目标的基线得分（见基线评审 §6） | ✅ Linux 实跑 |
 | 任务书准入与按类别判级（P1） | 单测（`tests/test_harness_taskbook.py`）：缺头部、验收未挂编号、类别与风险不相容、预算超限、缺章节、步骤触及护栏或跨模块未声明的样例任务书各被拒绝；模板本身通过准入；K4/K5/K2/K3 任务书判 R0，K7、K8、架构级、头部不合格、删除判 R2，模板与待办判 R2，豁免清单只能缩减；执行方编辑任务书与规格被守卫拒绝。仓库现有任务书 002–004 补头部并登记豁免后 `taskbook` 检查通过 | ✅ 单测；CI 以引入本行的 PR 为准 |
+| 合并路由与 R1 加强判定（P2） | 单测（`tests/test_harness_policy.py`）：风险 R2、类别非 L4、任务书声明与机器判定不一致、逃逸超预算、`budget-exceeded` 标签、读不到标签与议题、超 400 行各转用户评审，全部满足才自动合并，summary 逐条写理由；机器类别 K0–K7；三抽一抽样稳定；R1 在签名改动、删除函数、新依赖、建表改表、超规模时降为 R2，新增函数、标准库与仓库内模块仍为 R1；workflow 一致性单测（判定步骤只读、只运行 policy.py） | ✅ 单测；auto-merge 的真实运行以引入本行的 PR 合并后的第一个 PR 为准；停机演练待用户执行（§8） |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
 | zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |
@@ -152,3 +165,20 @@ Agent 层按角色接入：
   - 「读 origin/main」只在本地远端引用可信时成立（评审 PR7-R8）：本地的 `refs/remotes/origin/main` 不受保护，把它改指伪造的提交，或把 remote 指向伪造的源再 fetch，守卫就会读到伪造的规则并照常告警「按 origin/main 的规则执行」。
   - 本 PR 合并前 main 上没有 `harness/rules.toml`，钩子退回读工作区版本；更根本的是 main 上还没有 `.githooks/`，检出 main 时本机没有任何 git 守卫（2026-09-26 评审报告直接提交到 main 即因此未被拦截，见基线评审 H0926-1）。
 - **base_tests 的篡改检查在同一进程内**（评审 PR7-R7）：base 版本的测试 import 的是 head 的产品代码。`base_tests_runner.py` 在运行前后比对 unittest 各类与模块的属性，并跑一组必然失败的哨兵用例；risk.py 对产品代码新增的测试框架引用加标记（取消 R1）。专门针对这两处检查的篡改（例如识别哨兵用例名、改后在检查前复原）仍可能漏过，由评审兜底；接上 L4 自动合并（方案 §13 E1）前需复核这一残余。
+
+## 8. 停机与恢复
+
+2026-09-28 决定：不开发 `AUTO_MERGE_ENABLED` 变量，停机用 GitHub 自带的禁用工作流。误差预算超支时 policy.py 自动停该类自动合并，是第二道闸。
+
+停机（用户，网页或手机均可）：
+
+1. 仓库 Actions → 左侧 `auto-merge` → 右上角 ··· → **Disable workflow**。此后 build 照常运行，但不再判定、批准或合并，所有 PR 都要用户合并。也可以在终端执行 `gh workflow disable auto-merge`（由用户执行）。
+2. 正在运行的 auto-merge 在 Actions 页面逐个 **Cancel run**。
+3. 终止本机正在运行的执行方：关闭 Zcode 桌面版中执行任务的会话，结束 OpenCode、Pi 的运行进程（派发脚本上线后改为 `bin/dispatch stop --all`，设计 P4）。
+
+恢复（用户）：
+
+1. 同一位置 **Enable workflow**（或 `gh workflow enable auto-merge`）。
+2. 停机期间通过 build 的 PR 不会自动重新判定：在该 PR 最新的 build 运行上 **Re-run all jobs**，完成后 auto-merge 按当前规则判定。
+
+演练（进入无人值守前一次，之后每季度一次）：停机 → 开一个 R0 的测试 PR，确认 build 通过后没有自动合并 → 恢复 → 重跑该 PR 的 build，确认被自动合并。结果记入 §6 验证状态。
