@@ -26,6 +26,8 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `python3 harness/base_tests.py --base origin/main` | 用 base 版本的已有测试在 head 上重跑：追加进已有测试文件的代码禁用不了判定器（有意改动已有测试的 PR 按 R2 评审，此项只报告）；测试经 `harness/base_tests_runner.py` 运行，产品代码在运行中篡改 unittest 时一律失败 | CI harness job |
 | `python3 harness/hygiene.py --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |
 | `python3 harness/git_guard.py install` | 把 `core.hooksPath` 指向 `.githooks`（幂等，不覆盖已有设置） | 每个新环境一次 |
+| `bin/dispatch run <任务书> [--resume] [--model M]` | 派发：准入（含已在 origin/main）→ 认领（推送 `task/<编号>-<名字>`，远端已有即停）→ 取槽位 → 守卫预检 → Pi 执行 → 执行方之外跑 `bin/verify`（失败带摘要重试，同一失败签名连续两次即打转）→ 提交运行记录、推送、开 PR → 等 CI（失败带摘要重试，超 `ci_rounds` 打 `budget-exceeded`）；不能完成时升级（PR 评论或议题，`escalation` 标签） | 设计评审方，任务书合并后 |
+| `bin/dispatch status` / `bin/dispatch stop --all` | 查看槽位；停机：终止所有正在运行的执行方（§8） | 设计评审方、用户 |
 | `python3 harness/release_check.py --tag vX.Y.Z` | tag 与构建版本一致、构建号递增、tag 在 main 上 | 推 tag 时 CI 自动运行 |
 
 `verify` 终端只打印结论，完整输出在 `build/verify/<检查名>.log`，汇总在 `build/verify/summary.json`。判断通过只认退出码和 CI 上当前 head 的运行。
@@ -49,6 +51,8 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 - **行为不变的重构**：每个提交带 `Risk: R1`；risk.py 核对只改产品代码、已有测试与黄金快照零改动，另由 `r1_checks.py` 核对被改函数签名不变（Python 按 AST，Swift 按声明文本；新增函数不限）、无新依赖（Python 只能新增标准库与仓库内模块，Swift 不新增 import）、无建表改表语句、增删不超过 400 行，任一不满足按 R2（2026-09-28 决定 2）。变异得分不降要执行代码，由 build 的 harness job 在声明 R1 时运行，下降即失败；想按 R2 走的重构加一个不带 `Risk: R1` 的提交即可。
 - **逃逸与抽审登记**（2026-09-28 决定 9）：合并后才发现、本应被门禁或评审拦住的缺陷，任何人（含 Agent）开议题，加 `escape` 与 `class:<类别>` 标签，正文写明「引入：#<PR>」；不写会话正文。已关闭的议题照样计数。K3 被抽中的 PR 合并后由 auto-merge 开 `audit` 议题，评审方审完关闭，发现问题另开 escape 议题。PR 的类别标签 `class:<类别>` 由 auto-merge 打上，是误差预算窗口的依据。
 - **不手写通过状态**：PR 与交付说明里的「测试通过」「CI 通过」「已修复」一律由 CI 的 harness job summary 与 run 链接代替。
+- **派发**（2026-09-28 起，设计 6.2）：执行方任务经 `bin/dispatch` 派发，不在主目录运行执行方；主目录只留给用户，设计评审方也在自己的 worktree 或槽位中工作。槽位是仓库同级的固定目录 `<仓库名>-slot-<n>`（`rules.toml [dispatch]`，默认 3 个），每次派发从 origin/main 重建分支并清理未跟踪文件（保留 `scratch/iterm-probe-venv`，指向主目录的运行时）。执行方以 `Snowson` 的提交身份工作，但**拿不到任何 GitHub 凭据**：继承的令牌被去掉、gh 指向空配置目录、git 凭据助手清空；推送、开 PR、评论由派发脚本经 `bin/as-agent` 完成。预算取自任务书头部：`wall_clock_min` 是执行方的累计时长，`retries` 是本地重试，`ci_rounds` 是 CI 轮次；15 分钟既无输出也无文件变化判为卡死。执行方卡住时写 `build/dispatch/escalation.md`（可选方案、需要决定的问题），派发脚本补上状态、已尝试方案与证据后升级。
+- **运行记录**：每次推送带一份 `docs/runs/<任务书名>/<序号>.json`（R0）与渲染后的提示词 `<序号>.prompt.md`：宿主、版本、模型、提示词 sha256、守卫取自的 main 提交、时长与退出方式、重试与失败签名、守卫拒绝次数（按理由计）、token 与费用。只存结构化摘要；完整事件流留在本机 git 公共目录下的 `dispatch/runs/`，不入库。执行方不能编辑 `docs/runs/**`。提示词模板 `harness/dispatch_prompt.md` 属 R3。
 - **减少审批次数**（用户 2026-09-28 决定，先执行、阶段二结束后按数据复核）：判级规则不放宽，靠攒批减少 PR 数。①记录类改动（规范 §6 验证状态、待办关闭与状态更新、实测结果）不单独开 PR，并入下一个实质性 PR；没有合适的 PR 时，当天的记录攒成一个。②相关的 R3 小改动按主题合成一个 PR（设计 16 章），不拆成零碎的护栏 PR。
 
 ## 3. 风险等级
@@ -95,7 +99,7 @@ Agent 层按角色接入：
 | Claude Code | 设计与评审 | 项目级 `.claude/settings.json` 的 PreToolUse（Bash 与 MCP 合并工具），自动生效 |
 | Codex | 设计与评审 | 项目级 `.codex/hooks.json` 的 `PreToolUse`（不设 matcher，所有工具都交给守卫），从 git 仓库根调用 `command_guard.py --format claude --role designer`。**须经用户信任后才运行**：未信任时 `codex exec` 静默跳过、命令照常执行；交互界面启动时提示「Hooks need review」，信任后记入用户级 `~/.codex/config.toml`（§5 第 4 步）。`hooks.json` 内容一改就要重新信任；只改守卫脚本不用。不用用户级钩子，以免影响其他项目。`.codex/` 其余内容禁止入库 |
 | OpenCode | 执行 | 项目级插件 `.opencode/plugin/harness-guard.js`，`--role implementer` |
-| Pi | 执行 | 项目级扩展 `.pi/extensions/harness-guard.ts`（`tool_call` 事件拦截，`--role implementer`）。**只在项目被信任后加载**：未信任时（含 `pi -p` 且无保存的信任）扩展不加载、命令照常执行，只剩 git 与服务端两层；须按 §5 第 5 步信任本项目 |
+| Pi | 执行 | 项目级扩展 `.pi/extensions/harness-guard.ts`（`tool_call` 事件拦截，`--role implementer`）。**只在项目被信任后加载**：未信任时（含 `pi -p` 且无保存的信任）扩展不加载、命令照常执行，只剩 git 与服务端两层；在主目录手动使用 Pi 时须按 §5 第 5 步信任本项目。经 `bin/dispatch` 派发时不依赖信任：`pi -na -e <守卫>` 忽略槽位中的项目文件，显式加载从 origin/main 导出的守卫（2026-09-28 实测：未信任的目录中守卫加载并拒绝了执行方关闭议题，仓库 AGENTS.md 仍在上下文中） |
 | Zcode | 执行 | 项目级 `.zcode/config.json` 的 `PreToolUse`（Bash、Edit、Write 与 MCP 的合并、评审批准、议题、标签类工具；2026-09-28 补上批准类，B5），调用 `command_guard.py --format claude --role implementer`，退出码 2 即拦截。工作区钩子须经用户信任后才执行（§5 第 6 步），未信任时状态为 `pending_trust`、不执行。**只在桌面版 ZCode.app（协议服务端宿主）生效**（2026-09-26 实测拦截）；**CLI 与 TUI 不执行工作区钩子**，且没有参数可以打开（用户决定不改 Zcode、不用用户级钩子，以免影响其他项目）。用 Zcode 当执行方时用桌面版。`.zcode/` 其余内容是 Zcode 运行数据，仍禁止入库（`[hygiene] allowed` 只放行这一个文件） |
 
 ## 5. 一次性设置（用户）
@@ -147,6 +151,7 @@ Agent 层按角色接入：
 | 任务书准入与按类别判级（P1） | 单测（`tests/test_harness_taskbook.py`）：缺头部、验收未挂编号、类别与风险不相容、预算超限、缺章节、步骤触及护栏或跨模块未声明的样例任务书各被拒绝；模板本身通过准入；K4/K5/K2/K3 任务书判 R0，K7、K8、架构级、头部不合格、删除判 R2，模板与待办判 R2，豁免清单只能缩减；执行方编辑任务书与规格被守卫拒绝。仓库现有任务书 002–004 补头部并登记豁免后 `taskbook` 检查通过 | ✅ 单测；CI 以引入本行的 PR 为准 |
 | 合并路由与 R1 加强判定（P2） | 单测（`tests/test_harness_policy.py`）：风险 R2、类别非 L4、任务书声明与机器判定不一致、逃逸超预算、`budget-exceeded` 标签、读不到标签与议题、超 400 行各转用户评审，全部满足才自动合并，summary 逐条写理由；机器类别 K0–K7；三抽一抽样稳定；R1 在签名改动、删除函数、新依赖、建表改表、超规模时降为 R2，新增函数、标准库与仓库内模块仍为 R1；workflow 一致性单测（判定步骤只读、只运行 policy.py） | ✅ 单测；auto-merge 的真实运行以引入本行的 PR 合并后的第一个 PR 为准；停机演练待用户执行（§8） |
 | 回放强制与守卫小修（P3） | 单测（`tests/test_harness_p3.py`）：缺回放的非 doc 类 Defect 使 `evidence.py` 退出 1（即 harness job 失败），注入用例、守卫测试、写明原因的暂缓项满足，doc 类与已撤销的编号不要求；`gh release list/view` 放行、其余拒绝；任何角色删除议题、撤登记标签被拒；执行方关闭或改动议题、改标签、编辑 `docs/runs/**` 被拒而设计方可关闭议题；Zcode 与 Claude 的 matcher、OpenCode 插件与 Pi 扩展把批准、议题、标签类工具交给守卫 | ✅ 单测；✅ Zcode 桌面版：2026-09-28 用户重新授予信任（`workspace_hooks_trusted_persistent`，digest `8c04f1a2…`），桌面版中 `gh issue close 999999` 被「harness 守卫」以「执行者不能关闭、重开或改动议题」拒绝。批准类 MCP 工具：本仓库未给 Zcode 配 GitHub MCP，真机无法发起，由单测覆盖 |
+| 派发脚本（P4） | 单测（`tests/test_harness_dispatch.py`，假执行方与假 GitHub、真实临时 git 远端）：成功路径写运行记录、开 PR、主目录无改动、槽位归还；执行方环境无 GitHub 令牌；认领冲突与任务书不在 main 上时不运行执行方；超时、卡死、打转、澄清、停机各自升级；CI 失败带摘要重试、超预算打 `budget-exceeded`；槽位互斥与过期锁回收；守卫取自 origin/main，main 上的守卫失效时停止派发；Pi 参数与事件解析。2026-09-28 真实 Pi 实测 `-na -e` 的守卫加载与拦截 | ✅ 单测与守卫实测；真实 K2 任务端到端运行待做（待办 B21） |
 | 验收映射 | 6 份规格 69 条编号：可自动化 54 条中 53 条有测试、1 条登记缺口，19 条进入人工清单；检查器在 verify 各档运行 | ✅ |
 | Swift 回放 | macOS CI `--strict --full`（run 36152060546）通过，Swift 注入在 strict 下不可跳过 | ✅ |
 | zcode 自检、质量棘轮、交付度量 | 本地实跑；zcode 自检与 CI 中的度量步骤随本 PR 首次在 CI 运行 | ⚠️ 待本 PR 的 CI |
@@ -177,7 +182,7 @@ Agent 层按角色接入：
 
 1. 仓库 Actions → 左侧 `auto-merge` → 右上角 ··· → **Disable workflow**。此后 build 照常运行，但不再判定、批准或合并，所有 PR 都要用户合并。也可以在终端执行 `gh workflow disable auto-merge`（由用户执行）。
 2. 正在运行的 auto-merge 在 Actions 页面逐个 **Cancel run**。
-3. 终止本机正在运行的执行方：关闭 Zcode 桌面版中执行任务的会话，结束 OpenCode、Pi 的运行进程（派发脚本上线后改为 `bin/dispatch stop --all`，设计 P4）。
+3. 终止本机正在运行的执行方：`bin/dispatch stop --all`（写停机标记，各派发在下一次轮询时终止执行方并升级；标记存在期间新的派发直接拒绝，恢复时删除该标记，脚本会提示路径）。手动开的执行方会话（如 Zcode 桌面版）另行关闭。
 
 恢复（用户）：
 
