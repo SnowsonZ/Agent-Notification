@@ -67,7 +67,7 @@ Stop 是停止阶段信号，其他 hook 可要求继续，因此不是任务成
 
 ### Pi / iTerm2
 
-本机包 `@earendil-works/pi-coding-agent` 0.85.1。[随包扩展文档](/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/docs/extensions.md)明确包含 session_start、sessionManager.getSessionId()、agent_end 和 agent_settled。优先 agent_settled，因为其语义包含没有待重试、压缩、后续轮次；仍须结合错误/中断状态，不能直接叫成功。
+本机包 `@earendil-works/pi-coding-agent` 0.85.1。随包扩展文档（包内 `docs/extensions.md`）明确包含 session_start、sessionManager.getSessionId()、agent_end 和 agent_settled。优先 agent_settled，因为其语义包含没有待重试、压缩、后续轮次；仍须结合错误/中断状态，不能直接叫成功。
 
 用原生 extension 上报事件，并登记当前 iTerm 会话；恢复/切换 Pi session 时更新映射。扩展目录和装载方式以当前版本实测为准。
 
