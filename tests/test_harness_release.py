@@ -90,11 +90,14 @@ class ServerConfigTest(unittest.TestCase):
         self.assertIn("ref: ${{ github.event.repository.default_branch }}", workflow)
         self.assertIn("github.event.workflow_run.conclusion == 'success'", workflow)
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", workflow)
-        self.assertIn('harness/risk.py --base origin/main --head "$HEAD_SHA" --github', workflow)
-        self.assertIn("auto_merge: ${{ steps.risk.outputs.auto_merge }}", workflow)
+        # 合并路由（目标态设计 9.3）：判定改由 policy.py 执行，它内部调用 risk.py。
+        self.assertIn('harness/policy.py --base origin/main --head "$HEAD_SHA" ${PR:+--pr "$PR"} --github', workflow)
+        self.assertIn("auto_merge: ${{ steps.policy.outputs.auto_merge }}", workflow)
         self.assertIn('--match-head-commit "$HEAD_SHA"', workflow)
         self.assertEqual(workflow.count("run: git fetch --no-tags origin"), 1)
-        self.assertNotRegex(workflow, r"run: (python|bash|sh|\./)\S*\s+(?!harness/risk\.py)")
+        self.assertNotRegex(workflow, r"run: (python|bash|sh|\./)\S*\s+(?!harness/policy\.py)")
+        judge = workflow.split("\n  judge:\n", 1)[1].split("\n  request-review:\n", 1)[0]
+        self.assertNotRegex(judge, r"(contents|issues|pull-requests): write")  # 判定只读
 
     def test_auto_merge_approval_needs_main_only_environment(self):
         """D3：ruleset 要求非推送者批准；R0/R1 由 App 批准，App 凭据只在判定为 R0/R1 后、

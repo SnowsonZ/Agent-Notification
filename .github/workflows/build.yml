@@ -53,8 +53,15 @@ jobs:
 
       # 前面的检查失败时，风险等级与证据仍要生成，评审才看得到全貌。
       - name: Risk level
+        id: risk
         if: ${{ !cancelled() }}
         run: python harness/risk.py --base "${{ steps.base.outputs.sha }}" --github
+
+      # R1 加强判定中要执行代码的一项（2026-09-28 决定 2）：声明 R1 时，改到的变异目标得分不得低于基线。
+      # 下降即失败；要按 R2 走的重构去掉 Risk: R1 即可（加一个不带它的提交）。
+      - name: Mutation score of changed targets (R1 claims)
+        if: ${{ !cancelled() && steps.risk.outputs.claimed_r1 == 'true' }}
+        run: python harness/mutate.py --check --changed-since "${{ steps.base.outputs.sha }}"
 
       - name: Fix evidence
         if: ${{ !cancelled() }}
