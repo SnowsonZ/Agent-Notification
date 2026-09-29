@@ -15,11 +15,11 @@ from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-import command_guard
-import evidence
+from engine.checks import evidence
+from engine.guards import command_guard
 from test_harness_guard import (
     OpenCodePluginTest,
     PiExtensionTest,
@@ -56,12 +56,14 @@ class ReplayCoverageTest(unittest.TestCase):
                 mock.patch.object(evidence, "render_markdown", return_value=""), \
                 contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(evidence.main(["--base", "x", "--no-run"]), 1)
-            with mock.patch.object(evidence, "replay_cases", SimpleNamespace(CASES=[], GUARDED={}, DEFERRED={"T-NEW": "原因"})):
+            with mock.patch.object(evidence, "load_project_cases", lambda: SimpleNamespace(CASES=[], GUARDED={}, DEFERRED={"T-NEW": "原因"})):
                 self.assertEqual(evidence.main(["--base", "x", "--no-run"]), 0)
         self.assertIn("回放覆盖", out.getvalue())
 
     def test_repository_registry_reasons_are_written(self):
-        from replay_cases import DEFERRED
+        from engine.core.cases import load_project_cases
+
+        DEFERRED = load_project_cases().DEFERRED
         self.assertTrue(all(str(reason).strip() for reason in DEFERRED.values()))
 
 

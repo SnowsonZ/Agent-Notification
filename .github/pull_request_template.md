@@ -24,4 +24,4 @@
 ## 需要人工验收的部分
 
 <!-- 只列机器无法判定的项（真机 UI、系统授权等），写明步骤与预期；没有写「无」。
-     `python3 harness/acceptance.py --manual` 列出现役人工验收清单，从中挑出本 PR 涉及的编号。 -->
+     `bin/harness acceptance --manual` 列出现役人工验收清单，从中挑出本 PR 涉及的编号。 -->

@@ -12,9 +12,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 
-import weekly
+from engine.reports import weekly
 
 END = dt.datetime(2026, 10, 5, 3, 0, tzinfo=dt.UTC)
 METRICS_14_1 = [
@@ -61,9 +61,9 @@ class WeeklyTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        (self.root / "harness").mkdir()
-        (self.root / "harness/quality-baseline.json").write_text('{"complex_functions": 20, "files_over_800": 1}')
-        (self.root / "harness/mutation-baseline.json").write_text('{"热力金额分级": 1.0}')
+        (self.root / ".harness/state").mkdir(parents=True)
+        (self.root / ".harness/state/quality-baseline.json").write_text('{"complex_functions": 20, "files_over_800": 1}')
+        (self.root / ".harness/state/mutation-baseline.json").write_text('{"热力金额分级": 1.0}')
         runs = self.root / "docs/runs/task-005-x"
         runs.mkdir(parents=True)
         (runs / "1.json").write_text(json.dumps({

@@ -269,7 +269,7 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 | U8 | `money_text` 双端一致 | Python 与 Swift 跑同一组边界值 | 单测 | `test_usage_cost.MoneyTextTest`、`tests/InboxPolicyTests.swift#moneyText(0.005, currency: "USD")` |
 | U9 | 周期边界 | ISO 周跨年、闰年二月、月末时区边界 | 单测 | `test_usage_report.PeriodBoundsTest` |
 | U10 | 界面 | 真实数据下日/周/月三屏截图（`scratch/u10-*.png`）核对：编排与统一设计语言一致、金额为 USD 伴随指标、悬浮卡数字与 `inbox usage` 一致（2026-09-24 重设计后重验收） | 真机 UI | 用户截图核对 |
-| U11 | 全量测试 | `python3 -W error::ResourceWarning -m unittest discover -s tests -v`、`ruff check scripts tests`、Swift 策略测试全部通过 | CI 断言 | `.github/workflows/build.yml#harness/verify.py --strict --full` |
+| U11 | 全量测试 | `python3 -W error::ResourceWarning -m unittest discover -s tests -v`、`ruff check scripts tests`、Swift 策略测试全部通过 | CI 断言 | `.github/workflows/build.yml#cli.py verify --strict --full` |
 
 ## 9. 已知边界
 

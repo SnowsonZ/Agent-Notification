@@ -85,7 +85,7 @@ python3 -m unittest discover -s tests -v
 | ZN1 | 按 task ID 读本地索引取标题与工作区；归档、缺失、歧义及含控制字符的标题在界面操作前拒绝 | 单测 | `test_zcode_focus.ZcodeDescriptorTests.test_archived_and_ambiguous_not_opened`、`test_zcode_focus.ZcodeDescriptorTests.test_query_cannot_contain_newline_or_control_character`、`test_zcode_task_state.TaskIndexTests.test_duplicate_task_id_is_ambiguous`、`test_zcode_task_state.TaskIndexTests.test_id_injection_is_not_a_query` |
 | ZN2 | 只有复制出的任务路径与索引中的 workspace + task ID 一致才算精确定位；逻辑路径不要求文件存在；打开工作区不算精确定位 | 单测 | `test_zcode_task_state.TaskIndexTests.test_copied_ui_path_must_match_task_and_workspace`、`test_zcode_task_state.TaskIndexTests.test_logical_copied_path_does_not_require_a_legacy_file`、`test_zcode_task_state.TaskIndexTests.test_workspace_link_is_not_claimed_as_exact_navigation` |
 | ZN3 | 只有导航元数据跨越原生边界；原生失败写日志、终端不刷屏 | 单测 | `test_zcode_focus.ZcodeDescriptorTests.test_only_navigation_metadata_crosses_native_boundary`、`test_zcode_focus.ZcodeDescriptorTests.test_native_failure_is_logged_without_cluttering_terminal_with_traces` |
-| ZN4 | 原生无 UI 自检：搜索框结构匹配、打开面板的点击状态机（已打开不重复切换）、等待服务主 run loop | 单测 | `harness/verify.py#--self-test` |
+| ZN4 | 原生无 UI 自检：搜索框结构匹配、打开面板的点击状态机（已打开不重复切换）、等待服务主 run loop | 单测 | `.harness/config/checks.toml#--self-test` |
 | ZN5 | 剪贴板只用于复制任务路径：原内容保存在内存、用户未改动时恢复；不打印不落盘；必须产生新的 changeCount | 人工 | 代码审读（原生实现无自动测试） |
 | ZN6 | 真实 Zcode 中打开目标任务并返回 status=focused、selection_identity_matches=true | 真机 UI | 2026-09-14 真实运行记录（本地日志，不入库） |
 | ZN7 | 同名多候选、冷启动、多显示器、英文界面 | 真机 UI | 未完成（见下方边界） |

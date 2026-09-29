@@ -10,13 +10,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-import policy
-import r1_checks
-import risk
-from common import load_rules
+from engine.checks import r1_checks
+from engine.core.common import load_rules
+from engine.routing import policy, risk
 from test_harness import TempRepo
 
 AUTONOMY = r1_checks.load_autonomy()
@@ -103,7 +102,7 @@ class MachineClassTest(unittest.TestCase):
             (self.report(2, "scripts/a.py"), False, "K5"),
             (self.report(2, "native/A.swift"), False, "K6"),
             (self.report(2, "docs/templates/task.md", "docs/plans/backlog.md"), False, "K0"),
-            (self.report(3, "harness/x.py"), False, "K7"),
+            (self.report(3, ".harness/x.py"), False, "K7"),
         ]
         for report, defects, expected in cases:
             with self.subTest(paths=[item.path for item in report.files]):

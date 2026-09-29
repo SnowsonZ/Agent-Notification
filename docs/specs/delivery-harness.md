@@ -2,7 +2,7 @@
 
 状态：现役（2026-09-25 起）。目标态与分阶段路线见[目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)，当前进展与下一阶段见 [2026-09-29 现状复核](../review/2026-09-29-harness-status.md)；基线见 [2026-09-25 基线评审](../review/2026-09-25-harness-baseline.md)。早期的[可验证交付方案](../plans/verifiable-delivery.md)为历史文档，只保留 §10 决定记录与 §13 已完成事项。
 
-harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发布包（构建只拷 `scripts/` 与 `bin/session-manager`）。改动 `harness/`、`.githooks/`、`.github/`、`.claude/`、`.opencode/`、`.pi/`、`.zcode/` 属于 R3，必须由用户批准。
+harness 引擎是独立的开源项目 [delivery-harness](https://github.com/SnowsonZ/delivery-harness)（2026-09-29 从本仓库抽出，保留历史），以带锁文件的内置副本装在 `.harness/engine/`（版本、引擎提交与目录树哈希见 `.harness/engine.lock`，`bin/verify` 的 integrity 检查拒绝任何绕过升级的改动），只依赖 Python 标准库，不进发布包（构建只拷 `scripts/` 与 `bin/session-manager`）。本项目自己的规则与配置在 `.harness/config/`（`rules.toml`、`autonomy.toml`、`checks.toml`），棘轮状态在 `.harness/state/`，事故回放用例在 `.harness/project/replay_cases.py`。所有命令经 `bin/harness <子命令>`（`bin/verify`、`bin/dispatch` 为快捷入口）。升级引擎：在 delivery-harness 的检出中运行 `python3 engine/cli.py upgrade --target <本仓库>`，经 PR 合并。改动 `.harness/`、`bin/`、`.githooks/`、`.github/`、`.claude/`、`.opencode/`、`.pi/`、`.zcode/` 属于 R3，必须由用户批准。
 
 ## 1. 命令
 
@@ -12,29 +12,29 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | `bin/verify --quick` | 工具版本、lint、仓库卫生、验收映射、任务书准入 | pre-commit 自动运行 |
 | `bin/verify --full` | 默认档 + 事故回放 | macOS CI（`--strict --full`）；改动测试或产品逻辑后 |
 | `bin/verify --strict` | 被跳过的检查算失败 | macOS CI |
-| `python3 harness/acceptance.py [--manual]` | 规格验收编号 ↔ 测试映射检查；列出人工验收清单 | verify 各档；写 PR 的人工验收部分时 |
-| `python3 harness/taskbook.py [任务书 --on-main]` | 任务书准入：YAML 头部（类别、风险、设计方、规模、架构级、规格编号、预算、回滚）、类别与风险相容、验收每行挂规格编号、中大任务的必备章节、按「步骤与提交顺序」所列文件交叉核对；`--on-main` 另要求任务书已合并到 main（派发前） | verify 各档；派发前 |
-| `python3 harness/review_pack.py --base origin/main` | 评审证据包：风险等级、修复证据、verify、涉及的验收编号 | 评审方评审前 |
-| `python3 harness/quality.py [--update]` | 熵治理棘轮：Python 复杂度超标函数数、超长文件数只降不升；Swift（`native/`，轻量解析）超过 500 行的文件数、函数体超过 60 行的函数数、大括号嵌套超过 6 层的函数数只降不升 | verify 默认档；每周 quality workflow |
-| `python3 harness/docs_check.py` | 文档熵治理：已跟踪的 README*.md、AGENTS.md、docs/、harness/README.md 中相对链接指向的文件必须存在（外链、纯锚点不查，`文件#锚点` 只查文件），断链即失败；「状态：」写着待执行、进行中、草案等且超过 30 天未提交的文档只报告 | verify 默认档与完整档 |
-| `python3 harness/metrics.py --base origin/main [--github]` | 交付度量：修复数、声称已修、修复带回放比例、新增测试、CI 轮次，并列 v0.8.0 基线 | CI harness job；试跑记录 |
-| `python3 harness/replay.py [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
-| `python3 harness/mutate.py [--check / --update]` | 定向变异测试，得分与 `harness/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
-| `python3 harness/evidence.py --base origin/main [--swift]` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过；`--swift` 同时编译运行引用编号的 Swift 测试（macOS，编译失败算出错）；回放覆盖：非 doc 类、未撤销的编号在 head 的 `replay_cases.py` 中须有注入用例、守卫测试或写明原因的暂缓项，否则失败 | CI harness job（Python）与 macOS build job（含 Swift）；实现方自查 |
-| `python3 harness/risk.py --base origin/main` | 按改动路径判定 R0–R3；声明 R1 时另跑 `r1_checks.py` 的加强判定 | CI harness job |
-| `python3 harness/policy.py --base origin/main --head <sha> --pr <编号> --branch <分支>` | 合并路由：风险、类别（`autonomy.toml` 中为 L4，任务书声明与机器判定一致）、误差预算（escape 议题、`budget-exceeded` 标签）、规模（400 行）、任务 PR 的运行记录与 CI 轮次，逐条写理由；K3 按 PR 编号哈希三抽一 | auto-merge 的判定步骤（main 上的代码） |
-| `python3 harness/run_check.py --base origin/main [--branch <分支>]` | 实现任务书的 PR（分支为 `task/<名字>` 且有对应任务书，或提交带 `Task:`）：每个提交带 `Task: <编号>`；有格式完整、与任务书一致、exit 为 ok 的运行记录，提示词 sha256 一致；已完成的 build 轮次不超过 `budget.ci_rounds` | CI harness job（只报告）；合并路由第 5 条（权威） |
-| `python3 harness/weekly.py [--publish]` | 周报：14.1 全部指标（样本不足时只报计数或标「样本不足」）、前 4 周对比的突增标红、各类误差预算与 K3 抽审进度、试跑记录自动汇总（含任务 002–004 的历史 PR，`docs/runs/history.json`）；`--publish` 更新固定的「每周质量报告」议题并发当周评论 | 每周一 quality 工作流；需要时手动 |
-| `python3 harness/mutate.py --check --changed-since <base>` | 只核对改到其文件的变异目标，得分不得低于基线 | CI harness job，声明 R1 时 |
-| `python3 harness/base_tests.py --base origin/main` | 用 base 版本的已有测试在 head 上重跑：追加进已有测试文件的代码禁用不了判定器（有意改动已有测试的 PR 按 R2 评审，此项只报告）；测试经 `harness/base_tests_runner.py` 运行，产品代码在运行中篡改 unittest 时一律失败 | CI harness job |
-| `python3 harness/hygiene.py --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |
-| `python3 harness/git_guard.py install` | 把 `core.hooksPath` 指向 `.githooks`（幂等，不覆盖已有设置） | 每个新环境一次 |
+| `bin/harness acceptance [--manual]` | 规格验收编号 ↔ 测试映射检查；列出人工验收清单 | verify 各档；写 PR 的人工验收部分时 |
+| `bin/harness taskbook [任务书 --on-main]` | 任务书准入：YAML 头部（类别、风险、设计方、规模、架构级、规格编号、预算、回滚）、类别与风险相容、验收每行挂规格编号、中大任务的必备章节、按「步骤与提交顺序」所列文件交叉核对；`--on-main` 另要求任务书已合并到 main（派发前） | verify 各档；派发前 |
+| `bin/harness review-pack --base origin/main` | 评审证据包：风险等级、修复证据、verify、涉及的验收编号 | 评审方评审前 |
+| `bin/harness quality [--update]` | 熵治理棘轮：Python 复杂度超标函数数、超长文件数只降不升；Swift（`native/`，轻量解析）超过 500 行的文件数、函数体超过 60 行的函数数、大括号嵌套超过 6 层的函数数只降不升 | verify 默认档；每周 quality workflow |
+| `bin/harness docs` | 文档熵治理：已跟踪的 README*.md、AGENTS.md、docs/、harness/README.md 中相对链接指向的文件必须存在（外链、纯锚点不查，`文件#锚点` 只查文件），断链即失败；「状态：」写着待执行、进行中、草案等且超过 30 天未提交的文档只报告 | verify 默认档与完整档 |
+| `bin/harness metrics --base origin/main [--github]` | 交付度量：修复数、声称已修、修复带回放比例、新增测试、CI 轮次，并列 v0.8.0 基线 | CI harness job；试跑记录 |
+| `bin/harness replay [--list]` | 把历史缺陷注入工作区副本，对应测试必须失败；列出基线覆盖 | `verify --full` |
+| `bin/harness mutate [--check / --update]` | 定向变异测试，得分与 `.harness/state/mutation-baseline.json` 比较（只升不降） | 每周 quality workflow；补测试后 |
+| `bin/harness evidence --base origin/main [--swift]` | 按 `Defect:` trailer 生成修复证据，验证修复前测试失败、修复后通过；`--swift` 同时编译运行引用编号的 Swift 测试（macOS，编译失败算出错）；回放覆盖：非 doc 类、未撤销的编号在 head 的 `replay_cases.py` 中须有注入用例、守卫测试或写明原因的暂缓项，否则失败 | CI harness job（Python）与 macOS build job（含 Swift）；实现方自查 |
+| `bin/harness risk --base origin/main` | 按改动路径判定 R0–R3；声明 R1 时另跑 `r1_checks.py` 的加强判定 | CI harness job |
+| `bin/harness policy --base origin/main --head <sha> --pr <编号> --branch <分支>` | 合并路由：风险、类别（`autonomy.toml` 中为 L4，任务书声明与机器判定一致）、误差预算（escape 议题、`budget-exceeded` 标签）、规模（400 行）、任务 PR 的运行记录与 CI 轮次，逐条写理由；K3 按 PR 编号哈希三抽一 | auto-merge 的判定步骤（main 上的代码） |
+| `bin/harness run-check --base origin/main [--branch <分支>]` | 实现任务书的 PR（分支为 `task/<名字>` 且有对应任务书，或提交带 `Task:`）：每个提交带 `Task: <编号>`；有格式完整、与任务书一致、exit 为 ok 的运行记录，提示词 sha256 一致；已完成的 build 轮次不超过 `budget.ci_rounds` | CI harness job（只报告）；合并路由第 5 条（权威） |
+| `bin/harness weekly [--publish]` | 周报：14.1 全部指标（样本不足时只报计数或标「样本不足」）、前 4 周对比的突增标红、各类误差预算与 K3 抽审进度、试跑记录自动汇总（含任务 002–004 的历史 PR，`docs/runs/history.json`）；`--publish` 更新固定的「每周质量报告」议题并发当周评论 | 每周一 quality 工作流；需要时手动 |
+| `bin/harness mutate --check --changed-since <base>` | 只核对改到其文件的变异目标，得分不得低于基线 | CI harness job，声明 R1 时 |
+| `bin/harness base-tests --base origin/main` | 用 base 版本的已有测试在 head 上重跑：追加进已有测试文件的代码禁用不了判定器（有意改动已有测试的 PR 按 R2 评审，此项只报告）；测试经 `.harness/engine/checks/base_tests_runner.py` 运行，产品代码在运行中篡改 unittest 时一律失败 | CI harness job |
+| `bin/harness hygiene --staged / --range BASE` | 禁止路径、超大文件、凭据、新增行中的本机路径 | pre-commit、pre-push、CI |
+| `bin/harness guard-git install` | 把 `core.hooksPath` 指向 `.githooks`（幂等，不覆盖已有设置） | 每个新环境一次 |
 | `bin/dispatch run <任务书> [--resume] [--model M]` | 派发：准入（含已在 origin/main）→ 认领（推送 `task/<编号>-<名字>`，远端已有即停）→ 取槽位 → 守卫预检 → Pi 执行 → 执行方之外跑 `bin/verify`（失败带摘要重试，同一失败签名连续两次即打转）→ 提交运行记录、推送、开 PR → 等 CI（失败带摘要重试，超 `ci_rounds` 打 `budget-exceeded`）；不能完成时升级（PR 评论或议题，`escalation` 标签） | 设计评审方，任务书合并后 |
 | `bin/dispatch status` / `bin/dispatch stop --all` | 查看槽位；停机：终止所有正在运行的执行方（§8） | 设计评审方、用户 |
 | `bin/dispatch review <PR> [--reviewer opencode\|pi\|codex\|claude-code]` | 独立评审：在只读的评审工作区（`<仓库名>-review`）中由非设计方评审任务书、PR 描述、diff、证据包与 CI 结论，结论以固定格式评论到 PR，并去掉 `needs-independent-review` 标签 | 设计评审方；通常由后台评审自动运行 |
 | `bin/dispatch review --pending` / `--watch [--interval 5]` | 后台评审：逐个评审带 `needs-independent-review`、CI 已全部通过、当前 head 尚无独立评审结论的开着的 PR；`--watch` 每隔若干分钟一轮，停机标记存在即退出。不并行（多个 OpenCode 同时运行会冲突） | 本机常驻（终端中运行 `--watch`） |
-| `python3 harness/review.py calibrate --reviewer <评审方> [--limit N]` | 评审校准：回放用例重新注入的已知问题与已知良好的 PR，统计 TPR、TNR，结果写入 `evals/review/results/` | 改评审提示词或换评审模型后 |
-| `python3 harness/release_check.py --tag vX.Y.Z` | tag 与构建版本一致、构建号递增、tag 在 main 上 | 推 tag 时 CI 自动运行 |
+| `bin/harness review calibrate --reviewer <评审方> [--limit N]` | 评审校准：回放用例重新注入的已知问题与已知良好的 PR，统计 TPR、TNR，结果写入 `evals/review/results/` | 改评审提示词或换评审模型后 |
+| `bin/harness release-check --tag vX.Y.Z` | tag 与构建版本一致、构建号递增、tag 在 main 上 | 推 tag 时 CI 自动运行 |
 
 `verify` 终端只打印结论，完整输出在 `build/verify/<检查名>.log`，汇总在 `build/verify/summary.json`。判断通过只认退出码和 CI 上当前 head 的运行。
 
@@ -45,27 +45,27 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 - **编号写错时撤销，不改写历史**：在 PR 的后续提交里加一行 `Defect-Withdrawn: <编号>`，evidence 不再核对该编号，证据摘要里标「已撤销」，评审可见。只能撤销本 PR 中更早声明过的编号；撤销后又重新声明的，仍按修复核对。
 - **PR 正文与评论用文件传入**：`gh pr create --body-file`、`gh pr comment --body-file`，不在双引号里写 Markdown。双引号内的反引号是 shell 命令替换，会真的执行其中的命令（2026-09-26 评审方把 `` `gh pr merge` `` 写进 `--body "…"`，被命令守卫拦下）。
 - **缺陷编号全局唯一**：`<来源>-<序号>`，例如 `V080-R17`（v0.8.0 交付评审第 17 项）、`REV0921-R2`（2026-09-21 评估第 2 项）、`H0925-4`（2026-09-25 harness 建设中的发现）。不再使用裸 `R17`。
-- **每个修复都要能被回放**（2026-09-28 起由 evidence.py 强制，审计 G2）：PR 中每个非 doc 类、未撤销的 `Defect` 编号，head 上的 `harness/replay_cases.py` 必须有注入用例、守卫测试（`GUARDED`）或写明原因的暂缓项（`DEFERRED`），否则 harness job 与 macOS build job 失败；v0.8.0 基线之后的新缺陷一视同仁。回放用例是判定器：执行方在 PR 里写明注入点，由评审方在**同一个 PR** 里加入（H0926-2）；该 PR 因此改到 `harness/`，按 R3 由用户批准。注入后是否真的失败由 `verify --full` 的回放检查核对。
-- **执行方可编辑的 harness 数据**：`harness/**` 对执行方整体禁改，唯一例外是 `harness/acceptance-gaps.txt`（补完测试后删行）。它只能缩减，新增条目 risk.py 判 R3。
+- **每个修复都要能被回放**（2026-09-28 起由 evidence.py 强制，审计 G2）：PR 中每个非 doc 类、未撤销的 `Defect` 编号，head 上的 `.harness/project/replay_cases.py` 必须有注入用例、守卫测试（`GUARDED`）或写明原因的暂缓项（`DEFERRED`），否则 harness job 与 macOS build job 失败；v0.8.0 基线之后的新缺陷一视同仁。回放用例是判定器：执行方在 PR 里写明注入点，由评审方在**同一个 PR** 里加入（H0926-2）；该 PR 因此改到 `harness/`，按 R3 由用户批准。注入后是否真的失败由 `verify --full` 的回放检查核对。
+- **执行方可编辑的 harness 数据**：`harness/**` 对执行方整体禁改，唯一例外是 `.harness/state/acceptance-gaps.txt`（补完测试后删行）。它只能缩减，新增条目 risk.py 判 R3。
 - **已知缺陷登记**：发现但暂不修的缺陷写成确定性测试并标 `@unittest.expectedFailure`，说明里写编号与待决事项；修好后它会「意外通过」并报错，逼着移除登记。
-- **验收编号**：每份规格的验收表含「证据类型」「覆盖」两列，编号前缀按规格区分——W（桌面组件）、U（用量金额）、DR（工作日报）、IN（统一收件箱）、CB（CLI 会话绑定）、ZN（Zcode 导航）。可自动化条目必须有真实存在的测试；暂缺的登记在 `harness/acceptance-gaps.txt`（带原因，只能缩减）。
-- **任务书即合同**（2026-09-28 起）：任务按 [task.md](../templates/task.md) 写，开头是 YAML 头部（`task`、`class`、`risk`、`designer`、`size`、`architecture`、`spec_refs` 或 `no_spec_reason`、`budget`、`rollback`），正文含终态、非目标、前置条件、验收、步骤与提交顺序、升级包；由 `harness/taskbook.py` 准入。计划并入任务书的「步骤与提交顺序」，不再单独交计划（计划模板已归档到 `docs/templates/archive/`）。验收表每行的编号是现役规格中的编号、`新增:<规格文件>#<编号>`（同一改动在规格里新增）或 `不挂规格：<原因>`，新需求先进规格再进任务书。执行方对任务书与规格只读（守卫拒绝），需要改合同时写升级包（含澄清）。历史任务 002–004 登记在 `harness/taskbook-exempt.txt`，只检查头部，清单只能缩减。
+- **验收编号**：每份规格的验收表含「证据类型」「覆盖」两列，编号前缀按规格区分——W（桌面组件）、U（用量金额）、DR（工作日报）、IN（统一收件箱）、CB（CLI 会话绑定）、ZN（Zcode 导航）。可自动化条目必须有真实存在的测试；暂缺的登记在 `.harness/state/acceptance-gaps.txt`（带原因，只能缩减）。
+- **任务书即合同**（2026-09-28 起）：任务按 [task.md](../templates/task.md) 写，开头是 YAML 头部（`task`、`class`、`risk`、`designer`、`size`、`architecture`、`spec_refs` 或 `no_spec_reason`、`budget`、`rollback`），正文含终态、非目标、前置条件、验收、步骤与提交顺序、升级包；由 `.harness/engine/checks/taskbook.py` 准入。计划并入任务书的「步骤与提交顺序」，不再单独交计划（计划模板已归档到 `docs/templates/archive/`）。验收表每行的编号是现役规格中的编号、`新增:<规格文件>#<编号>`（同一改动在规格里新增）或 `不挂规格：<原因>`，新需求先进规格再进任务书。执行方对任务书与规格只读（守卫拒绝），需要改合同时写升级包（含澄清）。历史任务 002–004 登记在 `.harness/state/taskbook-exempt.txt`，只检查头部，清单只能缩减。
 - **设计方自行实现也要有任务书**（用户 2026-09-28 决定，方案 B）：设计评审方自己实现的工作（如护栏改动）同样先写任务书，与实现放在同一个 PR 中，照常过准入检查，提交带 `Task: <编号>`；独立评审以它为对照。这类 PR 不经派发脚本，不要求运行记录（`run_check.py` 按「任务书随本 PR 提交」识别），本就由用户审批。派给执行方的任务仍须先合并任务书再派发。
 - **任务书的审查按类别**（2026-09-28 决定 1）：K7 护栏与流程、K8 发版、`architecture: true`（跨两个以上模块、新增或修改公共接口如 CLI 输出与数据格式、数据迁移、新增依赖）的任务书由用户审（R2）；其余类别（业务修改、缺陷修复等）的任务书通过准入检查即自动合并（R0）。模板与待办清单由用户审（R2）。类别写低不影响安全：实现 PR 仍按实际改动路径判级。
-- **独立评审**（试行，2026-09-28 决定 5；设计 8.3）：R2 及以上的 PR 在 CI 通过后由 auto-merge 打上 `needs-independent-review`，本机的后台评审（`bin/dispatch review --watch`）在 CI 通过后自动评审，不占用用户等待时间；PR 有新推送时 auto-merge 在 build 通过后重新打标签，自动重评。评审方不能是设计方：有任务书时看头部 `designer`，没有时看提交的 `Co-Authored-By`。默认评审方由 `rules.toml [review] reviewer` 指定：用户 2026-09-28 定为 OpenCode（`zai-coding-plan/glm-5.3`，只读的 plan 代理，避开执行方 Pi）；Pi、Codex（`gpt-6-sol`、推理强度 max）与 Claude Code 可用 `--reviewer` 选。评审方与该 PR 的执行方同一宿主时，评论里会标出独立性较弱。评审方只看任务书、PR 描述、diff 与 `review_pack.py` 证据包，不看执行过程；结构上只读（OpenCode 用 plan 代理、`--pure` 不加载插件，并以配置关掉 bash、子代理、网页与写入类工具：plan 代理本身只禁止编辑，2026-09-28 实测它曾在评审中运行 PR 的测试与 `gh`；Pi 只开放 read、grep、find、ls 且不加载项目文件，Codex `-s read-only`，Claude Code 只开放 Read、Grep、Glob），环境里没有 GitHub 凭据，结论由派发脚本评论到 PR。评审方本身失败（报错、超时、额度用尽）记为「评审失败」：不评论为结论、保留待评审标签，校准时不计入 TPR、TNR；校准逐个样本落盘，`--resume` 续跑，连续失败 3 次即停。结论只是给用户的输入，不替代用户审批。先试行 3 个 R2 PR，由用户决定是否常态化；30 个 R2 PR 中若没有发现用户未发现的问题，降为抽样。评审提示词 `harness/review_prompt.md` 与校准集 `evals/review/samples.json` 属 R3。人工评审仍可按 [review-prompt.md](../templates/review-prompt.md) 与 [review-checklist.md](../templates/review-checklist.md) 进行。
+- **独立评审**（试行，2026-09-28 决定 5；设计 8.3）：R2 及以上的 PR 在 CI 通过后由 auto-merge 打上 `needs-independent-review`，本机的后台评审（`bin/dispatch review --watch`）在 CI 通过后自动评审，不占用用户等待时间；PR 有新推送时 auto-merge 在 build 通过后重新打标签，自动重评。评审方不能是设计方：有任务书时看头部 `designer`，没有时看提交的 `Co-Authored-By`。默认评审方由 `rules.toml [review] reviewer` 指定：用户 2026-09-28 定为 OpenCode（`zai-coding-plan/glm-5.3`，只读的 plan 代理，避开执行方 Pi）；Pi、Codex（`gpt-6-sol`、推理强度 max）与 Claude Code 可用 `--reviewer` 选。评审方与该 PR 的执行方同一宿主时，评论里会标出独立性较弱。评审方只看任务书、PR 描述、diff 与 `review_pack.py` 证据包，不看执行过程；结构上只读（OpenCode 用 plan 代理、`--pure` 不加载插件，并以配置关掉 bash、子代理、网页与写入类工具：plan 代理本身只禁止编辑，2026-09-28 实测它曾在评审中运行 PR 的测试与 `gh`；Pi 只开放 read、grep、find、ls 且不加载项目文件，Codex `-s read-only`，Claude Code 只开放 Read、Grep、Glob），环境里没有 GitHub 凭据，结论由派发脚本评论到 PR。评审方本身失败（报错、超时、额度用尽）记为「评审失败」：不评论为结论、保留待评审标签，校准时不计入 TPR、TNR；校准逐个样本落盘，`--resume` 续跑，连续失败 3 次即停。结论只是给用户的输入，不替代用户审批。先试行 3 个 R2 PR，由用户决定是否常态化；30 个 R2 PR 中若没有发现用户未发现的问题，降为抽样。评审提示词 `.harness/engine/prompts/review_prompt.md` 与校准集 `evals/review/samples.json` 属 R3。人工评审仍可按 [review-prompt.md](../templates/review-prompt.md) 与 [review-checklist.md](../templates/review-checklist.md) 进行。
 - **测试的几种形态**：种子固定的性质测试（`tests/test_properties.py`，`PROPTEST_SEEDS=N` 放大搜索）、架构适应度（`tests/test_architecture.py`，同一口径只实现一次）、CLI 黄金快照（`tests/test_golden.py`，有意改变时 `UPDATE_GOLDEN=1` 重新生成，按 R2 评审）。
-- **护栏规则先合并**：本机 git 守卫按 origin/main 上的 `harness/rules.toml` 执行（评审 PR7-R3），改规则的 PR 合并前，依赖新规则的文件在本机提交会被拒。放宽类规则（如新增 `[hygiene] allowed` 例外）与依赖它的文件分两个 PR：先合并规则，再提交文件。
+- **护栏规则先合并**：本机 git 守卫按 origin/main 上的 `.harness/config/rules.toml` 执行（评审 PR7-R3），改规则的 PR 合并前，依赖新规则的文件在本机提交会被拒。放宽类规则（如新增 `[hygiene] allowed` 例外）与依赖它的文件分两个 PR：先合并规则，再提交文件。
 - **行为不变的重构**：每个提交带 `Risk: R1`；risk.py 核对只改产品代码、已有测试与黄金快照零改动，另由 `r1_checks.py` 核对被改函数签名不变（Python 按 AST，Swift 按声明文本；新增函数不限）、无新依赖（Python 只能新增标准库与仓库内模块，Swift 不新增 import）、无建表改表语句、增删不超过 400 行，任一不满足按 R2（2026-09-28 决定 2）。变异得分不降要执行代码，由 build 的 harness job 在声明 R1 时运行，下降即失败；想按 R2 走的重构加一个不带 `Risk: R1` 的提交即可。
 - **逃逸与抽审登记**（2026-09-28 决定 9）：合并后才发现、本应被门禁或评审拦住的缺陷，任何人（含 Agent）开议题，加 `escape` 与 `class:<类别>` 标签，正文写明「引入：#<PR>」；不写会话正文。已关闭的议题照样计数。K3 被抽中的 PR 合并后由 auto-merge 开 `audit` 议题，评审方审完关闭，发现问题另开 escape 议题。PR 的类别标签 `class:<类别>` 由 auto-merge 打上，是误差预算窗口的依据。逃逸用议题模板「逃逸登记」（`.github/ISSUE_TEMPLATE/escape.yml`）。升级（`escalation`）由处理人处理后加 `escalation:needed` 或 `escalation:unneeded`，周报据此算升级精度与处理时长。
 - **每周错误分析**（设计 11.1）：周一周报出来后，由不是本周主要设计方的评审方看本周全部异常（失败或超预算的运行、升级、CI 失败、守卫拒绝、评审发现、逃逸），逐条写问题、归入基线评审的失败分类，决定沉淀形式（能自动检查的写成守卫、lint 或测试）；沉淀项进待办清单，结论存 `docs/review/weekly/<年-周>.md`（R0）。
 - **不手写通过状态**：PR 与交付说明里的「测试通过」「CI 通过」「已修复」一律由 CI 的 harness job summary 与 run 链接代替。
 - **派发**（2026-09-28 起，设计 6.2）：执行方任务经 `bin/dispatch` 派发，不在主目录运行执行方；主目录只留给用户，设计评审方也在自己的 worktree 或槽位中工作。槽位是仓库同级的固定目录 `<仓库名>-slot-<n>`（`rules.toml [dispatch]`，默认 3 个），每次派发从 origin/main 重建分支并清理未跟踪文件（保留 `scratch/iterm-probe-venv`，指向主目录的运行时）。执行方以 `Snowson` 的提交身份工作，但**拿不到任何 GitHub 凭据**：继承的令牌被去掉、gh 指向空配置目录、git 凭据助手清空；推送、开 PR、评论由派发脚本经 `bin/as-agent` 完成。预算取自任务书头部：`wall_clock_min` 是执行方的累计时长，`retries` 是本地重试，`ci_rounds` 是 CI 轮次；15 分钟既无输出也无文件变化判为卡死。执行方卡住时写 `build/dispatch/escalation.md`（可选方案、需要决定的问题），派发脚本补上状态、已尝试方案与证据后升级。
-- **运行记录**：每次推送带一份 `docs/runs/<任务书名>/<序号>.json`（R0）与渲染后的提示词 `<序号>.prompt.md`：宿主、版本、模型、提示词 sha256、守卫取自的 main 提交、时长与退出方式、重试与失败签名、守卫拒绝次数（按理由计）、token 与费用。只存结构化摘要；完整事件流留在本机 git 公共目录下的 `dispatch/runs/`，不入库。执行方不能编辑 `docs/runs/**`。提示词模板 `harness/dispatch_prompt.md` 属 R3。CI 侧由 `run_check.py` 复核（合并路由第 5 条）：即使绕过派发脚本手工派发，缺记录、缺 `Task:` 或 CI 轮次超预算的 PR 也不会被自动合并；交付度量另在 job summary 中列出「CI 轮次 / 预算」。
+- **运行记录**：每次推送带一份 `docs/runs/<任务书名>/<序号>.json`（R0）与渲染后的提示词 `<序号>.prompt.md`：宿主、版本、模型、提示词 sha256、守卫取自的 main 提交、时长与退出方式、重试与失败签名、守卫拒绝次数（按理由计）、token 与费用。只存结构化摘要；完整事件流留在本机 git 公共目录下的 `dispatch/runs/`，不入库。执行方不能编辑 `docs/runs/**`。提示词模板 `.harness/engine/prompts/dispatch_prompt.md` 属 R3。CI 侧由 `run_check.py` 复核（合并路由第 5 条）：即使绕过派发脚本手工派发，缺记录、缺 `Task:` 或 CI 轮次超预算的 PR 也不会被自动合并；交付度量另在 job summary 中列出「CI 轮次 / 预算」。
 - **减少审批次数**（用户 2026-09-28 决定，先执行、阶段二结束后按数据复核）：判级规则不放宽，靠攒批减少 PR 数。①记录类改动（规范 §6 验证状态、待办关闭与状态更新、实测结果）不单独开 PR，并入下一个实质性 PR；没有合适的 PR 时，当天的记录攒成一个。②相关的 R3 小改动按主题合成一个 PR（设计 16 章），不拆成零碎的护栏 PR。
 
 ## 3. 风险等级
 
-| 等级 | 判定（`harness/rules.toml [risk]`） | 合并 |
+| 等级 | 判定（`.harness/config/rules.toml [risk]`） | 合并 |
 |---|---|---|
 | R0 | 说明性文档；业务修改与缺陷修复等类别的任务书（通过准入）；只新增测试 | 门禁全绿即可自动合并 |
 | R1 | 声明 `Risk: R1` 且机器核对通过 | 自动合并 + 抽样审计 |
@@ -77,12 +77,12 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 | 判定（按顺序） | 满足条件 | 不满足时 |
 |---|---|---|
 | 风险 | R0 或 R1 | 转用户评审 |
-| 类别 | 机器判定的类别（K0 合同、K1 说明、K2 补测试、K3 重构、K4 修复、K5 功能、K6 界面、K7 护栏）在 `harness/autonomy.toml` 中为 L4；提交带 `Task: T<编号>` 时，main 上该任务书声明的类别与机器判定一致 | 转用户评审（声明不一致按「未分类」） |
+| 类别 | 机器判定的类别（K0 合同、K1 说明、K2 补测试、K3 重构、K4 修复、K5 功能、K6 界面、K7 护栏）在 `.harness/config/autonomy.toml` 中为 L4；提交带 `Task: T<编号>` 时，main 上该任务书声明的类别与机器判定一致 | 转用户评审（声明不一致按「未分类」） |
 | 预算 | 该类最近 N 次合并的 escape 议题不超预算（K0–K2：20 次内 ≤ 1；K3：10 次内 = 0）；PR 不带 `budget-exceeded` 标签；读不到标签或议题时按不满足 | 该类自动合并暂停，直到用户改 `autonomy.toml` 恢复 |
 | 规模 | 增删行数（不计 `tests/golden/**`、`docs/runs/**`）≤ 400 | 转用户评审，提示拆分 |
 | 运行记录 | 实现任务书的 PR：提交都带 `Task:`，有合格的运行记录（exit 为 ok），已完成的 build 轮次（按不同 head 提交计）≤ 任务书 `ci_rounds`；读不到 build 运行按不满足；不是在实现任务书的 PR 不要求 | 转用户评审：缺记录说明未经 `bin/dispatch` 或记录不全，超预算说明反复试错 |
 
-放权只能由用户改 `harness/autonomy.toml`（R3），降级自动生效。K3 自动合并的 PR 按编号哈希每 3 个抽 1 个开 audit 议题，满 10 个抽审无问题后由用户调低比例。判定放在这里而不是 PR 自己的 CI 里，是因为 `pull_request` 事件执行的是 PR 分支里的 workflow 定义。
+放权只能由用户改 `.harness/config/autonomy.toml`（R3），降级自动生效。K3 自动合并的 PR 按编号哈希每 3 个抽 1 个开 audit 议题，满 10 个抽审无问题后由用户调低比例。判定放在这里而不是 PR 自己的 CI 里，是因为 `pull_request` 事件执行的是 PR 分支里的 workflow 定义。
 
 ## 4. 三层护栏
 
@@ -90,7 +90,7 @@ harness 只依赖 Python 标准库，放在仓库顶层 `harness/`，不进发�
 |---|---|---|
 | 服务端 | `.github/rulesets/main.json`：main 禁删除与改写，必须经 PR，`build` 与 `harness` 检查必须通过，且 PR 须基于最新 main（严格模式）；`release-tags.json`：`v*` tag 禁移动与删除；release job 走 environment `release`，由用户批准 | 本机 Agent 无法绕过 |
 | git | `.githooks/pre-commit`（保护分支上禁止提交、暂存区卫生、快速 verify）；`pre-push`（禁推 main 与 tag、禁强制推送、本次推送的改动卫生、完整 verify）；`reference-transaction`（禁本地改写或删除 main、移动或删除 tag，含 filter-repo） | 防误操作，不防有意绕过：`--no-verify`、改 `core.hooksPath`、改守卫代码或运行时解释器都能绕过（规则文件已改为读 origin/main）；Agent 层拒绝其中能识别的命令 |
-| Agent | `harness/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release`（只读的 `list`、`view` 放行）与删除 CI 记录、GitHub API 写请求（`gh api` 写方法与对 api.github.com 的 curl 写请求）；删除议题，撤下或删改登记标签（`escape`、`audit`、`escalation`、`budget-exceeded`、`class:K*`，含 MCP 的删除议题与标签工具）；引号或反斜杠拆写的命令另按去掉引号的形式再查一遍；Agent 自行合并 PR（`gh pr merge` 与 MCP 的合并、开启自动合并工具，用户决定 D4）；`--role implementer` 另禁编辑判定器与护栏、合同（`docs/plans/task-*.md`、`docs/specs/**`）与运行记录（`docs/runs/**`），以及关闭、重开、改动议题和标签（`gh issue close/edit…`、`gh pr edit --add/remove-label`、`gh label`、MCP 的议题写工具）。设计评审方可以关闭审完的 audit 议题 | 取决于各家 hook 能力 |
+| Agent | `.harness/engine/guards/command_guard.py`：拒绝改写历史、强推、推 main 与 tag、建删 tag、跳过钩子、设置覆盖变量、`reset --hard`、不带 venv 排除的 `git clean -x`、删除工作区外路径、`gh release`（只读的 `list`、`view` 放行）与删除 CI 记录、GitHub API 写请求（`gh api` 写方法与对 api.github.com 的 curl 写请求）；删除议题，撤下或删改登记标签（`escape`、`audit`、`escalation`、`budget-exceeded`、`class:K*`，含 MCP 的删除议题与标签工具）；引号或反斜杠拆写的命令另按去掉引号的形式再查一遍；Agent 自行合并 PR（`gh pr merge` 与 MCP 的合并、开启自动合并工具，用户决定 D4）；`--role implementer` 另禁编辑判定器与护栏、合同（`docs/plans/task-*.md`、`docs/specs/**`）与运行记录（`docs/runs/**`），以及关闭、重开、改动议题和标签（`gh issue close/edit…`、`gh pr edit --add/remove-label`、`gh label`、MCP 的议题写工具）。设计评审方可以关闭审完的 audit 议题 | 取决于各家 hook 能力 |
 
 覆盖变量只供人使用（Agent 层会拒绝设置它们的命令）：
 
@@ -114,9 +114,9 @@ Agent 层按角色接入：
 ## 5. 一次性设置（用户）
 
 1. GitHub ruleset（先做：它是唯一不能被本机绕过的一层）：仓库 Settings → Rules → Rulesets → New ruleset → Import a ruleset，依次导入 `.github/rulesets/main.json` 与 `.github/rulesets/release-tags.json`。
-2. 本机环境：由 Agent 按 AGENTS.md「新环境准备」自行完成（重建 venv、装开发依赖、`python3 harness/git_guard.py install`、`bin/verify`），不需要人执行。
+2. 本机环境：由 Agent 按 AGENTS.md「新环境准备」自行完成（重建 venv、装开发依赖、`bin/harness guard-git install`、`bin/verify`），不需要人执行。
 3. 发版审批：Settings → Environments → New environment，名称 `release`，勾选 Required reviewers 并加上自己；只有一个维护者时不要勾选 Prevent self-review。
-4. Codex（用 Codex 时必做，`.codex/hooks.json` 改动后需重做）：在仓库根启动交互式 `codex`，出现「Hooks need review」时先选 Review hooks，确认命令是调用 `harness/command_guard.py --role designer`，再信任。也可以启动后执行 `/hooks` 信任。信任只能由用户做；`--dangerously-bypass-hook-trust` 不用于本仓库。
+4. Codex（用 Codex 时必做，`.codex/hooks.json` 改动后需重做）：在仓库根启动交互式 `codex`，出现「Hooks need review」时先选 Review hooks，确认命令是调用 `.harness/engine/guards/command_guard.py --role designer`，再信任。也可以启动后执行 `/hooks` 信任。信任只能由用户做；`--dangerously-bypass-hook-trust` 不用于本仓库。
 5. Pi（执行方用 Pi 时必做）：在仓库根目录启动 `pi`，执行 `/trust` 保存对本项目的信任（写入用户级 `~/.pi/agent/trust.json`，由用户自行执行），重启 pi 后项目扩展才会加载；或每次运行都加 `-a`。
 6. Zcode（执行方用 Zcode 时必做，每个克隆一次，`.zcode/config.json` 改动后需重做）：`zcode hooks trust status --workspace <仓库根>` 查看，确认声明内容后由用户执行它提示的 `zcode hooks trust grant --workspace <仓库根> --hook-digest <sha256>`。
 7. 设置后自检（只看、不改）：Rulesets 列表中两条规则均为 Active；任一 PR 页面上 `build` 与 `harness` 标为 Required。不要用真实推送 main 的方式测试：规则没生效时会真的改掉 main。
@@ -144,9 +144,9 @@ Agent 层按角色接入：
 | CI harness job | 首次运行即拦下测试数据里的真实用户目录（run 36148783352） | ✅ |
 | git 钩子 | 临时仓库真实 git 回放：main 上提交、amend、移动与删除 tag、filter-repo、推 main、推 tag、强推、推送卫生（`tests/test_harness_guard.py`） | ✅ Linux；macOS 由 CI 覆盖 |
 | Claude Code PreToolUse | 2026-09-25 本仓库会话中真实拦截 3 次（均为命令文本含危险字样的误报，拦截本身生效） | ✅ 真实会话 |
-| OpenCode 插件 | node 加载插件的单测；2026-09-26 真实 OpenCode（`opencode run`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改 | ✅ 真实会话 |
-| Pi 扩展 | node 加载扩展的单测（`PiExtensionTest`）；2026-09-26 真实 Pi（`pi -a -p`）中实测：设置覆盖变量的命令被拒、编辑 `harness/rules.toml` 被拒且文件未改；**未信任项目时（`pi -p` 不带 `-a`）同一命令照常执行**，扩展未加载 | ✅ 已信任时；⚠️ 依赖用户按 §5 第 5 步信任项目 |
-| Zcode 钩子 | `.zcode/config.json` 按声明运行钩子命令的单测（`ZcodeHookConfigTest`）。2026-09-26 真实 Zcode 0.16.9 实测：CLI（`zcode -p`）识别到声明并可授予信任，但**信任后两项探针仍放行**。日志为 `workspace_hook.feature_disabled`：源码中只有协议服务端（桌面 ZCode.app 等宿主）显式打开工作区钩子（`workspaceHookTrustEnabled: true`，注释称灰度开关），CLI 与 TUI 未打开 2026-09-26 桌面版 ZCode.app 实测（主仓库授信任后由用户发两项探针）：设置覆盖变量的命令、编辑 `harness/rules.toml` 均被「harness 守卫」拒绝，文件未改。CLI 没有启用该功能的参数：开关只由协议服务端注入，不读项目配置或环境变量 | ✅ 桌面版；❌ CLI 与 TUI（只剩 git 与服务端两层） |
+| OpenCode 插件 | node 加载插件的单测；2026-09-26 真实 OpenCode（`opencode run`）中实测：设置覆盖变量的命令被拒、编辑 `.harness/config/rules.toml` 被拒且文件未改 | ✅ 真实会话 |
+| Pi 扩展 | node 加载扩展的单测（`PiExtensionTest`）；2026-09-26 真实 Pi（`pi -a -p`）中实测：设置覆盖变量的命令被拒、编辑 `.harness/config/rules.toml` 被拒且文件未改；**未信任项目时（`pi -p` 不带 `-a`）同一命令照常执行**，扩展未加载 | ✅ 已信任时；⚠️ 依赖用户按 §5 第 5 步信任项目 |
+| Zcode 钩子 | `.zcode/config.json` 按声明运行钩子命令的单测（`ZcodeHookConfigTest`）。2026-09-26 真实 Zcode 0.16.9 实测：CLI（`zcode -p`）识别到声明并可授予信任，但**信任后两项探针仍放行**。日志为 `workspace_hook.feature_disabled`：源码中只有协议服务端（桌面 ZCode.app 等宿主）显式打开工作区钩子（`workspaceHookTrustEnabled: true`，注释称灰度开关），CLI 与 TUI 未打开 2026-09-26 桌面版 ZCode.app 实测（主仓库授信任后由用户发两项探针）：设置覆盖变量的命令、编辑 `.harness/config/rules.toml` 均被「harness 守卫」拒绝，文件未改。CLI 没有启用该功能的参数：开关只由协议服务端注入，不读项目配置或环境变量 | ✅ 桌面版；❌ CLI 与 TUI（只剩 git 与服务端两层） |
 | Codex hooks | 载荷解析单测（含列表形式命令），`CodexHookConfigTest` 按 `.codex/hooks.json` 的声明运行钩子。2026-09-26 Codex 0.157.1 在临时仓库实测：项目级 hooks.json 被读取；未信任时 `codex exec` 静默不运行、命令照常执行；用户信任后，探针钩子以 JSON 拒绝拦下命令（`Command blocked by PreToolUse hook`）；载荷为 `tool_name: Bash`、`tool_input.command` 字符串，与守卫的 Claude 格式一致。同日用户信任本仓库钩子后，在仓库内实测 `codex exec`：`git status` 放行，`gh pr merge` 被守卫以退出码 2 拒绝，Codex 报 `Command blocked by PreToolUse hook: harness 守卫拒绝了这次操作…`，拒绝理由原样回给模型。2026-09-28 Codex 桌面版实测（用户在本仓库执行）：`git status` 放行，`gh pr merge 999999` 被 PreToolUse 钩子拦截、未执行，桌面版同样执行项目级 `.codex/hooks.json` | ✅ 真实会话（`codex exec` 与桌面版） |
 | ruleset | 配置文件与 workflow 一致性单测（`tests/test_harness_release.py`）；2026-09-25 导入后经 GitHub API 核对：两条均 Active、规则与文件一致（GitHub 为 PR 规则补了默认参数）、无绕过名单，main 上生效的规则为禁删、禁强推、必须经 PR、`build` 与 `harness` 必须通过 | ✅ |
 | 必过检查严格模式、密钥扫描（B15、B26） | 2026-09-28 用户在仓库设置中修改后，经 GitHub API 只读核对：main 规则（Active）`strict_required_status_checks_policy: true`，`build` 与 `harness` 必过、无绕过名单，其余规则不变；`secret_scanning` 与 `secret_scanning_push_protection` 均为 `enabled`。`.github/rulesets/main.json` 同步为严格模式 | ✅ 配置；推送被拦的实际效果待首次命中 |
@@ -180,11 +180,11 @@ Agent 层按角色接入：
   - 残余：Agent 与用户在同一个 macOS 用户下运行，技术上能读到用户在 gh 里的登录凭据，再以用户身份批准。这一步只靠 Agent 层守卫拦（拒绝 `gh pr review --approve` 与 MCP 评审工具）；彻底隔离要给 Agent 单独的系统用户。
   - 用户自己开的 PR 同样需要别人批准，由 `Snowson` 账号批准，或临时调整 ruleset。
 - **PR 在自己的 workflow 里合并自己**：`pull_request` 事件执行 PR 分支里的 workflow 定义。D3 之后合并需要非推送者批准，`GITHUB_TOKEN` 既不能批准（仓库已关闭「允许 Actions 批准 PR」），也取不到 environment `auto-merge` 中的 App 凭据，因此 PR 不能再合并自己。仍依赖的前提：environment 的分支限制只允许 main；App 只装在本仓库，只有 Contents 与 Pull requests 写权限。App 的 Contents 写权限是批准被计入的前提（H0926-6），它的令牌因此也能推送；令牌只在 main 上的 auto-merge、判定为 R0/R1 之后取得。
-- **命令守卫按命令结构判断**（2026-09-26，方案 §13 E3，`harness/shell_structure.py`）：把命令拆成简单命令，只对会执行的程序（git、rm、gh、curl 与覆盖变量的赋值）按参数判断；echo、grep 模式、提交说明、Agent 提示词、heredoc 正文、注释里的文字不再误拒。会执行但看不到结构的地方退回字符串规则：`python -c` 等解释器代码、交给 shell 或解释器执行的 stdin（heredoc 与 here-string 只判断被执行的那段正文，管道整段判断）、无法解析的命令（引号不配对）；`bash -c`、`eval`、`$(...)`、反引号递归按结构判断。仍然识别不了的：脚本文件内部（`bash x.sh`、`python3 x.py`）、`xargs` 从 stdin 补的参数、变量间接展开出的命令名。实测探针不要再用 `echo 覆盖变量=1`（现在按数据放行），改用会真实执行、被放过也无害的命令，例如对不存在的分支强推。此前字符串匹配阶段记录了 6 次误报。
+- **命令守卫按命令结构判断**（2026-09-26，方案 §13 E3，`.harness/engine/core/shell_structure.py`）：把命令拆成简单命令，只对会执行的程序（git、rm、gh、curl 与覆盖变量的赋值）按参数判断；echo、grep 模式、提交说明、Agent 提示词、heredoc 正文、注释里的文字不再误拒。会执行但看不到结构的地方退回字符串规则：`python -c` 等解释器代码、交给 shell 或解释器执行的 stdin（heredoc 与 here-string 只判断被执行的那段正文，管道整段判断）、无法解析的命令（引号不配对）；`bash -c`、`eval`、`$(...)`、反引号递归按结构判断。仍然识别不了的：脚本文件内部（`bash x.sh`、`python3 x.py`）、`xargs` 从 stdin 补的参数、变量间接展开出的命令名。实测探针不要再用 `echo 覆盖变量=1`（现在按数据放行），改用会真实执行、被放过也无害的命令，例如对不存在的分支强推。此前字符串匹配阶段记录了 6 次误报。
 - **Zcode 与 Pi 的拦截依赖用户信任**：Zcode 的工作区钩子未经信任不执行，Pi 的项目扩展在未信任项目时不加载。此时它们设置覆盖变量或使用 `--no-verify`，本机两层都挡不住，只有服务端兜底。
-- **本机护栏的信任根在可写路径**（评审 PR7-R3）：git 钩子的规则文件曾在执行者可写的工作区，改掉 `protected_branches` 即可让本机改写 main 不受拦截。现在钩子按 origin/main 上的 `harness/rules.toml` 执行，工作区版本不一致时告警；但守卫代码（`harness/git_guard.py`、`.githooks/`）与运行时解释器（`scratch/iterm-probe-venv`）仍可被改。本机两层定位为防误操作，防有意绕过只能靠服务端 ruleset 与发版审批，所以一次性设置里 ruleset 排在第一步。
+- **本机护栏的信任根在可写路径**（评审 PR7-R3）：git 钩子的规则文件曾在执行者可写的工作区，改掉 `protected_branches` 即可让本机改写 main 不受拦截。现在钩子按 origin/main 上的 `.harness/config/rules.toml` 执行，工作区版本不一致时告警；但守卫代码（`.harness/engine/guards/git_guard.py`、`.githooks/`）与运行时解释器（`scratch/iterm-probe-venv`）仍可被改。本机两层定位为防误操作，防有意绕过只能靠服务端 ruleset 与发版审批，所以一次性设置里 ruleset 排在第一步。
   - 「读 origin/main」只在本地远端引用可信时成立（评审 PR7-R8）：本地的 `refs/remotes/origin/main` 不受保护，把它改指伪造的提交，或把 remote 指向伪造的源再 fetch，守卫就会读到伪造的规则并照常告警「按 origin/main 的规则执行」。
-  - 本 PR 合并前 main 上没有 `harness/rules.toml`，钩子退回读工作区版本；更根本的是 main 上还没有 `.githooks/`，检出 main 时本机没有任何 git 守卫（2026-09-26 评审报告直接提交到 main 即因此未被拦截，见基线评审 H0926-1）。
+  - 本 PR 合并前 main 上没有 `.harness/config/rules.toml`，钩子退回读工作区版本；更根本的是 main 上还没有 `.githooks/`，检出 main 时本机没有任何 git 守卫（2026-09-26 评审报告直接提交到 main 即因此未被拦截，见基线评审 H0926-1）。
 - **base_tests 的篡改检查在同一进程内**（评审 PR7-R7）：base 版本的测试 import 的是 head 的产品代码。`base_tests_runner.py` 在运行前后比对 unittest 各类与模块的属性，并跑一组必然失败的哨兵用例；risk.py 对产品代码新增的测试框架引用加标记（取消 R1）。专门针对这两处检查的篡改（例如识别哨兵用例名、改后在检查前复原）仍可能漏过，由评审兜底；接上 L4 自动合并（方案 §13 E1）前需复核这一残余。
 
 ## 8. 停机与恢复

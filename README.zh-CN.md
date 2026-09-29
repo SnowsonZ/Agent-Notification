@@ -129,15 +129,16 @@ python3 -W error::ResourceWarning -m unittest discover -s tests -v
 | [系统 Terminal 备选](docs/plans/terminal-migration.md) | 设计方案 | 无额外依赖的备用终端探针（暂缓） |
 | [用量金额与桌面组件执行计划](docs/plans/usage-cost-widgets-execution.md) | 设计方案 | 工作包、里程碑评审关口与交付要求 |
 | [可验证交付 harness](docs/specs/delivery-harness.md) | 规范 | bin/verify、任务书准入、风险等级与合并路由、派发（bin/dispatch）与运行记录、独立评审、周报、三层护栏、停机与恢复、一次性设置与验证状态 |
-| [任务模板](docs/templates/task.md) | 模板 | 任务书即合同：YAML 头部（类别、风险、设计方、预算）、终态、非目标、挂规格编号的验收、步骤与提交顺序、升级包；`harness/taskbook.py` 准入。[计划模板](docs/templates/archive/plan.md)已归档（并入任务书） |
-| [评审清单](docs/templates/review-checklist.md)、[评审提示词](docs/templates/review-prompt.md) | 模板 | 由失败分类生成的评审清单与评审方工作方式，配合 `harness/review_pack.py` 证据包 |
+| [任务模板](docs/templates/task.md) | 模板 | 任务书即合同：YAML 头部（类别、风险、设计方、预算）、终态、非目标、挂规格编号的验收、步骤与提交顺序、升级包；`.harness/engine/checks/taskbook.py` 准入。[计划模板](docs/templates/archive/plan.md)已归档（并入任务书） |
+| [评审清单](docs/templates/review-checklist.md)、[评审提示词](docs/templates/review-prompt.md) | 模板 | 由失败分类生成的评审清单与评审方工作方式，配合 `.harness/engine/agents/review_pack.py` 证据包 |
 | [试跑任务 001：补 DR14 测试](docs/plans/trial-001-dr14.md) | 设计方案 | 可验证交付首个真实任务试跑：任务说明、预算与试跑记录表 |
 | [任务 002：补齐测试缺口](docs/plans/task-002-test-gaps.md) | 设计方案 | 变异测试暴露的 9 处缺口与 V080-R7 回归测试（已完成，PR #30） |
 | [任务 003：今日用量传入写入器](docs/plans/task-003-r9-today-usage.md) | 设计方案 | V080-R9：去掉默认参数、抽出用量键与查找的纯函数，交执行方 |
 | [任务 004：今日 token 从未显示](docs/plans/task-004-today-tokens.md) | 设计方案 | H0926-7 会话 ID 解码失败、H0926-8 签名不含用量，交执行方 |
 | [任务 005：金额热力分级边界测试](docs/plans/task-005-cost-level-boundaries.md) | 设计方案 | K2：杀死 `cost_level` 的两处存活变异；`bin/dispatch` 端到端验收（待办 B21） |
 | [待办清单](docs/plans/backlog.md) | 设计方案 | 未关闭事项的唯一清单（有日期或触发条件、可做未排期、持续或暂缓、用户本机环境） |
-| [harness 说明](harness/README.md) | 设计方案 | 可验证交付的愿景、理念出处、原则与组件对照、阅读顺序 |
+| [delivery-harness 引擎](https://github.com/SnowsonZ/delivery-harness/blob/main/README.zh-CN.md) | 外部项目 | 从本仓库抽出的可验证交付引擎：愿景、理念出处、原则与组件对照；本仓库以内置副本装在 `.harness/engine/` |
+| [0001 harness 抽成独立引擎](docs/decisions/0001-harness-extraction.md) | 决策记录 | 以带锁文件的内置副本安装、引擎不带使用者默认值、放弃 pip/submodule/可复用 workflow 的理由 |
 | [2026-09-25 落地交接说明](docs/plans/2026-09-25-harness-rollout-handoff.md) | 设计方案（历史） | harness 开工时的基线、失败分类、可验证性地图与 P0–P6 路线，原为调研报告最后一节 |
 | [可验证交付方案](docs/plans/verifiable-delivery.md) | 设计方案 | 以本项目为标杆的全链路 harness：可验证定义、角色、风险等级、护栏分层与 P0–P6 阶段 |
 | [日报与桌面组件重设计](docs/plans/2026-09-24-report-widget-redesign.md) | 设计决策记录 | 口径决定（金额伴随/USD-only/官方图标）、实施与已知边界 |

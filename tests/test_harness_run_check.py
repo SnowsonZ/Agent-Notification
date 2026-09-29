@@ -11,12 +11,11 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-import policy
-import r1_checks
-import run_check
+from engine.checks import r1_checks
+from engine.routing import policy, run_check
 from test_harness import TempRepo
 
 HEADER = """---
@@ -133,13 +132,13 @@ class RunCheckTest(unittest.TestCase):
         """方案 B（用户 2026-09-28）：设计方自行实现时任务书与实现同一个 PR，不经派发脚本，不要求运行记录。"""
         self.repo.git("checkout", "-q", "-B", "task/harness-x", self.base)
         self.repo.write("docs/plans/task-006-harness-x.md", HEADER.replace("T005", "T006").replace("K2", "K7"))
-        self.repo.write("harness/x.py", "X = 1\n")
+        self.repo.write(".harness/x.py", "X = 1\n")
         self.repo.git("add", "-A")
         self.repo.git("commit", "-q", "-m", "harness\n\nTask: T006")
         findings = run_check.check(self.base, "HEAD", "task/harness-x", self.repo.path, rounds=None)
         self.assertEqual([(item.name, item.ok) for item in findings], [("归属", True), ("运行记录", True)])
         self.assertIn("设计方自行实现", findings[1].reason)
-        self.repo.write("harness/y.py", "Y = 1\n")
+        self.repo.write(".harness/y.py", "Y = 1\n")
         self.repo.git("add", "-A")
         self.repo.git("commit", "-q", "-m", "no trailer")
         self.assertIn("没有 `Task: T006`", {i.name: i.reason for i in run_check.check(

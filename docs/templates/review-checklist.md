@@ -5,7 +5,7 @@
 不重复劳动）和必须由评审方亲自看的部分。tests/test_harness_review.py 检查本清单覆盖全部失败类型。
 -->
 
-评审前先生成证据包：`python3 harness/review_pack.py --base origin/main`。证据包里已有的结论（风险等级、修复证据、verify、验收映射）只需核对与当前 head 一致；评审的时间花在下表「评审必须看」一列。
+评审前先生成证据包：`bin/harness review-pack --base origin/main`。证据包里已有的结论（风险等级、修复证据、verify、验收映射）只需核对与当前 head 一致；评审的时间花在下表「评审必须看」一列。
 
 | 类型 | 机器已判定 | 评审必须看 |
 |---|---|---|

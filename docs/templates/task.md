@@ -20,7 +20,7 @@ rollback: git revert    # 回滚方式
 <!--
 可验证交付任务模板（docs/specs/delivery-harness.md §2）。
 设计与评审方（Codex / Claude Code）填写，执行方（Zcode / OpenCode / Pi）按此实施；执行方对任务书只读。
-准入检查：`python3 harness/taskbook.py`（verify 各档运行）；派发前 `python3 harness/taskbook.py <本文件> --on-main`。
+准入检查：`bin/harness taskbook`（verify 各档运行）；派发前 `bin/harness taskbook <本文件> --on-main`。
 没有写成可执行验收的任务不进入执行；需求模糊时先回到这里澄清，而不是在 PR 里澄清。
 
 按规模取用：
@@ -51,7 +51,7 @@ rollback: git revert    # 回滚方式
 - `不挂规格：<原因>`。
 
 头部 `spec_refs` 与表中挂的编号一致。可自动化条目在「覆盖」用反引号写明测试名或命令，交付时必须有测试
-（`harness/acceptance.py` 检查）；人工条目写清步骤与预期。完成定义另含：verify 全绿（默认包含，不必逐条写）、
+（`.harness/engine/checks/acceptance.py` 检查）；人工条目写清步骤与预期。完成定义另含：verify 全绿（默认包含，不必逐条写）、
 非功能约束（隐私、兼容性，写进本表）、用户可见的变更更新 README 或规格。
 
 | 编号 | 验收内容 | 证据类型 | 覆盖（测试名或验证步骤） |
@@ -79,10 +79,10 @@ rollback: git revert    # 回滚方式
 ## 交付要求
 
 - 提交前 `bin/verify` 通过；改动测试或产品逻辑后跑 `bin/verify --full`
-- 修复评审发现的缺陷（给已修复的缺陷补回归护栏不算，不带 `Defect:`，见规范 §2）：提交说明带 `Defect: <编号>`，测试里标注同一编号；在 PR 里写明回放注入点（文件、修复后的原文、退回成的写法），回放用例由评审方在同一个 PR 里加进 `harness/replay_cases.py`（它是判定器，执行方不能编辑；缺回放时 harness job 失败）
+- 修复评审发现的缺陷（给已修复的缺陷补回归护栏不算，不带 `Defect:`，见规范 §2）：提交说明带 `Defect: <编号>`，测试里标注同一编号；在 PR 里写明回放注入点（文件、修复后的原文、退回成的写法），回放用例由评审方在同一个 PR 里加进 `.harness/project/replay_cases.py`（它是判定器，执行方不能编辑；缺回放时 harness job 失败）
 - 修复需要新增函数或接口时，先用不带 `Defect` 的提交抽出可测位置并保持旧行为（`Risk: R1`），再在带 `Defect` 的提交里改行为并加测试，让修复前以断言失败结束（规范 §2）；编号写错就在后续提交里加 `Defect-Withdrawn: <编号>`，不改写历史
 - PR 正文、评论先写进 `build/` 下的文件，再用 `--body-file` 传入
-- 补完某条验收编号的测试后，从 `harness/acceptance-gaps.txt` 删除对应行（执行方可编辑的唯一 harness 文件；只能删不能加）
+- 补完某条验收编号的测试后，从 `.harness/state/acceptance-gaps.txt` 删除对应行（执行方可编辑的唯一 harness 文件；只能删不能加）
 - PR 附当前 head 的 CI 链接；「已修复」「测试通过」由 CI 的 harness job 生成，不手写
 - 卡住时按下方格式升级，不要无限重试
 

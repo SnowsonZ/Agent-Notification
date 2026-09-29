@@ -1,4 +1,4 @@
-"""任务书准入检查（harness/taskbook.py）与按类别判级（harness/risk.py）、合同对执行方只读（command_guard）。
+"""任务书准入检查（harness/taskbook.py）与按类别判级（.harness/engine/routing/risk.py）、合同对执行方只读（command_guard）。
 
 设计文档第四节 4.5 的机器验收：缺头部、验收未挂编号、类别与风险不相容的样例任务书各被拒绝；
 执行方编辑任务书被守卫拒绝；任务书按类别判级；历史任务 002–004 补头部或登记豁免后全绿。
@@ -11,13 +11,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-import command_guard
-import risk
-import taskbook
-from common import load_rules
+from engine.checks import taskbook
+from engine.core.common import load_rules
+from engine.guards import command_guard
+from engine.routing import risk
 from test_harness import TempRepo
 
 SPEC_IDS = {"DR14": "docs/specs/daily-report.md", "U4": "docs/specs/usage-cost.md"}
@@ -136,11 +136,11 @@ class TaskbookAdmissionTest(unittest.TestCase):
         self.assertEqual(check(header(size="small") + body), [])
 
     def test_steps_cross_check_class_risk_and_architecture(self):
-        guard = header() + BODY.replace("`scripts/daily_report.py`", "`harness/risk.py`")
+        guard = header() + BODY.replace("`scripts/daily_report.py`", "`.harness/engine/routing/risk.py`")
         errors = check(guard)
         self.assertRejected(errors, "class 应为 K7")
         self.assertRejected(errors, "risk 应为 R3")
-        self.assertEqual(check(header(**{"class": "K7", "risk": "R3"}) + BODY.replace("`scripts/daily_report.py`", "`harness/risk.py`")), [])
+        self.assertEqual(check(header(**{"class": "K7", "risk": "R3"}) + BODY.replace("`scripts/daily_report.py`", "`.harness/engine/routing/risk.py`")), [])
         two_modules = BODY.replace("`tests/test_daily_report.py`", "`native/InboxPolicy.swift`")
         self.assertRejected(check(header() + two_modules), "应声明 architecture: true")
         self.assertEqual(check(header(architecture="true") + two_modules), [])
@@ -181,7 +181,7 @@ class TaskbookRiskTest(unittest.TestCase):
         self.addCleanup(self.repo.close)
         self.repo.write("docs/plans/backlog.md", "b\n")
         self.repo.write("docs/templates/task.md", "t\n")
-        self.repo.write("harness/taskbook-exempt.txt", "docs/plans/task-002-a.md  # a\ndocs/plans/task-003-b.md  # b\n")
+        self.repo.write(".harness/state/taskbook-exempt.txt", "docs/plans/task-002-a.md  # a\ndocs/plans/task-003-b.md  # b\n")
         self.base = self.repo.commit("base")
         self.repo.git("checkout", "-q", "-b", "work")
 
@@ -222,9 +222,9 @@ class TaskbookRiskTest(unittest.TestCase):
         self.assertEqual(self.level("docs/plans/backlog.md", "b2\n")[0], "R2")
 
     def test_exempt_list_may_only_shrink(self):
-        self.assertEqual(self.level("harness/taskbook-exempt.txt", "docs/plans/task-002-a.md  # a\n")[0], "R0")
+        self.assertEqual(self.level(".harness/state/taskbook-exempt.txt", "docs/plans/task-002-a.md  # a\n")[0], "R0")
         grown = "docs/plans/task-002-a.md  # a\ndocs/plans/task-003-b.md  # b\ndocs/plans/task-009-c.md  # c\n"
-        self.assertEqual(self.level("harness/taskbook-exempt.txt", grown)[0], "R3")
+        self.assertEqual(self.level(".harness/state/taskbook-exempt.txt", grown)[0], "R3")
 
 
 class ContractGuardTest(unittest.TestCase):
