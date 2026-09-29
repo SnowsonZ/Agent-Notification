@@ -13,10 +13,10 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-import review
+from engine.agents import review
 from test_harness import TempRepo
 
 
@@ -296,7 +296,9 @@ class BackgroundTest(unittest.TestCase):
 
 class CalibrationTest(unittest.TestCase):
     def test_samples_cover_replay_cases_and_manifest(self):
-        from replay_cases import CASES
+        from engine.core.cases import load_project_cases
+
+        CASES = load_project_cases().CASES
 
         samples = review.calibration_samples()
         manifest = json.loads((ROOT / "evals/review/samples.json").read_text())

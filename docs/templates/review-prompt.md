@@ -6,7 +6,7 @@
 
 ## 步骤
 
-1. `git fetch origin`，然后 `python3 harness/review_pack.py --base origin/main --output build/review/pack.md` 生成证据包。
+1. `git fetch origin`，然后 `bin/harness review-pack --base origin/main --output build/review/pack.md` 生成证据包。
 2. 确认当前 head 的 CI（`build` 与 `harness` 两个 job）已通过，记录 run 链接；未通过时直接给出「不通过」，不做其余评审。
 3. 对照 `docs/templates/review-checklist.md`，按本次 diff 涉及的失败类型逐条看「评审必须看」一列；「机器已判定」一列只核对证据包结论与 head 一致。
 4. 对证据包列出的验收编号：可自动化条目打开对应测试，确认它断言的是这条验收、并且调用的是产品代码；人工条目整理成给用户的验收步骤。

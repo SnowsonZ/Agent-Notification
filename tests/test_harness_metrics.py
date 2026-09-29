@@ -7,11 +7,11 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import metrics
-import quality
+from engine.checks import quality
+from engine.reports import metrics
 from test_harness import FIXED, TEST_MODULE, TempRepo
 
 

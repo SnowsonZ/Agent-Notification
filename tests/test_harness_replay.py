@@ -7,12 +7,14 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import mutate
-import replay
-from replay_cases import BASELINE, CASES, DEFERRED, GUARDED
+from engine.checks import mutate, replay
+from engine.core.cases import load_project_cases
+
+_PROJECT = load_project_cases()
+BASELINE, CASES, DEFERRED, GUARDED = _PROJECT.BASELINE, _PROJECT.CASES, _PROJECT.DEFERRED, _PROJECT.GUARDED
 
 
 class ReplayCatalogTest(unittest.TestCase):
@@ -74,7 +76,7 @@ class MutateTest(unittest.TestCase):
                 self.assertNotEqual(mutated, original)
 
     def test_targets_point_at_existing_functions(self):
-        for target in mutate.TARGETS:
+        for target in mutate.load_targets():
             with self.subTest(target=target.name):
                 tree = ast.parse((ROOT / target.file).read_text(encoding="utf-8"))
                 found = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
@@ -89,7 +91,7 @@ class MutateTest(unittest.TestCase):
         import json
 
         baseline = json.loads(mutate.BASELINE.read_text())
-        self.assertEqual(set(baseline), {target.name for target in mutate.TARGETS})
+        self.assertEqual(set(baseline), {target.name for target in mutate.load_targets()})
 
 
 if __name__ == "__main__":

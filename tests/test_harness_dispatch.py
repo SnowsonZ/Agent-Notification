@@ -16,10 +16,9 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 
-import dispatch
-import dispatch_host
+from engine.agents import dispatch, dispatch_host
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -223,7 +222,7 @@ class DispatchTest(unittest.TestCase):
         self.assertNotIn("GITHUB_TOKEN", seen)
         self.assertTrue(seen["GH_CONFIG_DIR"])
         self.assertEqual(seen["GIT_CONFIG_KEY_0"], "credential.helper")
-        self.assertEqual(seen["GIT_AUTHOR_NAME"], dispatch.AGENT_LOGIN)
+        self.assertEqual(seen["GIT_AUTHOR_NAME"], dispatch.agent_identity()[0])
 
     def test_claimed_branch_stops_before_running(self):
         runner, host = self.dispatcher(["commit"], FakeGitHub(claimed={"task/005-new-test"}))
@@ -239,8 +238,8 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(host.prompts, [])
 
     def test_exempt_history_taskbook_is_refused(self):
-        (self.root / "harness").mkdir(exist_ok=True)
-        (self.root / "harness/taskbook-exempt.txt").write_text("docs/plans/task-005-new-test.md  # 历史\n")
+        (self.root / ".harness/state").mkdir(parents=True, exist_ok=True)
+        (self.root / ".harness/state/taskbook-exempt.txt").write_text("docs/plans/task-005-new-test.md  # 历史\n")
         with self.assertRaisesRegex(dispatch.Stop, "豁免"):
             dispatch.admit("docs/plans/task-005-new-test.md", self.root)
 
@@ -343,21 +342,21 @@ class GuardBundleTest(unittest.TestCase):
         subprocess.run(["git", "clone", "-q", str(origin), str(self.root)], check=True, capture_output=True)
 
     def publish(self, broken=False):
-        shutil.copytree(ROOT / "harness", self.root / "harness", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(ROOT / ".harness", self.root / ".harness", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(ROOT / ".pi", self.root / ".pi")
         if broken:
-            (self.root / "harness/command_guard.py").write_text("raise SystemExit(0)\n")
+            (self.root / ".harness/engine/guards/command_guard.py").write_text("raise SystemExit(0)\n")
         for args in (["add", "-A"], ["commit", "-q", "-m", "guard"], ["push", "-q", "origin", "HEAD:main"],
                      ["fetch", "-q", "origin"]):
             subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
 
     def test_guard_comes_from_origin_main(self):
         self.publish()
-        (self.root / "harness/command_guard.py").write_text("raise SystemExit(0)\n")  # 工作区被改：不影响
+        (self.root / ".harness/engine/guards/command_guard.py").write_text("raise SystemExit(0)\n")  # 工作区被改：不影响
         extension, ref = dispatch.prepare_guard(self.root)
         self.assertTrue(extension.exists())
         self.assertIn(ref, str(extension))
-        self.assertNotIn("SystemExit(0)", (extension.parents[2] / "harness/command_guard.py").read_text())
+        self.assertNotIn("SystemExit(0)", (extension.parents[2] / ".harness/engine/guards/command_guard.py").read_text())
 
     def test_broken_guard_on_main_stops_dispatch(self):
         self.publish(broken=True)

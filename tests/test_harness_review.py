@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import review_pack
+from engine.agents import review_pack
 from test_harness import FIXED, TEST_MODULE, TempRepo
 
 BUGGY = "def percentile_levels(amounts):\n    return amounts[len(amounts) // 2]\n"

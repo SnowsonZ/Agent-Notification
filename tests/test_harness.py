@@ -16,18 +16,16 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 
-import evidence
-import hygiene
-import risk
-import verify
-from common import (
+from engine.checks import evidence, hygiene, verify
+from engine.core.common import (
     clean_git_env,
     load_rules,
     parse_added_lines,
     path_matches,
 )
+from engine.routing import risk
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t",
@@ -204,13 +202,13 @@ class RiskTest(unittest.TestCase):
         self.assertTrue(any("测试框架" in flag for flag in report.flags), report.flags)
 
     def test_shrinking_gap_list_is_r0_but_growing_is_r3(self):
-        self.repo.write("harness/acceptance-gaps.txt", "DR14  # a\nIN99  # b\n")
+        self.repo.write(".harness/state/acceptance-gaps.txt", "DR14  # a\nIN99  # b\n")
         self.repo.commit("gaps")
         self.base = self.repo.git("rev-parse", "HEAD")
-        self.repo.write("harness/acceptance-gaps.txt", "DR14  # a\n")
+        self.repo.write(".harness/state/acceptance-gaps.txt", "DR14  # a\n")
         self.repo.commit("close IN99")
         self.assertEqual(self.classify().label, "R0")
-        self.repo.write("harness/acceptance-gaps.txt", "DR14  # a\nXX1  # new\n")
+        self.repo.write(".harness/state/acceptance-gaps.txt", "DR14  # a\nXX1  # new\n")
         self.repo.commit("grow")
         self.assertEqual(self.classify().label, "R3")
 
@@ -221,7 +219,7 @@ class RiskTest(unittest.TestCase):
 
     def test_r3_paths_are_reported_as_one_flag(self):
         for index in range(10):
-            self.repo.write(f"harness/tool{index}.py", "X = 1\n")
+            self.repo.write(f".harness/tool{index}.py", "X = 1\n")
         self.repo.commit("harness")
         flags = self.classify().flags
         self.assertEqual(len(flags), 1)
@@ -511,7 +509,7 @@ class BaseTestsTest(unittest.TestCase):
 
     def check(self) -> tuple[int, str]:
         completed = subprocess.run(
-            [sys.executable, str(ROOT / "harness/base_tests.py"), "--base", self.base, "--repo", str(self.repo.path)],
+            [sys.executable, str(ROOT / ".harness/engine/cli.py"), "base-tests", "--base", self.base, "--repo", str(self.repo.path)],
             capture_output=True,
             text=True,
             env=clean_git_env(GIT_ENV),
@@ -521,7 +519,7 @@ class BaseTestsTest(unittest.TestCase):
 
     def test_ci_runs_existing_tests_at_base_version(self):
         workflow = (ROOT / ".github/workflows/build.yml").read_text()
-        self.assertIn("harness/base_tests.py --base", workflow)
+        self.assertIn(".harness/engine/cli.py base-tests --base", workflow)
 
     def test_appended_monkeypatch_cannot_disable_existing_test(self):
         self.repo.write("scripts/mod.py", BUGGY)

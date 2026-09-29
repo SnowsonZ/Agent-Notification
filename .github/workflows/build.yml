@@ -42,45 +42,45 @@ jobs:
           fi
 
       - name: Verify (quick)
-        run: python harness/verify.py --quick
+        run: python .harness/engine/cli.py verify --quick
 
       - name: Hygiene of changes
-        run: python harness/hygiene.py --range "${{ steps.base.outputs.sha }}"
+        run: python .harness/engine/cli.py hygiene --range "${{ steps.base.outputs.sha }}"
 
       # 已有判定器以 base 为准：追加或新增的测试代码不能让已有测试失效（评审 PR7-R2）。
       - name: Existing tests (base version) on head
-        run: python harness/base_tests.py --base "${{ steps.base.outputs.sha }}"
+        run: python .harness/engine/cli.py base-tests --base "${{ steps.base.outputs.sha }}"
 
       # 前面的检查失败时，风险等级与证据仍要生成，评审才看得到全貌。
       - name: Risk level
         id: risk
         if: ${{ !cancelled() }}
-        run: python harness/risk.py --base "${{ steps.base.outputs.sha }}" --github
+        run: python .harness/engine/cli.py risk --base "${{ steps.base.outputs.sha }}" --github
 
       # R1 加强判定中要执行代码的一项（2026-09-28 决定 2）：声明 R1 时，改到的变异目标得分不得低于基线。
       # 下降即失败；要按 R2 走的重构去掉 Risk: R1 即可（加一个不带它的提交）。
       - name: Mutation score of changed targets (R1 claims)
         if: ${{ !cancelled() && steps.risk.outputs.claimed_r1 == 'true' }}
-        run: python harness/mutate.py --check --changed-since "${{ steps.base.outputs.sha }}"
+        run: python .harness/engine/cli.py mutate --check --changed-since "${{ steps.base.outputs.sha }}"
 
       # 实现任务书的 PR：归属 trailer 与运行记录（只报告；是否自动合并由 auto-merge 的 policy.py 判定）。
       - name: Run record (task PRs)
         if: ${{ !cancelled() }}
-        run: python harness/run_check.py --base "${{ steps.base.outputs.sha }}" --github
+        run: python .harness/engine/cli.py run-check --base "${{ steps.base.outputs.sha }}" --github
 
       - name: Fix evidence
         if: ${{ !cancelled() }}
-        run: python harness/evidence.py --base "${{ steps.base.outputs.sha }}" --markdown "$GITHUB_STEP_SUMMARY"
+        run: python .harness/engine/cli.py evidence --base "${{ steps.base.outputs.sha }}" --markdown "$GITHUB_STEP_SUMMARY"
 
       - name: Delivery metrics
         if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python harness/metrics.py --base "${{ steps.base.outputs.sha }}" --github --markdown "$GITHUB_STEP_SUMMARY"
+        run: python .harness/engine/cli.py metrics --base "${{ steps.base.outputs.sha }}" --github --markdown "$GITHUB_STEP_SUMMARY"
 
       - name: Release check (tag = build version, on main)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: python harness/release_check.py --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA"
+        run: python .harness/engine/cli.py release-check --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA"
 
   build:
     # macos-26 自带 Xcode 26：build 脚本用 actool 把 native/AppIcon.icon 编成 Liquid Glass 分层图标。
@@ -105,7 +105,7 @@ jobs:
 
       - name: Verify (lint, hygiene, Python and Swift tests, incident replay)
         # 与本机、云端同一入口（docs/plans/verifiable-delivery.md P1）；--strict 不允许 Swift 检查被跳过。
-        run: scratch/iterm-probe-venv/bin/python harness/verify.py --strict --full
+        run: scratch/iterm-probe-venv/bin/python .harness/engine/cli.py verify --strict --full
 
       # Swift 测试的「修复前失败、修复后通过」只能在 macOS 上跑（harness job 在 Linux 只做 Python，方案 §13 E4）。
       - name: Fix evidence with Swift (pull requests)
@@ -114,7 +114,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --no-tags --unshallow origin || git fetch --no-tags origin
-          scratch/iterm-probe-venv/bin/python harness/evidence.py --base "$BASE" --swift --markdown "$GITHUB_STEP_SUMMARY"
+          scratch/iterm-probe-venv/bin/python .harness/engine/cli.py evidence --base "$BASE" --swift --markdown "$GITHUB_STEP_SUMMARY"
 
       - name: Build Agent Notification.app
         run: python3 scripts/build_inbox_app.py --standalone

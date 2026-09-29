@@ -40,7 +40,7 @@
 
 | 节点 | 当前实现 | 差距 | 可实现性 |
 |---|---|---|---|
-| 5.1 仓库即知识库 | AGENTS.md 51 行只做地图；规格、方案、调研、评审、决定分目录；[待办清单](../plans/backlog.md)为唯一未关闭清单；[harness 说明](../../harness/README.md)给出理念与组件对照 | 无 | — |
+| 5.1 仓库即知识库 | AGENTS.md 51 行只做地图；规格、方案、调研、评审、决定分目录；[待办清单](../plans/backlog.md)为唯一未关闭清单；[harness 说明](https://github.com/SnowsonZ/delivery-harness/blob/main/README.zh-CN.md)给出理念与组件对照 | 无 | — |
 | 5.2 系统对 Agent 可读 | 一条命令验证（`bin/verify`），输出只打结论，细节写日志 | 无 | — |
 | 5.3 上下文预算 | 状态外置到文件与 git，中断可从 AGENTS.md 与待办清单恢复 | 无机制检查过时文档：Codex 发现方案开头仍写「P6 待试跑」；H0925-4、H0926-1 的状态曾过时到 2026-09-26 才改 | **G8**：链接与状态新鲜度可做轻量检查（小）；内容正确性靠收尾核对 |
 | 5.4 工具少而准 | 统一 CLI、verify、as-agent；守卫按命令结构判断 | 守卫把只读的 `gh release list` 也拒绝（对 `gh release` 一律拦） | 小修（G11） |

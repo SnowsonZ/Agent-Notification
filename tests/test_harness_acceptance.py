@@ -1,4 +1,4 @@
-"""验收映射检查器（harness/acceptance.py）的测试：在临时目录里构造规格与测试。"""
+"""验收映射检查器（.harness/engine/checks/acceptance.py）的测试：在临时目录里构造规格与测试。"""
 
 import sys
 import tempfile
@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 
-import acceptance
+from engine.checks import acceptance
 
 SPEC = """\
 # 示例

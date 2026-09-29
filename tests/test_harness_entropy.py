@@ -12,11 +12,10 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import docs_check
-import quality
+from engine.checks import docs_check, quality
 from test_harness import TempRepo
 
 SHORT_VIEW = """\

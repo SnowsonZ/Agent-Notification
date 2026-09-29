@@ -15,11 +15,11 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "harness"))
+sys.path.insert(0, str(ROOT / ".harness"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import command_guard
-from common import clean_git_env
+from engine.core.common import clean_git_env
+from engine.guards import command_guard
 from test_harness import GIT_ENV, TempRepo
 
 # CI 用 venv 解释器运行、venv/bin 不在 PATH 上：也在解释器旁边找。
@@ -267,7 +267,7 @@ class CommandGuardTest(unittest.TestCase):
     def test_implementer_cannot_edit_verifiers(self):
         for path in (
             ".github/workflows/build.yml",
-            "harness/verify.py",
+            ".harness/engine/checks/verify.py",
             str(ROOT / ".githooks/pre-push"),
             ".pi/extensions/harness-guard.ts",
         ):
@@ -278,18 +278,18 @@ class CommandGuardTest(unittest.TestCase):
 
     def test_implementer_may_shrink_gap_list_but_not_edit_other_verifiers(self):
         """H0926-2：规范要求执行方补完测试后删缺口清单的行，守卫却把整个 harness/ 禁改（trial-001 卡在这里）。"""
-        for path in ("harness/acceptance-gaps.txt", str(ROOT / "harness/acceptance-gaps.txt")):
+        for path in (".harness/state/acceptance-gaps.txt", str(ROOT / ".harness/state/acceptance-gaps.txt")):
             with self.subTest(path=path):
                 self.assertEqual(command_guard.evaluate({"file_path": path}, "implementer", ROOT), [])
         # 回放用例是会被执行的判定器代码，追加一行即可删掉别的用例：仍只由评审方维护。
-        for path in ("harness/replay_cases.py", "harness/rules.toml", "harness/acceptance.py"):
+        for path in (".harness/project/replay_cases.py", ".harness/config/rules.toml", ".harness/engine/checks/acceptance.py"):
             with self.subTest(path=path):
                 self.assertTrue(command_guard.evaluate({"file_path": path}, "implementer", ROOT))
 
     def test_payload_shapes(self):
         claude = {"tool_name": "Bash", "tool_input": {"command": "git push --tags"}}
         codex_list = {"tool_name": "shell", "tool_input": {"command": ["bash", "-lc", "git push --tags"]}}
-        opencode = {"filePath": "harness/rules.toml"}
+        opencode = {"filePath": ".harness/config/rules.toml"}
         self.assertTrue(command_guard.evaluate(claude))
         self.assertTrue(command_guard.evaluate(codex_list))
         self.assertTrue(command_guard.evaluate(opencode, "implementer", ROOT))
@@ -297,7 +297,7 @@ class CommandGuardTest(unittest.TestCase):
     def test_cli_exit_codes(self):
         def run(payload, *args):
             return subprocess.run(
-                [sys.executable, str(ROOT / "harness/command_guard.py"), *args],
+                [sys.executable, str(ROOT / ".harness/engine/cli.py"), "guard-command", *args],
                 input=json.dumps(payload),
                 capture_output=True,
                 text=True,
@@ -310,7 +310,7 @@ class CommandGuardTest(unittest.TestCase):
         allowed = run({"tool_name": "Bash", "tool_input": {"command": "git status"}})
         self.assertEqual(allowed.returncode, 0)
         garbage = subprocess.run(
-            [sys.executable, str(ROOT / "harness/command_guard.py")],
+            [sys.executable, str(ROOT / ".harness/engine/cli.py"), "guard-command"],
             input="not json",
             capture_output=True,
             text=True,
@@ -430,14 +430,12 @@ class GitGuardTest(unittest.TestCase):
 
 
 class TamperedRulesTest(unittest.TestCase):
-    """PR7-R3：执行者改掉工作区的 harness/rules.toml（去掉受保护分支），守卫仍按 origin/main 的规则拒绝。"""
+    """PR7-R3：执行者改掉工作区的 .harness/config/rules.toml（去掉受保护分支），守卫仍按 origin/main 的规则拒绝。"""
 
     def setUp(self):
         self.repo = TempRepo()
         self.addCleanup(self.repo.close)
-        (self.repo.path / "harness").mkdir()
-        for name in ("common.py", "git_guard.py", "hygiene.py", "rules.toml"):
-            shutil.copy2(ROOT / "harness" / name, self.repo.path / "harness" / name)
+        shutil.copytree(ROOT / ".harness", self.repo.path / ".harness", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(ROOT / ".githooks", self.repo.path / ".githooks")
         self.env = {"HARNESS_ALLOW_MAIN": "1", "HARNESS_SKIP_VERIFY": "1"}
         self.run_git("add", "-A")
@@ -461,7 +459,7 @@ class TamperedRulesTest(unittest.TestCase):
         )
 
     def test_tampered_rules_do_not_unprotect_main(self):
-        rules = self.repo.path / "harness" / "rules.toml"
+        rules = self.repo.path / ".harness" / "config" / "rules.toml"
         rules.write_text(rules.read_text().replace('protected_branches = ["main"]', "protected_branches = []"))
         result = self.run_git("commit", "-q", "--amend", "-m", "rewritten")
         self.assertNotEqual(result.returncode, 0, result.stderr)
@@ -537,9 +535,9 @@ console.log(JSON.stringify(out));
         cases = [
             ["bash", {"command": "git push --force origin x"}],
             ["bash", {"command": "git status"}],
-            ["edit", {"filePath": "harness/verify.py"}],
+            ["edit", {"filePath": ".harness/engine/checks/verify.py"}],
             ["edit", {"filePath": "scripts/inbox.py"}],
-            ["read", {"filePath": "harness/verify.py"}],
+            ["read", {"filePath": ".harness/engine/checks/verify.py"}],
             ["github_merge_pull_request", {"pullNumber": 7}],
         ]
         result = subprocess.run(
@@ -582,10 +580,10 @@ console.log(JSON.stringify(out));
         cases = [
             ["bash", {"command": "git push --force origin x"}],
             ["bash", {"command": "git status"}],
-            ["edit", {"path": "harness/verify.py"}],
+            ["edit", {"path": ".harness/engine/checks/verify.py"}],
             ["write", {"path": ".pi/extensions/harness-guard.ts"}],
             ["edit", {"path": "scripts/inbox.py"}],
-            ["read", {"path": "harness/verify.py"}],
+            ["read", {"path": ".harness/engine/checks/verify.py"}],
             ["github_merge_pull_request", {"pullNumber": 7}],
         ]
         result = subprocess.run(
@@ -634,7 +632,7 @@ class ZcodeHookConfigTest(unittest.TestCase):
         cases = [
             ("Bash", {"command": "git push --force origin x"}, 2),
             ("Bash", {"command": "git status"}, 0),
-            ("Edit", {"file_path": "harness/verify.py"}, 2),
+            ("Edit", {"file_path": ".harness/engine/checks/verify.py"}, 2),
             ("Write", {"file_path": ".zcode/config.json"}, 2),
             ("Edit", {"file_path": "scripts/inbox.py"}, 0),
             ("mcp__github__merge_pull_request", {"pullNumber": 7}, 2),
@@ -686,7 +684,7 @@ class CodexHookConfigTest(unittest.TestCase):
             ("Bash", {"command": "git status"}, 0),
             ("mcp__github__merge_pull_request", {"pullNumber": 7}, 2),
             # 评审方可以改护栏文件（执行方不行），与 Claude Code 的设计方角色一致
-            ("apply_patch", {"file_path": "harness/rules.toml"}, 0),
+            ("apply_patch", {"file_path": ".harness/config/rules.toml"}, 0),
         ]
         for tool, tool_input, expected in cases:
             with self.subTest(tool=tool, tool_input=tool_input):

@@ -1,5 +1,5 @@
 #!/bin/sh
-# 以 Agent 的 GitHub 身份运行一条命令（方案 §13 D3，规范 §5 第 8 步）。
+# 以 Agent 的 GitHub 身份运行一条命令。
 # 用法：bin/as-agent opencode run "$(cat build/task-prompt.txt)"
 #       bin/as-agent git push -u origin task/xxx
 #       bin/as-agent gh pr create ...
@@ -7,8 +7,12 @@
 # 不改 gh 的当前账号，也不改仓库或全局 git 配置。
 set -eu
 
-AGENT_LOGIN=${AGENT_LOGIN:-Snowson}
-AGENT_EMAIL=${AGENT_EMAIL:-15168246+Snowson@users.noreply.github.com}
+# 身份取自 .harness/config/checks.toml [identity]；环境变量 AGENT_LOGIN、AGENT_EMAIL 可临时覆盖。
+if [ -z "${AGENT_LOGIN:-}" ] || [ -z "${AGENT_EMAIL:-}" ]; then
+  identity=$("$(dirname -- "$0")/harness" identity) || exit 1
+  AGENT_LOGIN=${AGENT_LOGIN:-${identity%% *}}
+  AGENT_EMAIL=${AGENT_EMAIL:-${identity#* }}
+fi
 
 if [ "$#" -eq 0 ]; then
   echo "用法：bin/as-agent <命令> [参数…]" >&2
@@ -16,7 +20,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 if ! token=$(gh auth token --hostname github.com --user "$AGENT_LOGIN" 2>/dev/null) || [ -z "$token" ]; then
-  echo "gh 里没有 $AGENT_LOGIN 的登录。由用户执行一次（规范 §5 第 8 步）：" >&2
+  echo "gh 里没有 $AGENT_LOGIN 的登录。由用户执行一次：" >&2
   echo "  gh auth login --hostname github.com   # 以 $AGENT_LOGIN 登录" >&2
   echo "  gh auth switch --user <你自己的账号>   # 切回自己的账号" >&2
   exit 1
