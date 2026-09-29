@@ -111,3 +111,7 @@ requires = "macos"
 [reports]
 # 自动合并用的批准 App 的机器人账号（周报把它合并或批准的 PR 算作自动合并）。
 bots = ["snowsonz-auto-merge"]
+
+[metrics.baseline]
+label = "v0.8.0"
+values = { "评审轮次" = 5, "声称已修但代码未变" = 3, "自述与事实不符" = 5, "临时探针 CI 运行" = 32, "首轮修复净增测试" = "16 项修复 / +1" }
