@@ -1,0 +1,113 @@
+# delivery-harness 项目配置：检查清单、源码与语言、运行时、目录约定、身份。
+# 改动本文件属于 R3（护栏本身），由用户批准。
+schema = 1
+
+[identity]
+# 执行方与 Agent 推送、开 PR、评论使用的 GitHub 账号（bin/as-agent、派发的提交身份）。
+agent_login = "Snowson"
+agent_email = "15168246+Snowson@users.noreply.github.com"
+
+[runtime]
+# 开发包运行时 venv：bin/* 与 git 钩子优先用它，没有时退回 PATH 上的 python3。
+python = "scratch/iterm-probe-venv/bin/python"
+# 派发槽位清理未跟踪文件时保留、并以符号链接指向主目录的路径。
+preserve = ["scratch/iterm-probe-venv"]
+
+[sources]
+# 产品代码（R1 判定：签名不变、无新依赖、无迁移）。
+code = ["scripts/**", "native/**"]
+# UI 代码：policy 对 UI 改动不自动合并。
+ui = ["native/**"]
+# 质量棘轮：Python 用 ruff C901 与体量，Swift 用轻量解析。
+python_dirs = ["scripts"]
+swift_dirs = ["native"]
+# 数据迁移语句的检查只看产品代码。
+migrations = "scripts/migrations.py"
+
+[release]
+# 发版前核对：tag 名 = "v" + 版本号；两处版本号必须同步。
+version_file = "scripts/build_inbox_app.py"
+short_version_var = "BUNDLE_SHORT_VERSION"
+build_version_var = "BUNDLE_VERSION"
+
+[[mutation.targets]]
+name = "价格转换与防护"
+file = "scripts/pricing_fetch.py"
+functions = ["transform", "_price_jump", "_drop_conflicting_aliases"]
+tests = ["test_pricing_fetch", "test_properties.PricingTransformProperties"]
+
+[[mutation.targets]]
+name = "热力金额分级"
+file = "scripts/daily_report.py"
+functions = ["cost_thresholds", "cost_level"]
+tests = ["test_properties.CostThresholdProperties", "test_daily_report"]
+
+[[mutation.targets]]
+name = "过去日报告合并"
+file = "scripts/daily_report.py"
+functions = ["_merge_day_tasks", "_task_total"]
+tests = ["test_properties.MergeNoDowngradeProperties", "test_daily_report"]
+
+[[mutation.targets]]
+name = "模型规范名"
+file = "scripts/model_names.py"
+functions = ["canonical"]
+tests = ["test_model_names"]
+
+[[mutation.targets]]
+name = "金额计算"
+file = "scripts/usage_cost.py"
+functions = ["price_for_day", "model_cost", "cost_for_models", "merge_cost", "convert_display"]
+tests = ["test_usage_cost"]
+
+[[mutation.targets]]
+name = "用量汇总"
+file = "scripts/usage_report.py"
+functions = ["period_bounds", "previous_anchor", "_merge_models", "_dimension_rows"]
+tests = ["test_usage_report", "test_golden"]
+
+[verify]
+requirements = "requirements-dev.txt"
+pinned_tools = ["ruff"]
+order = [
+    "tools", "integrity", "lint", "hygiene", "quality", "docs", "acceptance", "taskbook",
+    "python-tests", "swift-policy", "swift-runner", "zcode-selftest", "replay",
+]
+
+[[verify.checks]]
+name = "lint"
+tiers = ["quick", "default", "full"]
+command = ["{python}", "-m", "ruff", "check", "scripts", "tests"]
+
+[[verify.checks]]
+name = "python-tests"
+command = ["{python}", "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests"]
+
+[[verify.checks]]
+name = "swift-policy"
+shell = "mkdir -p build && xcrun swiftc -parse-as-library native/InboxPolicy.swift native/Shared/WidgetSnapshot.swift tests/InboxPolicyTests.swift -o build/policy-tests && ./build/policy-tests"
+requires = "macos"
+why_skipped = "非 macOS，Swift 检查由 macOS CI 负责"
+
+[[verify.checks]]
+name = "swift-runner"
+shell = "mkdir -p build && xcrun swiftc -parse-as-library native/ProcessRunner.swift tests/ProcessRunnerTests.swift -o build/runner-tests && ./build/runner-tests"
+requires = "macos"
+why_skipped = "非 macOS，Swift 检查由 macOS CI 负责"
+
+[[verify.checks]]
+# AGENTS.md 要求的无 UI 自检（身份比对、搜索框结构、点击状态机、run loop）。
+name = "zcode-selftest"
+shell = "mkdir -p build && xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus && build/zcode-focus --self-test"
+requires = "macos"
+why_skipped = "非 macOS，Swift 检查由 macOS CI 负责"
+
+[replay]
+# 回放用例中 tests 写 "swift-policy" 时运行的命令（macOS）。
+[replay.suites.swift-policy]
+shell = "mkdir -p build && xcrun swiftc -parse-as-library native/InboxPolicy.swift native/Shared/WidgetSnapshot.swift tests/InboxPolicyTests.swift -o build/policy-tests && ./build/policy-tests"
+requires = "macos"
+
+[reports]
+# 自动合并用的批准 App 的机器人账号（周报把它合并或批准的 PR 算作自动合并）。
+bots = ["snowsonz-auto-merge"]
