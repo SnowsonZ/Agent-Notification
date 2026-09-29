@@ -129,6 +129,8 @@ cli = ["bin/session-manager"]
 [dispatch]
 # 派发脚本（bin/dispatch）：仓库同级的固定槽位数、卡死判定与等待 CI 的上限。
 slots = 3
+# 判定 CI 通过与统计 CI 轮次所依据的工作流（本项目的 CI 工作流叫 build，其中含 harness job）。
+ci_workflows = ["build"]
 stall_minutes = 15
 ci_timeout_minutes = 60
 
