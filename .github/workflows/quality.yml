@@ -1,7 +1,7 @@
 name: quality
 
 # 每周的测试强度与熵治理检查（docs/specs/delivery-harness.md）：较慢，不放在每次提交的门禁里。
-# 周报（harness/weekly.py）在检查之后汇总交付指标，写进固定的「每周质量报告」议题；检查失败也照样出周报。
+# 周报（.harness/engine/cli.py weekly）在检查之后汇总交付指标，写进固定的「每周质量报告」议题；检查失败也照样出周报。
 on:
   schedule:
     - cron: '17 2 * * 1'  # 每周一 02:17 UTC
@@ -34,19 +34,19 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
 
       - name: Mutation score not below baseline
-        run: python harness/mutate.py --check
+        run: python .harness/engine/cli.py mutate --check
 
       - name: Incident replay
         if: ${{ !cancelled() }}
-        run: python harness/replay.py
+        run: python .harness/engine/cli.py replay
 
       - name: Complexity ratchet
         if: ${{ !cancelled() }}
-        run: python harness/quality.py
+        run: python .harness/engine/cli.py quality
 
       - name: Weekly report
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: python harness/weekly.py --publish | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python .harness/engine/cli.py weekly --publish | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,6 +1,6 @@
 name: auto-merge
 
-# L4 自治：build 与 harness 全绿后，由 harness/policy.py 判定能否自动合并（目标态设计 9.3）：
+# L4 自治：build 与 harness 全绿后，由 .harness/engine/cli.py policy 判定能否自动合并（目标态设计 9.3）：
 # 风险 R0/R1、类别在 autonomy.toml 中为 L4、未超误差预算、不超规模阈值、任务 PR 的运行记录与 CI 轮次合格，
 # 每条理由写进 job summary。
 # 停机：Actions → auto-merge → Disable workflow；恢复：Enable workflow（docs/specs/delivery-harness.md §8）。
@@ -60,7 +60,7 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: python harness/policy.py --base origin/main --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github
+        run: python .harness/engine/cli.py policy --base origin/main --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github
 
   # 不自动合并的：build 与 harness 通过后打类别标签并请仓库所有者评审，PR 出现在其待评审列表里。
   # 用 GITHUB_TOKEN 只「请求评审」，不批准（仓库已关闭 Actions 批准 PR）。
@@ -145,5 +145,5 @@ jobs:
             gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
             gh issue create --repo "$GITHUB_REPOSITORY" --label audit --label "class:$CLASS" \
               --title "抽审：PR #$PR（$CLASS）" \
-              --body "PR #$PR 按 harness/autonomy.toml 的抽样规则被抽中（$RISK $CLASS，$HEAD_SHA）。评审方对照任务书、diff 与证据包审计；发现问题时另开带 escape 与 class:$CLASS 标签的议题，写明引入的 PR #$PR。"
+              --body "PR #$PR 按 .harness/config/autonomy.toml 的抽样规则被抽中（$RISK $CLASS，$HEAD_SHA）。评审方对照任务书、diff 与证据包审计；发现问题时另开带 escape 与 class:$CLASS 标签的议题，写明引入的 PR #$PR。"
           fi

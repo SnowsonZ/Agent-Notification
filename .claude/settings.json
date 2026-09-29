@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/harness/command_guard.py\" --format claude --role designer"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.harness/engine/cli.py\" guard-command --format claude --role designer"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/harness/command_guard.py\" --format claude --role designer"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.harness/engine/cli.py\" guard-command --format claude --role designer"
           }
         ]
       }
