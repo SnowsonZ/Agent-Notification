@@ -9,9 +9,9 @@
   归属     范围内每个非合并提交都带 `Task: <该任务书的编号>`
   运行记录 新增了 docs/runs/<任务书名>/<序号>.json；序号最大的一份格式完整、task/class/branch 与任务书一致、
            exit 为 ok，提示词文件存在且 sha256 与记录一致
-  CI 轮次  该分支已完成的 build 轮次（按不同的 head 提交计）不超过任务书 budget.ci_rounds
+  CI 轮次  该分支已完成的 CI 轮次（按不同的 head 提交计）不超过任务书 budget.ci_rounds
 
-权威判定在 auto-merge 的 policy.py（main 上的代码，只读 PR 数据）；build 的 harness job 只把结果写进 summary。
+权威判定在 auto-merge 的 policy.py（main 上的代码，只读 PR 数据）；CI 的 harness job 只把结果写进 summary。
 
     bin/harness run-check --base origin/main [--head HEAD] [--branch task/005-x] [--github]
 """
@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.checks import taskbook
+from engine.core import events
 from engine.core.common import ROOT, changed_files, commit_field, git
 
 RECORD_FIELDS = (
@@ -131,7 +132,7 @@ def check_record(base: str, head: str, target: Scope, branch: str, cwd: Path) ->
 
 
 def ci_rounds(runs: list[dict]) -> int:
-    """已完成的 build 轮次：按不同的 head 提交计（同一提交的重跑不算新一轮）。"""
+    """已完成的 CI 轮次：按不同的 head 提交计（同一提交的重跑不算新一轮）。"""
     return len({run.get("headSha") or run.get("head_sha") for run in runs
                 if run.get("status") == "completed" and (run.get("headSha") or run.get("head_sha"))})
 
@@ -139,11 +140,28 @@ def ci_rounds(runs: list[dict]) -> int:
 def check_ci(rounds: int | None, header: dict) -> Finding:
     limit = (header.get("budget") or {}).get("ci_rounds")
     if rounds is None:
-        return Finding("CI 轮次", False, "读不到该分支的 build 运行，按超预算处理")
+        return Finding("CI 轮次", False, "读不到该分支的 CI 运行，按超预算处理")
     if not isinstance(limit, int):
         return Finding("CI 轮次", False, "任务书没有 budget.ci_rounds")
     ok = rounds <= limit
     return Finding("CI 轮次", ok, f"已完成 {rounds} 轮，预算 {limit} 轮" + ("" if ok else "：超出预算"))
+
+
+def _record(target: Scope | None, findings: list[Finding] | None) -> None:
+    """观察旁路：适用性与每个 Finding 一条事件（规则、通过与原因）；失败不影响返回值。"""
+    try:
+        if target is None:
+            events.emit(stage="ci", step="run_check", status="skip", outputs={"applicable": False})
+            return
+        events.emit(stage="ci", step="run_check", status="ok",
+                    outputs={"applicable": True, "taskbook": target.taskbook or None,
+                             "task": target.header.get("task") or None, "in_pr": target.in_pr})
+        for finding in findings or []:
+            events.emit(stage="ci", step="run_check.finding", status="ok" if finding.ok else "fail",
+                        outputs={"finding": finding.name, "ok": finding.ok},
+                        decision={"by": "run_check", "rule": finding.name, "reason": finding.reason})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
 
 
 def check(base: str, head: str, branch: str, cwd: Path = ROOT, rounds: int | None = None,
@@ -151,18 +169,22 @@ def check(base: str, head: str, branch: str, cwd: Path = ROOT, rounds: int | Non
     """不适用（不是在实现任务书）时返回 None。"""
     target = scope(base, head, branch, cwd)
     if target is None:
+        _record(None, None)  # 观察：不适用
         return None
     task_id = target.header.get("task", "")
     findings = [check_trailers(base, head, task_id, cwd)]
     if not target.taskbook:
         findings.append(Finding("任务书", False, f"`Task: {task_id}` 找不到对应的任务书"))
+        _record(target, findings)
         return findings
     if target.in_pr:
         findings.append(Finding("运行记录", True, f"任务书 `{target.taskbook}` 随本 PR 提交：设计方自行实现，不要求运行记录"))
+        _record(target, findings)
         return findings
     findings.append(check_record(base, head, target, branch, cwd))
     if with_ci:
         findings.append(check_ci(rounds, target.header))
+    _record(target, findings)  # 观察：适用性与各项发现
     return findings
 
 
@@ -182,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--github", action="store_true", help="写 GITHUB_STEP_SUMMARY（只报告，不失败）")
     args = parser.parse_args(argv)
     branch = args.branch or os.environ.get("GITHUB_HEAD_REF") or git("rev-parse", "--abbrev-ref", args.head)
-    text = render(check(args.base, args.head, branch, with_ci=False))
+    text = render(check(args.base, args.head, branch, cwd=ROOT, with_ci=False))
     print(text)
     if args.github and os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as handle:
