@@ -135,7 +135,7 @@ class FakeGitHub:
     def create_issue(self, title, body, labels):
         self.issues.append((title, body, labels))
 
-    def wait_ci(self, branch, sha, timeout):
+    def wait_ci(self, branch, sha, timeout, detail=None):
         ok = self.ci.pop(0) if len(self.ci) > 1 else self.ci[0]
         return ok, "" if ok else "CI 未通过：test_mod.Case"
 
