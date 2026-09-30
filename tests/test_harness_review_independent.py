@@ -84,7 +84,7 @@ class ReviewerTest(unittest.TestCase):
                 return [sys.executable, "-c", code]
 
             def read(self, stdout, output):
-                return stdout, "fake-model"
+                return stdout, "fake-model", "reported"
 
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"GH_TOKEN": "secret"}):
             verdict, model, _ = review.run_reviewer(Fake(), Path(tmp), 60)
@@ -101,7 +101,7 @@ class ReviewerTest(unittest.TestCase):
             {"type": "message_end", "message": {"role": "assistant", "model": "glm-5.3", "content": [
                 {"type": "thinking", "thinking": "…"}, {"type": "text", "text": '意见\n{"verdict": "通过", "findings": []}'}]}},
         ]
-        text, model = review.PiReviewer().read("\n".join(json.dumps(e, ensure_ascii=False) for e in events), Path("/o"))
+        text, model, *_ = review.PiReviewer().read("\n".join(json.dumps(e, ensure_ascii=False) for e in events), Path("/o"))
         self.assertEqual((review.parse_output(text).verdict, model), ("通过", "glm-5.3"))
         self.assertEqual(review.make_reviewer("pi").argv("p", Path("/w"), Path("/o"))[-2], "zai-coding-cn/glm-5.3")
 
@@ -114,7 +114,7 @@ class ReviewerTest(unittest.TestCase):
             {"type": "text", "part": {"type": "text", "text": "意见"}},
             {"type": "text", "part": {"type": "text", "text": '```json\n{"verdict": "不通过", "findings": [{"severity": "严重"}]}\n```'}},
         ]
-        text, model = review.OpenCodeReviewer("m").read("\n".join(json.dumps(e, ensure_ascii=False) for e in events), Path("/o"))
+        text, model, *_ = review.OpenCodeReviewer("m").read("\n".join(json.dumps(e, ensure_ascii=False) for e in events), Path("/o"))
         verdict = review.parse_output(text)
         self.assertEqual((verdict.verdict, verdict.flagged, model), ("不通过", True, "m"))
         self.assertIsInstance(review.make_reviewer("opencode"), review.OpenCodeReviewer)
@@ -136,7 +136,7 @@ class ReviewerTest(unittest.TestCase):
                 return [sys.executable, "-c", code]
 
             def read(self, stdout, output):
-                return stdout, "m"
+                return stdout, "m", "reported"
 
         with tempfile.TemporaryDirectory() as tmp:
             verdict, _, _ = review.run_reviewer(ReadsStdin(), Path(tmp), 30)
@@ -144,7 +144,7 @@ class ReviewerTest(unittest.TestCase):
 
     def test_claude_output_parsing(self):
         stdout = json.dumps({"result": '好\n{"verdict": "通过", "findings": []}', "modelUsage": {"claude-x": {}}})
-        text, model = review.ClaudeReviewer().read(stdout, Path("/none"))
+        text, model, *_ = review.ClaudeReviewer().read(stdout, Path("/none"))
         self.assertEqual(model, "claude-x")
         self.assertEqual(review.parse_output(text).verdict, "通过")
 
@@ -187,7 +187,7 @@ class FailureTest(unittest.TestCase):
             return [sys.executable, "-c", f"import sys; print({text!r}); sys.exit({code})"]
 
         def read(self, stdout, output):
-            return stdout, "m"
+            return stdout, "m", "reported"
 
     def test_error_exit_is_a_failure_not_a_verdict(self):
         quota = "ERROR: You've hit your usage limit. Try again at 12:51 AM."
