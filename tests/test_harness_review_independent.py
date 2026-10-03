@@ -260,11 +260,13 @@ class BackgroundTest(unittest.TestCase):
 
     def github(self):
         mark = '<!-- independent-review {"head": "h3"} -->'
+        author = {"login": "Snowson"}
         prs = [
             {"number": 1, "headRefOid": "h1", "comments": []},
             {"number": 2, "headRefOid": "h2", "comments": []},
-            {"number": 3, "headRefOid": "h3", "comments": [{"body": "评审\n" + mark}]},
-            {"number": 4, "headRefOid": "h4", "comments": [{"body": mark}]},  # 评过的是旧 head
+            # 评论带上可信作者（checks.toml [identity] agent_login）：只认该账号写的标记（delivery-harness T702）
+            {"number": 3, "headRefOid": "h3", "comments": [{"author": author, "body": "评审\n" + mark}]},
+            {"number": 4, "headRefOid": "h4", "comments": [{"author": author, "body": mark}]},  # 评过的是旧 head
             {"number": 5, "headRefOid": "h5", "comments": []},
         ]
         checks = {1: ["SUCCESS", "SKIPPED"], 2: ["SUCCESS", "FAILURE"], 3: ["SUCCESS"], 4: ["SUCCESS"], 5: None}
