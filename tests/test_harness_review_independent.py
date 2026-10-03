@@ -70,7 +70,7 @@ class ReviewerTest(unittest.TestCase):
         self.assertEqual(codex[:4], ["codex", "exec", "-s", "read-only"])
         tuned = review.CodexReviewer("gpt-6-sol", "max").argv("p", Path("/w"), Path("/o"))
         self.assertIn('model_reasoning_effort="max"', tuned)
-        self.assertEqual(review.make_reviewer("codex").argv("p", Path("/w"), Path("/o"))[5], "gpt-6-sol")
+        self.assertEqual(review.make_reviewer("codex").argv("p", Path("/w"), Path("/o"))[5], "gpt-6.1-sol")
         claude = review.ClaudeReviewer().argv("p", Path("/w"), Path("/o"))
         self.assertEqual(claude[claude.index("--allowedTools") + 1], "Read,Grep,Glob")
 
