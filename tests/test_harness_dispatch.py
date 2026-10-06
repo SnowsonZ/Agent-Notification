@@ -123,6 +123,7 @@ class FakeGitHub:
             [],
             [],
         )
+        self.auto_merge_disabled = []
 
     def remote_branch_exists(self, branch):
         return branch in self.claimed
@@ -145,6 +146,10 @@ class FakeGitHub:
 
     def add_label(self, pr, label):
         self.labels.append((pr, label))
+
+    def disable_auto_merge(self, pr):
+        self.auto_merge_disabled.append(pr)
+        return True
 
     def create_issue(self, title, body, labels):
         self.issues.append((title, body, labels))
