@@ -16,13 +16,18 @@ BUGGY = "def percentile_levels(amounts):\n    return amounts[len(amounts) // 2]\
 
 
 class ReviewChecklistTest(unittest.TestCase):
-    def test_checklist_covers_every_failure_type_in_baseline(self):
-        baseline = (ROOT / "docs/review/2026-09-25-harness-baseline.md").read_text(encoding="utf-8")
-        checklist = (ROOT / "docs/templates/review-checklist.md").read_text(encoding="utf-8")
-        types = set(re.findall(r"^\| ([FX]\d) ", baseline, flags=re.MULTILINE))
-        self.assertGreaterEqual(len(types), 13)  # F1–F7、X1–X6
+    # 基线评审（失败分类 F1–F7、X1–X6）2026-10-09 迁至 delivery-harness
+    # docs/review/2026-09-25-harness-baseline.md；覆盖核对的类型集按迁出时快照固定。
+    FAILURE_TYPES = frozenset(f"F{i}" for i in range(1, 8)) | frozenset(
+        f"X{i}" for i in range(1, 7)
+    )
+
+    def test_checklist_covers_every_failure_type(self):
+        checklist = (ROOT / "docs/templates/review-checklist.md").read_text(
+            encoding="utf-8"
+        )
         rows = set(re.findall(r"^\| ([FX]\d) ", checklist, flags=re.MULTILINE))
-        self.assertEqual(types - rows, set(), "评审清单缺少这些失败类型")
+        self.assertEqual(self.FAILURE_TYPES - rows, set(), "评审清单缺少这些失败类型")
 
     def test_review_prompt_points_at_existing_tools(self):
         prompt = (ROOT / "docs/templates/review-prompt.md").read_text(encoding="utf-8")
@@ -54,7 +59,9 @@ class ReviewPackTest(unittest.TestCase):
         header = "| 编号 | 验收内容 | 证据类型 | 覆盖 |\n|---|---|---|---|\n"
         repo.write(
             "docs/specs/demo.md",
-            "# 示例\n\n旧说明。\n\n" + header + "| DM1 | 甲 | 人工 | 目测 |\n| DM2 | 乙 | 人工 | 目测 |\n| DM3 | 丙 | 人工 | 目测 |\n",
+            "# 示例\n\n旧说明。\n\n"
+            + header
+            + "| DM1 | 甲 | 人工 | 目测 |\n| DM2 | 乙 | 人工 | 目测 |\n| DM3 | 丙 | 人工 | 目测 |\n",
         )
         base = repo.commit("base")
         repo.write(
@@ -64,7 +71,10 @@ class ReviewPackTest(unittest.TestCase):
             + "| DM1 | 甲（改） | 人工 | 目测 |\n| DM2 | 乙 | 人工 | 目测 |\n| DM3 | 丙 | 人工 | 目测 |\n",
         )
         repo.commit("edit spec")
-        touched = [item.id for item in review_pack.touched_acceptance(base, "HEAD", cwd=repo.path)]
+        touched = [
+            item.id
+            for item in review_pack.touched_acceptance(base, "HEAD", cwd=repo.path)
+        ]
         self.assertEqual(touched, ["DM1"])
 
 
