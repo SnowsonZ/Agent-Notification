@@ -1,7 +1,7 @@
 # 任务：补上 DR14 的自动化测试（可验证交付首个试跑）
 
 状态：已完成（2026-09-26 合并 [PR #11](https://github.com/SnowsonZ/Agent-Notification/pull/11)）；两周逃逸缺陷观察中，截至 2026-10-10。执行方：OpenCode（设计评审方 Claude Code 派发，用户授权按后续清单推进）。任务书于 2026-09-25 由设计与评审方按 [任务模板](../templates/task.md) 写成。
-试跑目的：按 [可验证交付方案](verifiable-delivery.md) 完整走一遍「任务 → 实现 → 机器证据 → 独立评审 → 合并」，度量结果与 v0.8.0 基线对比（方案 §9 P6）。
+试跑目的：按 [可验证交付方案](https://github.com/SnowsonZ/delivery-harness/blob/main/docs/plans/2026-09-25-verifiable-delivery.md) 完整走一遍「任务 → 实现 → 机器证据 → 独立评审 → 合并」，度量结果与 v0.8.0 基线对比（方案 §9 P6）。
 
 ## 目标终态
 

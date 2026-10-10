@@ -1,7 +1,7 @@
 # 评审清单
 
 <!--
-由 v0.8.0 失败分类生成（docs/review/2026-09-25-harness-baseline.md §1）。每类列出机器已经判定的部分（评审只确认结论，
+由 v0.8.0 失败分类生成（[基线评审](https://github.com/SnowsonZ/delivery-harness/blob/main/docs/review/2026-09-25-harness-baseline.md) §1，已迁 delivery-harness）。每类列出机器已经判定的部分（评审只确认结论，
 不重复劳动）和必须由评审方亲自看的部分。tests/test_harness_review.py 检查本清单覆盖全部失败类型。
 -->
 
