@@ -360,6 +360,14 @@ CASES: list[Case] = [
         "        _ = url",
         ("swift-policy",),
     ),
+    Case(
+        "H1016-1",
+        "claude 转写同 message.id 重复行恢复逐行累加（转写重复计数）",
+        "scripts/daily_report.py",
+        "                        if message_id in seen_messages:\n                            continue",
+        "                        if False:\n                            continue",
+        ("test_daily_report",),
+    ),
 ]
 
 # 过程类失败：由守卫测试覆盖（测试必须存在，回放时逐个运行并要求通过）。

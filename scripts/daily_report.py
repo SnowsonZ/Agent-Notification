@@ -587,13 +587,14 @@ def _claude_data(home, window_start):
     # 登记目录缺失时跳过登记匹配，CLI 直启转写扫描照常执行。
     root = home / "Library/Application Support/Claude/claude-code-sessions"
 
+    seen_messages = set()  # 同一扫描内全局去重：resume 把历史行复制进新文件也不双计。
+
     def transcript_usage(path):
         records = []
         # Claude Code 对同一次 API 响应按 content block 写多行 assistant 记录
         # （同 message.id / requestId，usage 相同，H1016-1），逐行累加会把同一
         # 消耗计 2–4 倍：按 message.id 只计一次。去重放在窗口过滤之后，跨零点
-        # 边界的块行不互相压制归日。
-        seen_messages = set()
+        # 边界的块行不互相压制归日；id 由服务端生成、全局唯一，跨文件去重安全。
         try:
             with path.open(errors="replace") as file:
                 for line in file:
@@ -1454,9 +1455,16 @@ def _merge_day_tasks(report, base, excluded_sessions):
 
 def _merge_day_report(report, base, excluded_sessions):
     """合并任务并用 build_report 重算 totals。"""
+    rescan_records = report.get("tasks") or []
     merged = _merge_day_tasks(report, base, excluded_sessions)
-    if len(merged) == len(report.get("tasks") or []):
-        # 没有恢复发生且任务集不变：直接用重扫报告。
+    # max 合并只在现有合计更大时触发，且必然抬高该任务 total：逐位置比对
+    # total 即可区分「未调整的重扫」与「被 cap 的重扫」——后者不能丢弃
+    # （H1016-1 评审修订：len 相等会误判，把差额 unknown 连同 cap 一起丢掉）。
+    unchanged = len(merged) == len(rescan_records) and all(
+        merged[index]["total_tokens"] == rescan_records[index]["total_tokens"]
+        for index in range(len(merged))
+    )
+    if unchanged:
         return report
     new_report = build_report(
         parse_day(report["date"]), merged, report.get("generated_at") or time.time()

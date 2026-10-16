@@ -1661,7 +1661,8 @@ class DailyReportTests(unittest.TestCase):
             "reasoning_output_tokens": 0,
         }
         self.codex_rollout("old-1", [("token_count", (self.day, 9, 30), usage)])
-        report = generate_day(self.store, self.home, self.day.isoformat())
+        # refresh=True 走真实重扫合并路径（不带 refresh 会命中定稿缓存，测不到合并）。
+        report = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
         task = next(t for t in report["tasks"] if t["session_id"] == "old-1")
         self.assertEqual(task["total_tokens"], 100)  # 沿用现有合计
         # unknown = 重扫自身的 unknown（40f+20o）
@@ -1669,6 +1670,13 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(task["models"]["unknown"]["fresh_input"], 60)
         self.assertEqual(task["models"]["unknown"]["output"], 40)
         self.assertEqual(report["totals"]["total_tokens"], 100)
+        # 不降级落盘：再次读取（缓存路径）也是 100，不是重扫的 60。
+        self.assertEqual(
+            load_report(self.store.root, self.day.isoformat())["totals"][
+                "total_tokens"
+            ],
+            100,
+        )
 
     def test_cost_level_thresholds_on_unsorted_amounts(self):
         # R17 回归：乱序金额排序后取 50/75/90 分位，各级分布正确。
