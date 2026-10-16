@@ -3,11 +3,14 @@
 token 三类口径：输入（新鲜输入+缓存写入）、缓存（缓存读取）、输出（含 reasoning）；
 三类之和 = 合计，参与一切比较与计算（热力分级/排名/占比/趋势），三类在界面全部展示。
 取消与出错轮次的消耗照计。只读取时间戳、标题、项目与数值字段，从不读取或存储
-消息正文。过去日以报告文件固化（version=8），当日始终实时计算。
+消息正文。过去日以报告文件固化（version=9），当日始终实时计算。
 
-v8 在 v7 基础上新增逐 model 用量（schema 见用量金额规范 §3）：每个来源产出
+v8 新增逐 model 用量（schema 见用量金额规范 §3）：每个来源产出
 model_raw 与四项原始 token（fresh_input/cache_write/cache_read/output），
 三类由四项推出；金额不写入报告，是读取时的派生值。
+v9 修正 claude 口径：转写中同一次响应按 content block 复制的多行记录
+（同 message.id，usage 相同）只计一次；版本升级即口径重建，旧版本报告
+不作为定稿合并的基线（H1016-1）。
 """
 
 import json
@@ -31,8 +34,7 @@ ZCODE_STATES = {
     "waiting": "waiting",
 }
 NO_PROJECT = "(无项目)"
-REPORT_VERSION = 8
-REPORT_V7 = 7
+REPORT_VERSION = 9
 SEGMENT_GAP = 15 * 60  # 逐条时间戳来源：相邻消息间隔不超过 15 分钟视为同一段活动
 CLASSES = ("input_tokens", "cache_tokens", "output_tokens")
 
@@ -585,8 +587,14 @@ def _claude_data(home, window_start):
     # 登记目录缺失时跳过登记匹配，CLI 直启转写扫描照常执行。
     root = home / "Library/Application Support/Claude/claude-code-sessions"
 
+    seen_messages = set()  # 同一扫描内全局去重：resume 把历史行复制进新文件也不双计。
+
     def transcript_usage(path):
         records = []
+        # Claude Code 对同一次 API 响应按 content block 写多行 assistant 记录
+        # （同 message.id / requestId，usage 相同，H1016-1），逐行累加会把同一
+        # 消耗计 2–4 倍：按 message.id 只计一次。去重放在窗口过滤之后，跨零点
+        # 边界的块行不互相压制归日；id 由服务端生成、全局唯一，跨文件去重安全。
         try:
             with path.open(errors="replace") as file:
                 for line in file:
@@ -603,6 +611,11 @@ def _claude_data(home, window_start):
                     stamp = seconds(record.get("timestamp"))
                     if stamp <= 0 or stamp < window_start:
                         continue
+                    message_id = message.get("id")
+                    if isinstance(message_id, str) and message_id:
+                        if message_id in seen_messages:
+                            continue
+                        seen_messages.add(message_id)
                     records.append(
                         (
                             stamp,
@@ -1352,24 +1365,6 @@ def load_report(root, date_text):
     return _read_report_version(root, date_text, REPORT_VERSION)
 
 
-def _backup_v7_reports(root):
-    """首次遇到 v7 报告时整目录备份（规范 §3.1 只做一次）；目录已存在就跳过。"""
-    directory = Path(root) / "reports.v7.bak"
-    if directory.exists():
-        return
-    directory.mkdir(parents=True, mode=0o700)
-    for path in sorted(reports_dir(root).glob("*.json")):
-        try:
-            report = json.loads(path.read_text())
-        except (OSError, ValueError):
-            continue
-        if not isinstance(report, dict) or report.get("version") != REPORT_V7:
-            continue
-        for source in (path, path.with_suffix(".md")):
-            if source.exists():
-                (directory / source.name).write_bytes(source.read_bytes())
-
-
 def _task_key(record):
     return record.get("provider"), record.get("session_id")
 
@@ -1382,30 +1377,18 @@ def _task_total(record):
     )
 
 
-def _v7_unknown_models(record):
-    """v7 任务 → unknown 拆分（§3.1.3）。"""
-    return {
-        UNKNOWN: {
-            "fresh_input": int(record.get("input_tokens") or 0),
-            "cache_write": 0,
-            "cache_read": int(record.get("cache_tokens") or 0),
-            "output": int(record.get("output_tokens") or 0),
-        }
-    }
-
-
 def _merge_day_tasks(report, base, excluded_sessions):
-    """重扫报告与磁盘现有报告按 (provider, session_id) 合并，不降级（§3.1.3/4）。
+    """重扫报告与磁盘现有同版本报告按 (provider, session_id) 合并，不降级（§3.1.3/4）。
 
     - 重扫中存在的任务：采用重扫记录；其三类合计小于现有报告时，三类按类别取
       max(现有, 重扫)，正差额（现有 − 重扫）记 unknown（H0925-4：合计沿用旧值而
       某类采用新值时，model 明细之和会与三类合计不一致）。
-    - 只在现有报告存在的任务：恢复（v7 任务拆 unknown 并标记 restored_from；
-      判定为 agent 的会话不恢复——正当排除，重扫注脚已含）。
-    返回 (merged_records, restored_v7)。"""
+    - 只在现有报告存在的任务：恢复（判定为 agent 的会话不恢复——正当排除，
+      重扫注脚已含）。合并只对同版本报告生效；版本升级即口径重建，旧版本数值
+      不作为基线（H1016-1：v9 修正 claude 重复计数，max 合并会把虚高旧值固化）。"""
     base_map = {_task_key(record): record for record in base.get("tasks") or []}
     rescan_map = {_task_key(record): record for record in report.get("tasks") or []}
-    merged, restored = [], False
+    merged = []
     for key, record in rescan_map.items():
         old = base_map.get(key)
         if old is None or _task_total(old) <= _task_total(record):
@@ -1444,25 +1427,22 @@ def _merge_day_tasks(report, base, excluded_sessions):
             unknown[name] = int(unknown.get(name) or 0) + diff[name]
         models[UNKNOWN] = unknown
         merged_record["models"] = models
-        merged_record["input_tokens"] = int(record.get("input_tokens") or 0) + diff["fresh_input"]
-        merged_record["cache_tokens"] = int(record.get("cache_tokens") or 0) + diff["cache_read"]
-        merged_record["output_tokens"] = int(record.get("output_tokens") or 0) + diff["output"]
+        merged_record["input_tokens"] = (
+            int(record.get("input_tokens") or 0) + diff["fresh_input"]
+        )
+        merged_record["cache_tokens"] = (
+            int(record.get("cache_tokens") or 0) + diff["cache_read"]
+        )
+        merged_record["output_tokens"] = (
+            int(record.get("output_tokens") or 0) + diff["output"]
+        )
         merged_record["total_tokens"] = _task_total(merged_record)
         merged.append(merged_record)
     for key, old in base_map.items():
-        if key in rescan_map:
-            continue
-        if key in excluded_sessions:
+        if key in rescan_map or key in excluded_sessions:
             continue  # 判定为 agent：正当排除，不恢复。
-        record = dict(old)
-        is_v7 = old.get("version") == REPORT_V7 or "models" not in old
-        if is_v7:
-            record["models"] = _v7_unknown_models(old)
-            record["restored_from"] = REPORT_V7
-        if _task_total(record) > 0 or record.get("fidelity") == "unavailable":
-            merged.append(record)
-        if is_v7:
-            restored = True
+        if _task_total(old) > 0 or old.get("fidelity") == "unavailable":
+            merged.append(dict(old))
     merged.sort(
         key=lambda item: (
             -item.get("total_tokens", 0),
@@ -1470,60 +1450,43 @@ def _merge_day_tasks(report, base, excluded_sessions):
             item.get("session_id", ""),
         )
     )
-    return merged, restored
+    return merged
 
 
 def _merge_day_report(report, base, excluded_sessions):
-    """合并任务并用 build_report 重算 totals；返回 (new_report, restored_v7)。"""
-    merged, restored = _merge_day_tasks(report, base, excluded_sessions)
-    if (
-        not restored
-        and len(merged) == len(report.get("tasks") or [])
-        and base.get("version") == REPORT_VERSION
-    ):
-        # 没有恢复发生且任务集不变：直接用重扫报告。
-        return report, False
-    restored_flag = restored or any("restored_from" in record for record in merged)
+    """合并任务并用 build_report 重算 totals。"""
+    rescan_records = report.get("tasks") or []
+    merged = _merge_day_tasks(report, base, excluded_sessions)
+    # max 合并只在现有合计更大时触发，且必然抬高该任务 total：逐位置比对
+    # total 即可区分「未调整的重扫」与「被 cap 的重扫」——后者不能丢弃
+    # （H1016-1 评审修订：len 相等会误判，把差额 unknown 连同 cap 一起丢掉）。
+    unchanged = len(merged) == len(rescan_records) and all(
+        merged[index]["total_tokens"] == rescan_records[index]["total_tokens"]
+        for index in range(len(merged))
+    )
+    if unchanged:
+        return report
     new_report = build_report(
         parse_day(report["date"]), merged, report.get("generated_at") or time.time()
     )
     new_report["generated_at"] = (
         report.get("generated_at") or new_report["generated_at"]
     )
-    if restored_flag:
-        new_report["migrated_from"] = REPORT_V7
-    return new_report, restored_flag
+    return new_report
 
 
 def finalize_day_report(
     root, day, report, *, excluded_sessions=frozenset(), store=None, home=None
 ):
-    """过去日报告落盘关口：按任务合并且不降级（规范 §3.1.3/4，长期约束）。
+    """过去日报告落盘关口：与磁盘上同版本报告按任务合并且不降级（§3.1.3/4）。
 
-    与磁盘上该日的现有报告（任意版本）合并；磁盘缺失时回退 reports.v7.bak/。
+    版本升级即口径重建：不与旧版本报告或历史备份合并（H1016-1——v9 修正 claude
+    转写重复计数，旧版本数值虚高，max 合并会把虚高值永久固化）。
     excluded_sessions 是本次扫描被判为 agent 的 (provider, session_id) 集合。
     今天的报告不参与。"""
-    day_text = day.isoformat()
-    current = _read_report_version(root, day_text, REPORT_VERSION)
-    legacy = _read_report_version(root, day_text, REPORT_V7)
-    if legacy is not None:
-        _backup_v7_reports(root)
-    base = current or legacy
-    if base is None:
-        # 回退 reports.v7.bak（§3.1.4）：备份目录平铺，不走 reports/ 拼接。
-        backup_path = Path(root) / "reports.v7.bak" / f"{day_text}.json"
-        try:
-            backup = json.loads(backup_path.read_text())
-        except (OSError, ValueError):
-            backup = None
-        if (
-            isinstance(backup, dict)
-            and backup.get("version") == REPORT_V7
-            and backup.get("date") == day_text
-        ):
-            base = backup
-    if base is not None:
-        report, _restored = _merge_day_report(report, base, excluded_sessions)
+    current = _read_report_version(root, day.isoformat(), REPORT_VERSION)
+    if current is not None:
+        report = _merge_day_report(report, current, excluded_sessions)
     _write_report(root, report)
     return report
 

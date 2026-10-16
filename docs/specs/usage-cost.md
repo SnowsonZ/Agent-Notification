@@ -49,7 +49,7 @@
 
 ## 3. 报告 schema v8
 
-`REPORT_VERSION = 8`。在 v7 基础上新增字段，不删除任何现有字段。
+`REPORT_VERSION = 9`（2026-10-16 起，H1016-1：claude 转写按 `message.id` 去重）。字段结构与 v8 相同，不删除任何现有字段。
 
 ```json
 "tasks": [{
@@ -62,13 +62,12 @@
     }
   }
 }],
-"totals": { "...v7 字段": "...", "models": { "<canonical>": { "fresh_input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "native_cost_usd": null } } },
-"migrated_from": 7
+"totals": { "...v7 字段": "...", "models": { "<canonical>": { "fresh_input": 0, "cache_write": 0, "cache_read": 0, "output": 0, "native_cost_usd": null } } }
 ```
 
 - 定稿报告中**不写金额**。金额是读取时的派生值（§5），因此价格表或汇率变化后不需要重扫来源。
 - `fidelity=unavailable` 的任务保持 `models = {}`。
-- `migrated_from` 只在 §3.1 的保留情形下出现。
+- `migrated_from` 只在 v7→v8 迁移期产生，v9 起不再出现。
 
 ### 3.1 v7 → v8 迁移（不得降级）
 
@@ -79,8 +78,10 @@
    - 只在 v7 中存在的任务（来源已被清理）：保留 v7 记录，改写为 `models = {"unknown": {"fresh_input": input_tokens, "cache_write": 0, "cache_read": cache_tokens, "output": output_tokens}}`，并标记 `restored_from: 7`。**但如果该会话按当前有效来源判定为 agent，就不恢复**，计入 `agent_excluded`。
    - 同一任务重扫的三类合计小于现有报告（来源部分被清理，或两次扫描间类别迁移使某一类上升）：三类按类别取 max(现有, 重扫)，正差额（现有 − 重扫）记为 `unknown`（2026-09-25 H0925-4 修订：此前三类合计沿用现有报告，某类上升时与 model 明细不一致；代价是同一批 token 换类别时合计偏高，用户已知悉）。
    - totals 按合并后的任务重新汇总；只要有恢复发生，报告顶层就标记 `migrated_from: 7`。`unknown` 永远不定价。
-4. **不降级是长期约束，不只在迁移时生效**：任何重写过去日报告的路径（`--refresh`、以后再升 schema、`inbox usage` 补录），都按第 3 步的规则与磁盘上的现有报告（任意版本）合并，现有报告缺失时再用 `reports.v7.bak/` 中的同日文件。重扫结果永远不能让某个任务丢失 token，只有改判为 agent 属于正当减少。
-5. 今天的报告照常实时计算，不参与迁移。
+   - max 合并的结果必须真正落盘：合并关口的短路判定要看任务 total 是否被抬高，不能只看任务数（H1016-1 评审修订：纯 cap 调整时任务数不变，按数判等会把 cap 结果丢弃、磁盘降级为重扫值）。
+4. **不降级是长期约束，不只在迁移时生效**：任何重写过去日报告的路径（`--refresh`、`inbox usage` 补录），都按第 3 步的规则与磁盘上的现有报告合并。重扫结果永远不能让某个任务丢失 token，只有改判为 agent 属于正当减少。
+5. **版本升级即口径重建（2026-10-16 H1016-1 修订）**：合并只对**同版本**报告生效；磁盘上旧版本报告（及 `reports.v7.bak/`）不再作为基线——旧版本的数值在口径修正后不可信（v9 修正 claude 转写重复计数，v8 的 claude 数值虚高 44%–84%，max 合并会把虚高值永久固化），版本 bump 后过去日一律从来源全量重算。v7→v8 的迁移合并（本节 1–3 步）是历史上唯一一次跨版本合并，随 v9 发布退役。
+6. 今天的报告照常实时计算，不参与迁移。
 
 ## 4. 价格表
 
@@ -260,7 +261,7 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 | # | 项 | 方法 | 证据类型 | 覆盖 |
 |---|---|---|---|---|
 | U1 | v8 三类合计与 v7 逐位一致（Zcode 保持现有容差） | 用本机真实数据抽 3 个过去日，由独立脚本对比，证据放 `scratch/` | 真实数据 | 独立脚本对比，证据不入库 |
-| U2 | 迁移不降级 | 夹具：v7 报告存在但来源已删；迁移后合计等于 v7，出现 `migrated_from: 7` 和 `unknown` model，备份目录存在 | 夹具 + 性质 | `test_daily_report.DailyReportTests.test_v7_migration_rewrites_to_unknown_when_sources_gone`、`test_daily_report.DailyReportTests.test_partial_cleanup_diff_becomes_unknown`、`test_properties.MergeNoDowngradeProperties` |
+| U2 | 同版本重扫不降级；版本升级即重建、不与旧版本合并（H1016-1） | 夹具：同版本报告存在但来源已删，重扫后任务恢复、合计不降；磁盘留旧版本报告时全量重算且不带迁移标记 | 夹具 + 性质 | `test_daily_report.DailyReportTests.test_refresh_does_not_degrade_same_version_day`、`test_daily_report.DailyReportTests.test_finalize_ignores_other_version_reports`、`test_daily_report.DailyReportTests.test_partial_cleanup_diff_becomes_unknown`、`test_properties.MergeNoDowngradeProperties` |
 | U3 | 六个来源的 model 与四项拆分正确 | 每个来源一份夹具测试，包括 Codex 缺少 turn_context 时记为 unknown；Zcode 覆盖单 model 整轮归属、多 model 按占比拆分（拆分后合计等于轮级）、无 model_usage 记 unknown。真实数据：最近 7 天各来源 `unknown` 的 token 占比写进 PR | 夹具 + 真实数据 | `test_daily_report.DailyReportTests.test_zcode_reconciled_requests_split_by_model`、`test_daily_report.DailyReportTests.test_zcode_multi_model_splits_by_request_share`、`test_daily_report.DailyReportTests.test_zcode_turn_without_model_usage_is_unknown`、`test_daily_report.DailyReportTests.test_codex_model_from_turn_context_and_unknown_without`、`test_daily_report.DailyReportTests.test_claude_pi_models_and_native_cost`、`test_daily_report.DailyReportTests.test_kimi_opencode_models_and_native_cost` |
 | U4 | 规范名 | `GLM-5.3-Flash`、`zai-coding-plan/glm-5.3-flash` 合并；日期后缀被去掉；不做相似度匹配 | 单测 | `test_model_names.CanonicalTest` |
 | U5 | 查找顺序、历史价格、未定价 | 覆盖层 > 国产官方 > 公开价格；跨调价日的金额分别按新旧价计算；未知 model 进入 `unpriced_tokens` | 单测 + 性质 | `test_usage_cost.LookupOrderTest`、`test_usage_cost.HistoryPriceTest`、`test_usage_cost.CostTest`、`test_properties.PeriodCostProperties` |

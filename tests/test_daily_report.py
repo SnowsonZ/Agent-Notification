@@ -1,5 +1,4 @@
 import json
-import shutil
 import sqlite3
 import sys
 import tempfile
@@ -779,6 +778,65 @@ class DailyReportTests(unittest.TestCase):
         )
         self.assertEqual(by_sid["stale-desktop"]["total_tokens"], 15)
 
+    def test_claude_duplicate_message_records_counted_once(self):
+        # H1016-1：Claude Code 对同一次 API 响应按 content block 写多行 assistant
+        # 记录（同 message.id / requestId，usage 相同），逐行累加会把同一消耗
+        # 计 2–4 倍；按 message.id 只计一次。
+        (self.home / ".claude/projects/proj").mkdir(parents=True, exist_ok=True)
+        usage = {
+            "input_tokens": 100,
+            "cache_creation_input_tokens": 10,
+            "cache_read_input_tokens": 500,
+            "output_tokens": 20,
+        }
+        lines = [
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "sessionId": "dup-1",
+                    "timestamp": iso(self.day, 9),
+                    "requestId": "req_1",
+                    "apiBlockIndex": block,
+                    "message": {"role": "assistant", "id": "msg_1", "usage": usage},
+                }
+            )
+            for block in range(3)
+        ]
+        # 不同响应不受去重影响；无 id 的记录也不计入去重。
+        lines.append(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "sessionId": "dup-1",
+                    "timestamp": iso(self.day, 10),
+                    "message": {
+                        "role": "assistant",
+                        "id": "msg_2",
+                        "usage": {
+                            "input_tokens": 30,
+                            "cache_creation_input_tokens": 0,
+                            "cache_read_input_tokens": 0,
+                            "output_tokens": 5,
+                        },
+                    },
+                }
+            )
+        )
+        (self.home / ".claude/projects/proj" / "dup-1.jsonl").write_text(
+            "\n".join(lines) + "\n"
+        )
+        records = scan_buckets(self.store, self.home, self.day, self.day)[self.day]
+        by_sid = {record["session_id"]: record for record in records}
+        self.assertEqual(
+            (
+                by_sid["dup-1"]["input_tokens"],
+                by_sid["dup-1"]["cache_tokens"],
+                by_sid["dup-1"]["output_tokens"],
+                by_sid["dup-1"]["total_tokens"],
+            ),
+            (140, 500, 25, 665),
+        )
+
     def test_claude_transcript_counted_without_desktop_install(self):
         # 评审 R6：桌面登记目录从未存在（纯 CLI 用户）——旧实现因
         # 「登记目录不存在」整段早退，全部 Claude 用量漏计。
@@ -848,7 +906,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertEqual(stats[self.day]["tasks"], {("codex", "ag-1")})
         self.assertEqual(stats[self.day]["total_tokens"], 600)
         report = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
-        self.assertEqual(report["version"], 8)
+        self.assertEqual(report["version"], 9)
         self.assertEqual(report["agent_excluded"], {"tasks": 1, "total_tokens": 600})
         self.assertEqual([t["session_id"] for t in report["tasks"]], ["sess_u"])
         self.assertIn("1 个 agent 会话", render_markdown(report))
@@ -964,7 +1022,7 @@ class DailyReportTests(unittest.TestCase):
             ["0", "895", "6.6k", "457k", "614k", "1M", "55.7M", "143M", "553M", "1B"],
         )
 
-    def test_generate_day_writes_v8_and_markdown(self):
+    def test_generate_day_writes_v9_and_markdown(self):
         self.zcode_index("sess_a", "收件箱日报", "/work/session-manager")
         self.zcode_turn(
             "sess_a",
@@ -976,7 +1034,7 @@ class DailyReportTests(unittest.TestCase):
             output=10_000,
         )
         report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report["version"], 8)
+        self.assertEqual(report["version"], 9)
         self.assertEqual(
             (
                 report["totals"]["input_tokens"],
@@ -997,7 +1055,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("900k", markdown)
         self.assertIn("收件箱日报", markdown)
         self.assertEqual(
-            load_report(self.store.root, self.day.isoformat())["version"], 8
+            load_report(self.store.root, self.day.isoformat())["version"], 9
         )
         # 过去日已定稿：再次查看直接读缓存，不重扫来源（新增轮次不会出现）。
         self.zcode_turn(
@@ -1143,7 +1201,7 @@ class DailyReportTests(unittest.TestCase):
             600,
         )
         self.assertEqual(
-            load_report(self.store.root, self.day.isoformat())["version"], 8
+            load_report(self.store.root, self.day.isoformat())["version"], 9
         )
         # 过去日读缓存：新增历史轮次不改变固化结果，总览与详情一致；只有 refresh 才重扫来源。
         self.zcode_turn(
@@ -1317,7 +1375,9 @@ class DailyReportTests(unittest.TestCase):
     def test_zcode_turn_without_model_usage_is_unknown(self):
         # 该轮没有 model_usage 记录：整轮 unknown（token 仍以轮级为准）。
         self.zcode_index("sess_a")
-        self.zcode_turn("sess_a", "t1", stamp(self.day, 10), stamp(self.day, 10, 30), fresh=88)
+        self.zcode_turn(
+            "sess_a", "t1", stamp(self.day, 10), stamp(self.day, 10, 30), fresh=88
+        )
         record = self.single(scan_buckets(self.store, self.home, self.day, self.day))
         self.assertEqual(record["models"]["unknown"]["fresh_input"], 88)
         self.assertEqual(record["total_tokens"], 88)
@@ -1513,62 +1573,23 @@ class DailyReportTests(unittest.TestCase):
         )
         self.assertEqual(raw_names, ["GPT-6-Astra", "zai-coding-plan/gpt-6-astra"])
 
-    def write_v7_report(self, total):
+    def write_day_report(self, task, version=9):
+        """把一条任务写成已定稿的当日报告（generated_at 晚于当日结束）。"""
         day = self.day.isoformat()
-        task = {
-            "provider": "codex",
-            "session_id": "old-1",
-            "title": "旧任务",
-            "project": "/work/x",
-            "first_at": stamp(self.day, 9),
-            "last_at": stamp(self.day, 10),
-            "input_tokens": 100,
-            "cache_tokens": 20,
-            "output_tokens": 30,
-            "total_tokens": total,
-            "turns": 1,
-            "state": "idle",
-            "fidelity": "exact",
-            "segments": [[stamp(self.day, 9), stamp(self.day, 10)]],
-        }
-        totals = {
-            "input_tokens": 100,
-            "cache_tokens": 20,
-            "output_tokens": 30,
-            "total_tokens": total,
-            "tasks": 1,
-            "turns": 1,
-            "sources": {
-                "codex": {
-                    key: task[key]
-                    for key in (
-                        "input_tokens",
-                        "cache_tokens",
-                        "output_tokens",
-                        "total_tokens",
-                    )
-                }
-            },
-            "projects": {
-                "/work/x": {
-                    key: task[key]
-                    for key in (
-                        "input_tokens",
-                        "cache_tokens",
-                        "output_tokens",
-                        "total_tokens",
-                    )
-                }
-            },
-        }
-        if total != 150:
-            totals["total_tokens"] = total
-            task["total_tokens"] = total
         report = {
-            "version": 7,
+            "version": version,
             "date": day,
             "generated_at": stamp(self.day + timedelta(days=1), 0) + 100,
-            "totals": totals,
+            "totals": {
+                "input_tokens": task["input_tokens"],
+                "cache_tokens": task["cache_tokens"],
+                "output_tokens": task["output_tokens"],
+                "total_tokens": task["total_tokens"],
+                "tasks": 1,
+                "turns": 1,
+                "sources": {},
+                "projects": {},
+            },
             "tasks": [task],
         }
         directory = self.store.root / "reports"
@@ -1576,70 +1597,62 @@ class DailyReportTests(unittest.TestCase):
         (directory / f"{day}.json").write_text(json.dumps(report))
         return report
 
-    def test_v7_migration_rewrites_to_unknown_when_sources_gone(self):
-        # U2：v7 存在但来源已清理（v8 合计更少）→ 改用 v7 内容，unknown 拆分，不降级。
-        self.write_v7_report(150)
-        report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report["version"], 8)
-        self.assertEqual(report.get("migrated_from"), 7)
-        self.assertEqual(report["totals"]["total_tokens"], 150)
-        self.assertEqual(
-            report["tasks"][0]["models"],
-            {
+    def day_task(self, total, input_tokens=60, cache_tokens=0, output_tokens=40):
+        return {
+            "provider": "codex",
+            "session_id": "old-1",
+            "title": "旧任务",
+            "project": "/work/x",
+            "first_at": stamp(self.day, 9),
+            "last_at": stamp(self.day, 10),
+            "input_tokens": input_tokens,
+            "cache_tokens": cache_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total,
+            "turns": 1,
+            "state": "idle",
+            "fidelity": "exact",
+            "segments": [[stamp(self.day, 9), stamp(self.day, 10)]],
+            "models": {
                 "unknown": {
-                    "fresh_input": 100,
+                    "fresh_input": input_tokens,
                     "cache_write": 0,
-                    "cache_read": 20,
-                    "output": 30,
+                    "cache_read": cache_tokens,
+                    "output": output_tokens,
                 }
             },
-        )
-        self.assertEqual(
-            report["totals"]["models"]["unknown"],
-            {
-                "fresh_input": 100,
-                "cache_write": 0,
-                "cache_read": 20,
-                "output": 30,
-                "native_cost_usd": None,
-            },
-        )
-        backup = self.store.root / "reports.v7.bak" / f"{self.day.isoformat()}.json"
-        self.assertTrue(backup.exists())
-        self.assertEqual(json.loads(backup.read_text())["version"], 7)
-        # 迁移结果已固化：再次读取命中 v8 缓存。
-        self.assertEqual(
-            load_report(self.store.root, self.day.isoformat())["version"], 8
-        )
-    def test_v7_migration_uses_v8_when_not_smaller(self):
-        # 按任务合并（§3.1.3 修订）：重扫任务用 v8，v7 独有任务恢复并标记。
-        self.write_v7_report(10)
-        self.zcode_index("sess_a")
-        self.zcode_turn(
-            "sess_a", "t1", stamp(self.day, 10), stamp(self.day, 10, 30), fresh=100
-        )
+        }
+
+    def test_finalize_ignores_other_version_reports(self):
+        # H1016-1：版本升级即口径重建。磁盘上的旧版本报告数值不可信
+        # （v8 的 claude 含转写重复计数），不作为合并基线，直接全量重算。
+        self.write_day_report(self.day_task(150), version=8)
         report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report["version"], 8)
-        self.assertEqual(report.get("migrated_from"), 7)
-        self.assertEqual(report["totals"]["total_tokens"], 110)
-        restored = [task for task in report["tasks"] if task.get("restored_from") == 7]
-        self.assertEqual([task["session_id"] for task in restored], ["old-1"])
-        self.assertTrue((self.store.root / "reports.v7.bak").exists())
+        self.assertEqual(report["version"], 9)
+        self.assertEqual(report["totals"]["total_tokens"], 0)
+        self.assertNotIn("migrated_from", report)
+        for task in report["tasks"]:
+            self.assertNotIn("restored_from", task)
+        # 旧文件被 v9 覆盖，不残留旧版本缓存。
+        self.assertEqual(
+            load_report(self.store.root, self.day.isoformat())["version"], 9
+        )
+
+    def test_refresh_does_not_degrade_same_version_day(self):
+        # 同版本不降级（§3.1.4 长期约束）：来源被清理后重扫更少，任务照常恢复。
+        self.write_day_report(self.day_task(150, input_tokens=100, output_tokens=30))
+        report = generate_day(self.store, self.home, self.day.isoformat())
+        self.assertEqual(report["totals"]["total_tokens"], 150)
+        # 来源仍为空时再 refresh：合计保持 150，不降为 0。
+        again = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
+        self.assertEqual(again["totals"]["total_tokens"], 150)
+        self.assertEqual(again["tasks"][0]["session_id"], "old-1")
 
     def test_partial_cleanup_diff_becomes_unknown(self):
-        # 同一任务 v8 合计小于 v7（部分来源被清理）：三类沿用 v7，差额记 unknown。
-        self.write_v7_report(100)
-        # v7 任务三类对齐 total=100（60 输入 / 0 缓存 / 40 输出）。
-        day_path = self.store.root / "reports" / f"{self.day.isoformat()}.json"
-        data = json.loads(day_path.read_text())
-        task = data["tasks"][0]
-        task.update(input_tokens=60, cache_tokens=0, output_tokens=40, total_tokens=100)
-        for group in ("sources", "projects"):
-            for entry in data["totals"][group].values():
-                entry.update(input_tokens=60, cache_tokens=0, output_tokens=40, total_tokens=100)
-        data["totals"].update(input_tokens=60, cache_tokens=0, output_tokens=40, total_tokens=100)
-        day_path.write_text(json.dumps(data))
-        # 重扫同 session_id（codex old-1）但只有 60 tokens
+        # 同一任务重扫合计小于现有报告（部分来源被清理）：三类按类别取 max，
+        # 正差额记 unknown，model 明细之和与三类合计一致（H0925-4）。
+        self.write_day_report(self.day_task(100))
+        # 重扫同 session_id（codex old-1）但只有 60 tokens。
         usage = {
             "input_tokens": 40,
             "cache_write_input_tokens": 0,
@@ -1648,39 +1661,22 @@ class DailyReportTests(unittest.TestCase):
             "reasoning_output_tokens": 0,
         }
         self.codex_rollout("old-1", [("token_count", (self.day, 9, 30), usage)])
-        report = generate_day(self.store, self.home, self.day.isoformat())
+        # refresh=True 走真实重扫合并路径（不带 refresh 会命中定稿缓存，测不到合并）。
+        report = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
         task = next(t for t in report["tasks"] if t["session_id"] == "old-1")
-        self.assertEqual(task["total_tokens"], 100)  # 沿用 v7 合计
-        unknown = task["models"]["unknown"]
-        # unknown = 重扫自身的 unknown（40f+20o，codex 无 turn_context）
+        self.assertEqual(task["total_tokens"], 100)  # 沿用现有合计
+        # unknown = 重扫自身的 unknown（40f+20o）
         #          + 清理差额（20f + 20o）→ 60f / 40o，与沿用后的三类合计一致。
-        self.assertEqual(unknown["fresh_input"], 60)
-        self.assertEqual(unknown["output"], 40)
+        self.assertEqual(task["models"]["unknown"]["fresh_input"], 60)
+        self.assertEqual(task["models"]["unknown"]["output"], 40)
         self.assertEqual(report["totals"]["total_tokens"], 100)
-
-    def test_refresh_does_not_degrade_restored_day(self):
-        # 对已恢复日 --refresh：重扫更少也不降级（§3.1.4 长期约束）。
-        self.write_v7_report(150)
-        report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report["totals"]["total_tokens"], 150)
-        # 再次 refresh（来源仍为空）：合计保持 150，不降为 0。
-        again = generate_day(self.store, self.home, self.day.isoformat(), refresh=True)
-        self.assertEqual(again["totals"]["total_tokens"], 150)
-        self.assertEqual(again.get("migrated_from"), 7)
-
-    def test_backup_fallback_when_current_report_missing(self):
-        # 磁盘现有报告缺失时回退 reports.v7.bak（§3.1.4）。
-        self.write_v7_report(150)
-        backup = self.store.root / "reports.v7.bak"
-        backup.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(
-            self.store.root / "reports" / f"{self.day.isoformat()}.json",
-            backup / f"{self.day.isoformat()}.json",
+        # 不降级落盘：再次读取（缓存路径）也是 100，不是重扫的 60。
+        self.assertEqual(
+            load_report(self.store.root, self.day.isoformat())["totals"][
+                "total_tokens"
+            ],
+            100,
         )
-        (self.store.root / "reports" / f"{self.day.isoformat()}.json").unlink()
-        report = generate_day(self.store, self.home, self.day.isoformat())
-        self.assertEqual(report["totals"]["total_tokens"], 150)
-        self.assertEqual(report.get("migrated_from"), 7)
 
     def test_cost_level_thresholds_on_unsorted_amounts(self):
         # R17 回归：乱序金额排序后取 50/75/90 分位，各级分布正确。
@@ -1689,7 +1685,10 @@ class DailyReportTests(unittest.TestCase):
         amounts = sorted([5, 100, 20, 8, 50, 200, 3, 12, 80, 1])  # 10 个样本乱序输入
         thresholds = [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)]
         self.assertEqual(thresholds, [20, 80, 200])  # int(10*q) 索引取 5/7/9 号样本
-        levels = [cost_level(value, thresholds) for value in [1, 3, 5, 8, 12, 20, 50, 80, 100, 200]]
+        levels = [
+            cost_level(value, thresholds)
+            for value in [1, 3, 5, 8, 12, 20, 50, 80, 100, 200]
+        ]
         self.assertEqual(levels, [1, 1, 1, 1, 1, 2, 2, 3, 3, 4])
         self.assertEqual(cost_level(0, thresholds), 0)
         self.assertEqual(cost_level(10, [0, 0, 0]), 0)  # 样本不足时不分级
@@ -1699,9 +1698,13 @@ class DailyReportTests(unittest.TestCase):
         from daily_report import cost_level
 
         self.assertEqual(cost_level(0.5, [0.8, 2, 5]), 1)  # 金额 0.5 落在最低档之下
-        self.assertEqual(cost_level(0.7, [0.6, 0.9, 3]), 2)  # 最低阈值 0.6 < 1 仍参与分级
+        self.assertEqual(
+            cost_level(0.7, [0.6, 0.9, 3]), 2
+        )  # 最低阈值 0.6 < 1 仍参与分级
         self.assertEqual(cost_level(4, [0.6, 0.9, 3]), 4)  # 高档阈值不受低阈值影响
-        self.assertEqual(cost_level(0.7, [0.6, 0, 3]), 3)  # 归零判定只看最低阈值，中档阈值不参与
+        self.assertEqual(
+            cost_level(0.7, [0.6, 0, 3]), 3
+        )  # 归零判定只看最低阈值，中档阈值不参与
 
 
 class DailyReportPrivacyTests(unittest.TestCase):
@@ -1786,7 +1789,9 @@ class DailyReportPrivacyTests(unittest.TestCase):
         serialized = json.dumps(report, ensure_ascii=False)
         reports = self.store.root / "reports"
         markdown = (reports / f"{self.day.isoformat()}.md").read_text()
-        self.assert_no_markers([self.TAIL, self.SECOND, self.ASSISTANT], serialized, markdown)
+        self.assert_no_markers(
+            [self.TAIL, self.SECOND, self.ASSISTANT], serialized, markdown
+        )
         for file in sorted(self.store.root.rglob("*")):
             if not file.is_file():
                 continue
@@ -1801,7 +1806,9 @@ class DailyReportPrivacyTests(unittest.TestCase):
 class MergeDayTasksContractTests(unittest.TestCase):
     """变异测试缺口：性质测试只断言合并的内部一致与不降级，以下精确行为此前无测试。"""
 
-    def _task(self, provider, session, input_tokens, cache_tokens, output_tokens, **extra):
+    def _task(
+        self, provider, session, input_tokens, cache_tokens, output_tokens, **extra
+    ):
         record = {
             "provider": provider,
             "session_id": session,
@@ -1830,8 +1837,7 @@ class MergeDayTasksContractTests(unittest.TestCase):
 
         old = self._task("pi", "s1", 100, 0, 100)
         new = self._task("pi", "s1", 0, 200, 0)
-        merged, restored = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
-        self.assertFalse(restored)
+        merged = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
         self.assertEqual(merged, [new])
 
     def test_downgrade_protection_caps_each_class_at_max(self):
@@ -1841,7 +1847,7 @@ class MergeDayTasksContractTests(unittest.TestCase):
 
         old = self._task("pi", "s1", 0, 100, 0)
         new = self._task("pi", "s1", 0, 30, 0)
-        merged, _ = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
+        merged = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
         task = merged[0]
         self.assertEqual(
             (task["input_tokens"], task["cache_tokens"], task["output_tokens"]),
@@ -1865,7 +1871,7 @@ class MergeDayTasksContractTests(unittest.TestCase):
         zero = self._task("pi", "z1", 0, 0, 0)
         unavailable = self._task("pi", "z2", 0, 0, 0, fidelity="unavailable")
         tiny = self._task("pi", "z3", 1, 0, 0)
-        merged, _ = _merge_day_tasks(
+        merged = _merge_day_tasks(
             {"tasks": []}, {"tasks": [zero, unavailable, tiny]}, set()
         )
         self.assertEqual(
@@ -1886,9 +1892,7 @@ class OverviewCostLevelTests(unittest.TestCase):
             pricing = store.root / "pricing"
             pricing.mkdir(parents=True, exist_ok=True)
             (pricing / "override.json").write_text(
-                json.dumps(
-                    {"glm-x": {"input": 1.0, "output": 2.0, "currency": "CNY"}}
-                )
+                json.dumps({"glm-x": {"input": 1.0, "output": 2.0, "currency": "CNY"}})
             )
             today = date.today()
             for amount in range(1, 11):
