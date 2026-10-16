@@ -156,8 +156,8 @@ class CostThresholdProperties(Property):
 # ---- 过去日报告合并不降级（V080-R2、V080-R3） ---------------------------------------------
 
 
-def random_task(rng, provider, session, v7=False):
-    """任务记录；约一成三类合计为 0。v7=True 时模拟旧版报告（没有 models）。"""
+def random_task(rng, provider, session):
+    """任务记录；约一成三类合计为 0。"""
     parts = [0, 0, 0] if rng.random() < 0.1 else [rng.randint(0, 5000) for _ in range(3)]
     fresh = rng.randint(0, parts[0]) if parts[0] else 0
     record = {
@@ -179,8 +179,6 @@ def random_task(rng, provider, session, v7=False):
             }
         },
     }
-    if v7:
-        del record["models"]
     return record
 
 
@@ -204,7 +202,7 @@ class KnownDefectTest(unittest.TestCase):
         new = {"provider": "zcode", "session_id": "s0", "input_tokens": 1786, "cache_tokens": 4487,
                "output_tokens": 846, "total_tokens": 7119, "fidelity": "exact",
                "models": {"m": {"fresh_input": 1786, "cache_write": 0, "cache_read": 4487, "output": 846}}}
-        merged, _ = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
+        merged = _merge_day_tasks({"tasks": [new]}, {"tasks": [old]}, set())
         task = merged[0]
         self.assertEqual(model_sums(task), (task["input_tokens"], task["cache_tokens"], task["output_tokens"]))
 
@@ -212,27 +210,17 @@ class KnownDefectTest(unittest.TestCase):
 class MergeNoDowngradeProperties(Property):
     def test_merged_tasks_are_internally_consistent(self):
         """每个合并后的任务：各 model 的 token 之和等于三类合计（差额必须如数记入 unknown）；
-        发生 v7 恢复时打上标记；结果按合计降序、来源、会话排序。变异测试发现这些此前都没被检查。"""
+        结果按合计降序、来源、会话排序。变异测试发现这些此前都没被检查。"""
 
         def check(rng):
             keys = [(rng.choice(["pi", "codex", "zcode"]), f"s{i}") for i in range(rng.randint(1, 8))]
-            base_tasks = [random_task(rng, *key, v7=rng.random() < 0.3) for key in keys if rng.random() < 0.8]
+            base_tasks = [random_task(rng, *key) for key in keys if rng.random() < 0.8]
             rescan_tasks = [random_task(rng, *key) for key in keys if rng.random() < 0.7]
             excluded = {key for key in keys if rng.random() < 0.15}
-            merged, restored = _merge_day_tasks({"tasks": rescan_tasks}, {"tasks": base_tasks}, excluded)
-            rescan_map = {_task_key(task): task for task in rescan_tasks}
+            merged = _merge_day_tasks({"tasks": rescan_tasks}, {"tasks": base_tasks}, excluded)
             for task in merged:
                 sums = model_sums(task)
                 self.assertEqual(sums, (task["input_tokens"], task["cache_tokens"], task["output_tokens"]), task)
-            rescan_keys = set(rescan_map)
-            v7_restorable = [
-                task
-                for task in base_tasks
-                if "models" not in task and _task_key(task) not in rescan_keys and _task_key(task) not in excluded
-            ]
-            self.assertEqual(restored, bool(v7_restorable))
-            restored_keys = {_task_key(task) for task in merged if task.get("restored_from") == 7}
-            self.assertEqual(restored_keys, {_task_key(task) for task in v7_restorable if _task_total(task) > 0})
             order = [(-task.get("total_tokens", 0), task["provider"], task["session_id"]) for task in merged]
             self.assertEqual(order, sorted(order))
 
@@ -247,7 +235,7 @@ class MergeNoDowngradeProperties(Property):
             base_tasks = [random_task(rng, *key) for key in keys if rng.random() < 0.8]
             rescan_tasks = [random_task(rng, *key) for key in keys if rng.random() < 0.7]
             excluded = {key for key in keys if rng.random() < 0.15}
-            merged, _ = _merge_day_tasks({"tasks": rescan_tasks}, {"tasks": base_tasks}, excluded)
+            merged = _merge_day_tasks({"tasks": rescan_tasks}, {"tasks": base_tasks}, excluded)
             merged_map = {_task_key(task): task for task in merged}
             rescan_keys = {_task_key(task) for task in rescan_tasks}
             for old in base_tasks:

@@ -27,16 +27,16 @@ CASES: list[Case] = [
         "V080-R2",
         "只在现有报告中的任务不再恢复",
         "scripts/daily_report.py",
-        "    for key, old in base_map.items():\n        if key in rescan_map:",
-        "    for key, old in []:\n        if key in rescan_map:",
+        "    for key, old in base_map.items():\n        if key in rescan_map or key in excluded_sessions:",
+        "    for key, old in []:\n        if key in rescan_map or key in excluded_sessions:",
         ("test_properties.MergeNoDowngradeProperties", "test_daily_report"),
     ),
     Case(
         "V080-R3",
         "判定为 agent 的会话被恢复",
         "scripts/daily_report.py",
-        "        if key in excluded_sessions:\n            continue  # 判定为 agent：正当排除，不恢复。",
-        "        pass",
+        "        if key in rescan_map or key in excluded_sessions:\n            continue  # 判定为 agent：正当排除，不恢复。",
+        "        if False:\n            continue  # 判定为 agent：正当排除，不恢复。",
         ("test_properties.MergeNoDowngradeProperties", "test_daily_report"),
     ),
     Case(
@@ -139,9 +139,15 @@ CASES: list[Case] = [
         "H0925-4",
         "合并不降级时三类合计沿用现有报告，某类上升时与 model 明细不一致",
         "scripts/daily_report.py",
-        '        merged_record["input_tokens"] = int(record.get("input_tokens") or 0) + diff["fresh_input"]\n'
-        '        merged_record["cache_tokens"] = int(record.get("cache_tokens") or 0) + diff["cache_read"]\n'
-        '        merged_record["output_tokens"] = int(record.get("output_tokens") or 0) + diff["output"]\n'
+        '        merged_record["input_tokens"] = (\n'
+        '            int(record.get("input_tokens") or 0) + diff["fresh_input"]\n'
+        '        )\n'
+        '        merged_record["cache_tokens"] = (\n'
+        '            int(record.get("cache_tokens") or 0) + diff["cache_read"]\n'
+        '        )\n'
+        '        merged_record["output_tokens"] = (\n'
+        '            int(record.get("output_tokens") or 0) + diff["output"]\n'
+        '        )\n'
         '        merged_record["total_tokens"] = _task_total(merged_record)',
         '        merged_record["input_tokens"] = int(old.get("input_tokens") or 0)\n'
         '        merged_record["cache_tokens"] = int(old.get("cache_tokens") or 0)\n'

@@ -1,6 +1,6 @@
 # 工作日报 v3（token 三类口径，报告 schema v8）
 
-状态：**报告 schema 已升到 v8**（2026-09-23，逐 model 用量，见[用量金额规范](usage-cost.md)）：六来源产出 model_raw 与四项原始 token，`tasks[].models` 与 `totals.models` 入报告；金额不写入报告，由 `inbox usage` / 日报界面在读取时按价格表派生。v7 → v8 迁移自动执行（先备份 `reports.v7.bak/`，来源被清理时用 v7 内容做 unknown 拆分，不降级）；真实数据三日比对逐位一致（Zcode 在 1.71% 容差内），证据 scratch/2026-09-23-v8-parity.md。此前 v3（schema v7）通过 102 项 Python 检查（含 15 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。OpenCode 来源于 2026-09-16 接入（schema v5→v6）；2026-09-17 agent 会话过滤 + OpenCode 受管理口径（v6→v7，旧固化报告自动重算，现役 schema v7）。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）；OpenCode 近 3 天独立重算与报告逐位一致（141,744）。
+状态：**报告 schema 已升到 v9**（2026-10-16，claude 口径修正 H1016-1，见下）；v8（2026-09-23，逐 model 用量，见[用量金额规范](usage-cost.md)）：六来源产出 model_raw 与四项原始 token，`tasks[].models` 与 `totals.models` 入报告；金额不写入报告，由 `inbox usage` / 日报界面在读取时按价格表派生。v7 → v8 迁移自动执行（先备份 `reports.v7.bak/`，来源被清理时用 v7 内容做 unknown 拆分，不降级）；真实数据三日比对逐位一致（Zcode 在 1.71% 容差内），证据 scratch/2026-09-23-v8-parity.md。**v9 修正 claude 转写重复计数**（H1016-1）：Claude Code 对同一次 API 响应按 content block 写多行 assistant 记录（同 `message.id`/`requestId`，usage 相同），此前逐行累加把 claude 来源虚高 44%–84%（近 7 天实测）；现按 `message.id` 只计一次，`REPORT_VERSION` 升 9 全量重算，且版本升级即口径重建——旧版本报告不作为定稿合并基线（H1016-1，见[用量金额规范](usage-cost.md) §3.1.4）。此前 v3（schema v7）通过 102 项 Python 检查（含 15 项日报）与 Swift 策略检查；真实本机数据 182 天补录、总览/详情截图核对完成。OpenCode 来源于 2026-09-16 接入（schema v5→v6）；2026-09-17 agent 会话过滤 + OpenCode 受管理口径（v6→v7，旧固化报告自动重算，现役 schema v7）。**准确性核对**：独立重算脚本（scratch/check_token_accuracy.py）与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致，Zcode 在跨零点分摊容差内（<2.2%，归日语义差非算术差；证据 scratch/2026-09-15-token-accuracy-check.md）；OpenCode 近 3 天独立重算与报告逐位一致（141,744）。
 
 ## 度量口径（v3 核心）
 
@@ -16,7 +16,7 @@
 |---|---|---|---|---|---|
 | Zcode | 逐轮精确 | `input − cache_read + cache_creation` | `cache_read` | `output + reasoning` | 轮区间按天比例分摊 |
 | Codex | 请求级增量（rollout 识别与收件箱同口径：`session_meta` + 任意非空 originator，2026-09-17 起含 CLI/exec/workbench 变体——此前 Desktop-only 漏计当日全部 CLI 会话） | `last_token_usage.input + cache_write` | `cached_input_tokens` | `output + reasoning` | 每条增量按时间戳归日 |
-| Claude | 逐条消息（2026-09-14 探针验证：5/5 桌面会话经 cliSessionId 命中 `~/.claude/projects/<hash>/<sessionId>.jsonl`，证据 scratch/2026-09-14-claude-transcript-token-probe.md）。桌面登记表按 cliSessionId 配转写；未被登记的 CLI 直启转写按文件 mtime 预筛后直接解析（2026-09-17 起补采，与收件箱 claude CLI 接入同口径；标题/项目由收件箱已知行补齐） | `input_tokens + cache_creation_input_tokens` | `cache_read_input_tokens` | `output_tokens` | 消息时间戳 |
+| Claude | 逐条消息，同一 `message.id` 只计一次（同次响应按 content block 复制的行 usage 相同，H1016-1）；2026-09-14 探针验证：5/5 桌面会话经 cliSessionId 命中 `~/.claude/projects/<hash>/<sessionId>.jsonl`，证据 scratch/2026-09-14-claude-transcript-token-probe.md）。桌面登记表按 cliSessionId 配转写；未被登记的 CLI 直启转写按文件 mtime 预筛后直接解析（2026-09-17 起补采，与收件箱 claude CLI 接入同口径；标题/项目由收件箱已知行补齐） | `input_tokens + cache_creation_input_tokens` | `cache_read_input_tokens` | `output_tokens` | 消息时间戳 |
 | Pi | 逐条 assistant 消息 | `usage.input + cacheWrite` | `usage.cacheRead` | `output + reasoning` | 消息时间戳 |
 | Kimi | 逐轮（`~/.kimi-code/sessions/**/agents/*/wire.jsonl` 的 `usage.record`） | `inputOther + inputCacheCreation` | `inputCacheRead` | `output` | `time` 毫秒 |
 | OpenCode | 逐条 assistant 消息（本地 SQLite `~/.local/share/opencode/opencode.db`），**受管理口径**（2026-09-17 起：只统计经 `bin/session-manager opencode` 注册到收件箱的会话，与 pi/kimi 同构；此前为全库直读，workbench 等其它工具经 server 拉起的会话被误计入——库内实测无创建者身份字段，`agent` 列恒为 build、`workspace_id`/`metadata` 空、`session_input.delivery` 整表未启用） | `input + cache.write` | `cache.read` | `output + reasoning` | 回合完成时刻（`time.completed`，缺失退回消息更新时间） |
@@ -33,7 +33,7 @@
 ## 触发与固化
 
 - 无定时任务，报告按需生成：界面打开总览（窗口 onAppear）或点进某日详情时触发计算。
-- 过去日固化为 `~/.local/state/session-manager/reports/YYYY-MM-DD.{json,md}`（`version: 7`，0700 目录，原子写入）；版本不匹配或缺失自动重算（一次性补录 182 天约 4 秒；新增来源等 schema 变更 bump 版本即全量重算，2026-09-16 v5→v6 已验证）。
+- 过去日固化为 `~/.local/state/session-manager/reports/YYYY-MM-DD.{json,md}`（现役 `version: 9`，0700 目录，原子写入）；版本不匹配或缺失自动重算（一次性补录 182 天约 4 秒；新增来源等 schema 变更 bump 版本即全量重算，2026-09-16 v5→v6 已验证）。
 - **过去日详情读定稿缓存**：版本匹配且生成时刻晚于该日结束即直接返回（约 30ms），缺失/未定稿才重扫来源并落盘；来源事后补录的历史数据需 `--refresh` 强制重算。
 - **过去日重扫与磁盘现有报告按任务合并不降级**（`--refresh` 与补录走同一关口，细则见[用量金额规范](usage-cost.md) §3.1）：任务三类合计小于现有报告时，三类按类别取 max(现有, 重扫)，正差额（现有 − 重扫）记 unknown——三类合计与 model 明细保持一致，且不低于现有报告（2026-09-25 H0925-4：此前合计沿用现有报告，重扫总量更小但某一类因类别迁移更大时，合计与 model 明细不一致）。代价：同一批 token 在两次扫描间换了类别时合计会偏高（用户已知悉）。
 - **今天始终实时计算、不固化**：现算并展示，详情汇总卡标「实时汇总 · 截至 HH:MM」；次日按未定稿规则补算一次后定稿。
@@ -68,6 +68,8 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 - **准确性核对（2026-09-15）**：独立重算脚本与报告逐项对比，Codex/Claude/Pi/Kimi 三类逐位一致；Zcode 在跨零点分摊容差内 <2.2%（归日语义差）。证据 scratch/2026-09-15-token-accuracy-check.md。
 - 总览/详情截图核对通过（scratch/daily-report-v3-overview.png、daily-report-v3-day.png）。
 
+- **claude 转写重复计数修正（2026-10-16，H1016-1）**：独立核查确认同一次响应按 content block 写多行 assistant 记录（同 `message.id`/`requestId`、usage 逐位相同、`apiBlockIndex` 不同）；近 7 天重复占 claude 来源 44%–84%（10-13 当天 14.9 亿中重复 12.5 亿）。修复 = 按 `message.id` 去重 + schema v9 全量重算；其余来源（Zcode/Codex/Kimi/Pi/OpenCode）经真实数据逐项核查无重复计数（Zcode 父轮级=自身请求之和，子代理独立记账；Codex 近 7 天零重复事件且 resume 不重放；OpenCode `total=四项之和`；Kimi 零重复）。证据 scratch/2026-10-16-claude-dup-audit/。
+
 ## 验收（编号）
 
 2026-09-25 由本文既有条款整理，不新增需求；证据类型与覆盖列由 `harness/acceptance.py` 检查（见 [delivery-harness.md](delivery-harness.md)）。
@@ -82,9 +84,9 @@ bin/session-manager inbox pricing show [MODEL] | check [--days 30] | update [--a
 | DR6 | `segments` 为真实活动段（Zcode 逐请求、其余逐条时间戳，按天窗口截断），不按首末时间画整段 | 夹具 | `test_daily_report.DailyReportTests.test_task_segments_follow_real_activity_not_first_to_last_span`、`test_daily_report.DailyReportTests.test_zcode_segments_use_model_requests_not_whole_turn`、`test_daily_report.DailyReportTests.test_segments_clamped_to_day_window_across_midnight` |
 | DR7 | agent 会话退出合计、计入 `agent_excluded` 注脚；手动覆盖与 origin 规则生效；`inbox usage` 补录路径同样带注脚 | 夹具 | `test_daily_report.DailyReportTests.test_agent_sessions_excluded_and_counted_in_footnote`、`test_daily_report.DailyReportTests.test_manual_override_excludes_from_daily_report`、`test_daily_report.DailyReportTests.test_origin_rule_overrides_report_scope`、`test_usage_report.BackfillAgentStatsTest` |
 | DR8 | OpenCode 受管理口径：只统计经包装器登记的会话 | 夹具 | `test_daily_report.DailyReportTests.test_opencode_assistant_usage_counted` |
-| DR9 | 过去日固化为 json + md；今天始终实时、不落盘 | 夹具 | `test_daily_report.DailyReportTests.test_generate_day_writes_v8_and_markdown`、`test_daily_report.DailyReportTests.test_generate_day_keeps_today_live` |
+| DR9 | 过去日固化为 json + md；今天始终实时、不落盘 | 夹具 | `test_daily_report.DailyReportTests.test_generate_day_writes_v9_and_markdown`、`test_daily_report.DailyReportTests.test_generate_day_keeps_today_live` |
 | DR10 | 过去日读定稿缓存；生成时刻早于该日结束或版本不符时重算 | 夹具 | `test_daily_report.DailyReportTests.test_overview_refreshes_past_day_snapshot_taken_before_day_end`、`test_daily_report.DailyReportTests.test_overview_backfill_cache_invalidates_v1_and_ranks_week_projects` |
-| DR11 | 过去日重写按任务合并、不降级（`--refresh` 与补录走同一关口） | 夹具 + 性质 | `test_daily_report.DailyReportTests.test_refresh_does_not_degrade_restored_day`、`test_daily_report.DailyReportTests.test_backup_fallback_when_current_report_missing`、`test_properties.MergeNoDowngradeProperties` |
+| DR11 | 过去日重写与磁盘同版本报告按任务合并、不降级（`--refresh` 与补录走同一关口）；版本升级即口径重建，不与旧版本合并 | 夹具 + 性质 | `test_daily_report.DailyReportTests.test_refresh_does_not_degrade_same_version_day`、`test_daily_report.DailyReportTests.test_finalize_ignores_other_version_reports`、`test_daily_report.DailyReportTests.test_partial_cleanup_diff_becomes_unknown`、`test_properties.MergeNoDowngradeProperties` |
 | DR12 | 热力分级：0 无记录 / L1 <20M / L2 <100M / L3 <400M / L4 ≥400M | 单测 | `test_daily_report.DailyReportTests.test_heat_level_total_token_thresholds` |
 | DR13 | 数字格式 `tokenText`（k/M/B 规则）双端一致 | 单测 | `test_daily_report.DailyReportTests.test_token_text_units`、`tests/InboxPolicyTests.swift#tokenText(6_594) == "6.6k"` |
 | DR14 | 隐私：正文不提取、不持久化、不输出；唯一例外是标题摘要：claude CLI 首条合格用户消息、Pi 无自定义名时的首条用户消息，截取 ≤80 字符作标题 | 单测 | `test_cli_sessions.ClaudeCliTitlePrivacyTests.test_title_is_first_qualified_user_message_capped_at_80_chars`、`test_cli_sessions.ClaudeCliTitlePrivacyTests.test_title_at_exactly_80_chars_is_kept_whole`、`test_daily_report.DailyReportPrivacyTests.test_report_output_and_store_carry_no_message_bodies`、`test_source_body_privacy.SourceBodyPrivacyTests.test_codex_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_zcode_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_kimi_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_pi_bodies_beyond_bounded_title_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_opencode_bodies_stay_out_of_store_and_report`、`test_source_body_privacy.SourceBodyPrivacyTests.test_agy_bodies_stay_out_of_store` |
